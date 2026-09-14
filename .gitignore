@@ -3,4 +3,5 @@
 /.venv
 /mactv.egg-info
 /docs
+/linux
 /mactv/firmware/*
