@@ -1,0 +1,67 @@
+from mactv.device import (
+    DEMODULATOR_ADDRESS,
+    EEPROM_ADDRESS,
+    Af9015Device,
+)
+
+
+class FakeTransport:
+    def __init__(self, eeprom):
+        self.eeprom = eeprom
+        self.writes = []
+
+    def bulk_write(self, endpoint, data, timeout):
+        self.writes.append(bytes(data))
+
+    def bulk_read(self, endpoint, length, timeout):
+        packet = self.writes[-1]
+        if packet[0] == 0x22 and packet[2] == (EEPROM_ADDRESS << 1) | 1:
+            offset = (packet[3] << 8) | packet[4]
+            return b"\x00\x00" + self.eeprom[offset : offset + 1]
+        return b"\x00\x00" + bytes(max(0, length - 2))
+
+    def close(self):
+        pass
+
+    def reconnect(self, timeout=5.0, poll_interval=0.1):
+        return self
+
+
+def test_read_configuration_creates_adapters_from_dual_eeprom():
+    eeprom = bytearray(256)
+    eeprom[0x31] = 1
+    eeprom[0x32] = 0x3A
+    eeprom[0x36] = 0
+    eeprom[0x38:0x3A] = (4570).to_bytes(2, "little")
+    eeprom[0x3C] = 0x04
+    eeprom[0x46] = 1
+    eeprom[0x48:0x4A] = (4570).to_bytes(2, "little")
+    eeprom[0x4C] = 0x0B
+
+    device = Af9015Device(FakeTransport(bytes(eeprom)))
+    device.create_adapters()
+    configurations = tuple(adapter.config for adapter in device.adapters)
+
+    assert len(configurations) == 2
+    assert device.adapter_count == 2
+    assert device.adapters[0].demuxer.endpoint == 0x84
+    assert device.adapters[1].demuxer.endpoint == 0x85
+    assert configurations[0].demod_address == DEMODULATOR_ADDRESS
+    assert configurations[1].demod_address == 0x1D
+    assert device.eeprom_hash == device._eeprom_hash(bytes(eeprom))
+
+
+def test_tda18271_configuration_creates_coordinated_frontend():
+    eeprom = bytearray(256)
+    eeprom[0x36] = 0
+    eeprom[0x38:0x3A] = (4570).to_bytes(2, "little")
+    eeprom[0x3C] = 0x9C
+
+    device = Af9015Device(FakeTransport(bytes(eeprom)))
+    device.create_adapters()
+    configurations = tuple(adapter.config for adapter in device.adapters)
+
+    assert device.adapters[0].config is configurations[0]
+    assert device.adapters[0].tuner is not None
+    assert device.adapters[0].frontend is not None
+    assert device.adapters[0].frontend.tuner is device.adapters[0].tuner

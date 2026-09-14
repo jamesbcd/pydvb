@@ -1,0 +1,76 @@
+from pathlib import Path
+
+import pytest
+
+from mactv.device import Af9015Device, DEFAULT_FIRMWARE_PATH
+
+
+class FakeTransport:
+    def __init__(self):
+        self.writes = []
+
+    def bulk_write(self, endpoint, data, timeout):
+        self.writes.append(bytes(data))
+
+    def bulk_read(self, endpoint, length, timeout):
+        return b"\x00\x00\x02" if length >= 3 else b"\x00\x00"
+
+    def close(self):
+        pass
+
+    def reconnect(self, timeout=5.0, poll_interval=0.1):
+        return self
+
+
+def test_default_firmware_path_exists():
+    assert DEFAULT_FIRMWARE_PATH == Path(__file__).parents[1] / "mactv" / "firmware" / "dvb-usb-af9015.fw"
+    assert DEFAULT_FIRMWARE_PATH.is_file()
+
+
+def test_device_loads_firmware_from_path(tmp_path):
+    firmware_path = tmp_path / "test.fw"
+    firmware_path.write_bytes(b"firmware")
+    transport = FakeTransport()
+    device = Af9015Device(transport)
+
+    device.download_firmware(firmware_path=firmware_path)
+
+    assert transport.writes[0][8:] == b"firmware"
+
+
+def test_firmware_bytes_and_path_are_mutually_exclusive(tmp_path):
+    with pytest.raises(ValueError):
+        Af9015Device(FakeTransport()).download_firmware(b"firmware", tmp_path / "test.fw")
+
+
+class ReconnectTransport:
+    def __init__(self, reply, candidates=()):
+        self.reply = reply
+        self.candidates = iter(candidates)
+        self.closed = False
+
+    def bulk_write(self, endpoint, data, timeout):
+        pass
+
+    def bulk_read(self, endpoint, length, timeout):
+        return self.reply
+
+    def close(self):
+        self.closed = True
+
+    def reconnect(self, timeout=5.0, poll_interval=0.1):
+        candidate = next(self.candidates)
+        if isinstance(candidate, Exception):
+            raise candidate
+        self.close()
+        return candidate
+
+
+def test_reconnect_replaces_handle_after_get_config_succeeds():
+    candidate = ReconnectTransport(b"\x00\x00\x02")
+    original = ReconnectTransport(b"\x00\x00\x00", (candidate,))
+    device = Af9015Device(original, vendor_id=0x0413, product_id=0x6029)
+
+    assert device.reconnect(timeout=1, poll_interval=0.001) == 0x02
+    assert original.closed
+    assert device.bridge.transport is candidate
