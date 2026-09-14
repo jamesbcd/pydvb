@@ -5,7 +5,7 @@ from time import monotonic, sleep
 
 from .adapter import DTVAdapterConfig, DTVAdapter
 from .demux import TsDemuxer
-from .frontend import AF9013Frontend, Af9013TunerBus, FrontendStatus
+from .frontend import AF9013Frontend, FrontendStatus
 from .bridge import AF9015Bridge
 from .tuner import TDA18271Tuner, Tuning
 from .usb import PyUsbTransport, UsbTransport
@@ -214,23 +214,22 @@ class Af9015Device:
                 tuner_id=tuner_id,
                 spectrum_inverted=spectrum_inverted,
             )
-            tuner = (
-                TDA18271Tuner(Af9013TunerBus(self.bridge, config.demod_address))
-                if config.tuner_id == TDA18271_TUNER_ID
-                else None
-            )
             frontend = (
                 AF9013Frontend(
                     self.bridge,
                     config.demod_address,
-                    tuner,
+                    None,
                     config.clock_hz,
                     config.intermed_freq_hz,
                     config.spectrum_inverted,
                 )
-                if tuner is not None
+                if config.tuner_id == TDA18271_TUNER_ID
                 else None
             )
+            # TDA18271 sits behind the AF9013's I2C gate, so the frontend is its own bus.
+            tuner = TDA18271Tuner(frontend) if frontend is not None else None
+            if frontend is not None:
+                frontend.tuner = tuner
             demuxer = TsDemuxer(
                 self.bridge,
                 adapter=adapter,

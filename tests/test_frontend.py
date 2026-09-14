@@ -52,3 +52,17 @@ def test_frontend_sleep_stops_tuner():
     frontend.sleep()
 
     assert tuner.sleep_calls == 1
+
+
+def test_frontend_opens_and_closes_af9013_gate_for_tuner_access():
+    bus = FakeBus()
+    frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)
+    bus.registers[frontend.GATE_REGISTER] = b"\x00"
+
+    frontend.gated_write(0x60, 0, b"\x84")
+
+    assert bus.writes == [
+        (0x1C, frontend.GATE_REGISTER, b"\x08", 3, 1),
+        (0x60, 0, b"\x84", 1, 0),
+        (0x1C, frontend.GATE_REGISTER, b"\x00", 3, 1),
+    ]

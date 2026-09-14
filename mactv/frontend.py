@@ -9,49 +9,6 @@ from .bridge import AF9015Bridge
 from .tuner import Tuner, Tuning
 
 
-class Af9013TunerBus:
-    """Expose the tuner bus behind an AF9013 digital I2C gate."""
-
-    GATE_REGISTER = 0xD417
-    GATE_MAILBOX = 1
-    GATE_MASK = 0x08
-
-    def __init__(self, bus: AF9015Bridge, demodulator_address: int) -> None:
-        self.bus = bus
-        self.demodulator_address = demodulator_address
-
-    def _gate(self, enabled: bool) -> None:
-        current = self.bus.read_i2c(
-            self.demodulator_address,
-            self.GATE_REGISTER,
-            1,
-            address_length=3,
-            mailbox=self.GATE_MAILBOX,
-        )[0]
-        value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
-        self.bus.write_i2c(
-            self.demodulator_address,
-            self.GATE_REGISTER,
-            bytes((value,)),
-            address_length=3,
-            mailbox=self.GATE_MAILBOX,
-        )
-
-    def read(self, address: int, register: int, length: int) -> bytes:
-        self._gate(True)
-        try:
-            return self.bus.read_i2c(address, register, length)
-        finally:
-            self._gate(False)
-
-    def write(self, address: int, register: int, data: bytes) -> None:
-        self._gate(True)
-        try:
-            self.bus.write_i2c(address, register, data)
-        finally:
-            self._gate(False)
-
-
 @dataclass(frozen=True)
 class FrontendStatus:
     """The lock state exposed by the AF9013 MPEG/TPS status bits."""
@@ -81,16 +38,21 @@ class AF9013Frontend:
     REG_EASY_MODE_VALUE = 0xAEFE
     REG_PID_FILTER = 0xD503
 
+    # Tuner I2C gate: same register as REG_RESET, gated via a separate mailbox.
+    GATE_REGISTER = 0xD417
+    GATE_MAILBOX = 1
+    GATE_MASK = 0x08
+
     def __init__(
         self,
-        bus: AF9015Bridge,
+        bridge: AF9015Bridge,
         demodulator_address: int,
-        tuner: Tuner,
+        tuner: Tuner | None,
         clock_hz: int,
         intermediate_frequency_hz: int,
         spectrum_inverted: bool,
     ) -> None:
-        self.bus = bus
+        self.bridge = bridge
         self.demodulator_address = demodulator_address
         self.tuner = tuner
         self.clock_hz = clock_hz
@@ -101,7 +63,7 @@ class AF9013Frontend:
         self.current_tuning: Tuning | None = None
 
     def _read(self, register: int, length: int = 1) -> bytes:
-        return self.bus.read_i2c(
+        return self.bridge.read_i2c(
             self.demodulator_address,
             register,
             length,
@@ -110,13 +72,46 @@ class AF9013Frontend:
         )
 
     def _write(self, register: int, data: bytes) -> None:
-        self.bus.write_i2c(
+        self.bridge.write_i2c(
             self.demodulator_address,
             register,
             data,
             address_length=3,
             mailbox=0,
         )
+
+    def _set_gate(self, enabled: bool) -> None:
+        current = self.bridge.read_i2c(
+            self.demodulator_address,
+            self.GATE_REGISTER,
+            1,
+            address_length=3,
+            mailbox=self.GATE_MAILBOX,
+        )[0]
+        value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
+        self.bridge.write_i2c(
+            self.demodulator_address,
+            self.GATE_REGISTER,
+            bytes((value,)),
+            address_length=3,
+            mailbox=self.GATE_MAILBOX,
+        )
+
+    def gated_read(self, address: int, register: int, length: int) -> bytes:
+        """Read from the tuner behind this demodulator's I2C gate."""
+        self._set_gate(True)
+        try:
+            return self.bridge.read_i2c(address, register, length)
+        finally:
+            self._set_gate(False)
+
+    def gated_write(self, address: int, register: int, data: bytes) -> None:
+        """Write to the tuner behind this demodulator's I2C gate."""
+        self._set_gate(True)
+        try:
+            self.bridge.write_i2c(address, register, data)
+        finally:
+            self._set_gate(False)
 
     def _update_bits(self, register: int, mask: int, value: int) -> None:
         current = self._read(register)[0]
@@ -132,6 +127,8 @@ class AF9013Frontend:
         self._sleeping = False
 
     def tune(self, tuning: Tuning) -> None:
+        if self.tuner is None:
+            raise ValueError("AF9013 frontend has no tuner attached")
         if not self._initialized:
             self.init()
         if self.clock_hz <= 0 or self.intermediate_frequency_hz <= 0:
@@ -198,5 +195,6 @@ class AF9013Frontend:
         self._update_bits(self.REG_RESET, 0x10, 0x10)
         self._write(0xAEFF, b"\x01")
         self._update_bits(self.REG_ADC_CONTROL, 0x08, 0x08)
-        self.tuner.sleep()
+        if self.tuner is not None:
+            self.tuner.sleep()
         self._sleeping = True
