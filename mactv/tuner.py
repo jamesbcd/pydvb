@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass
 from time import sleep
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from .frontend import AF9013Frontend
 
 
 @dataclass(frozen=True)
@@ -19,17 +22,11 @@ class Tuner(Protocol):
     def sleep(self) -> None: ...
 
 
-class I2CBusLike(Protocol):
-    def read(self, address: int, register: int, length: int) -> bytes: ...
-
-    def write(self, address: int, register: int, data: bytes) -> None: ...
-
-
 class I2CTuner:
     """Base class for chip-specific tuner drivers."""
 
-    def __init__(self, i2c_bus: I2CBusLike, i2c_address: int) -> None:
-        self.i2c_bus = i2c_bus
+    def __init__(self, frontend: "AF9013Frontend", i2c_address: int) -> None:
+        self.frontend = frontend
         self.i2c_address = i2c_address
 
     def init(self) -> None:
@@ -142,8 +139,8 @@ class TDA18271Tuner(I2CTuner):
         (1_000_000_000, 0x50),
     )
 
-    def __init__(self, i2c_bus: I2CBusLike, i2c_address: int = I2C_ADDRESS) -> None:
-        super().__init__(i2c_bus, i2c_address)
+    def __init__(self, frontend: "AF9013Frontend", i2c_address: int = I2C_ADDRESS) -> None:
+        super().__init__(frontend, i2c_address)
         if i2c_address != self.I2C_ADDRESS:
             raise ValueError("TDA18271 must use I2C address 0x60")
         self._registers = bytearray(self.DEFAULT_REGISTERS)
@@ -152,14 +149,14 @@ class TDA18271Tuner(I2CTuner):
         self.current_tuning: Tuning | None = None
 
     def _read(self, register: int, length: int) -> bytes:
-        return self.i2c_bus.read(self.i2c_address, register, length)
+        return self.frontend.gated_read(self.i2c_address, register, length)
 
     def _write(self, register: int, data: bytes) -> None:
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         if register + len(data) > self.REGISTER_COUNT:
             raise ValueError("TDA18271 register write exceeds register map")
-        self.i2c_bus.write(self.i2c_address, register, data)
+        self.frontend.gated_write(self.i2c_address, register, data)
         self._registers[register : register + len(data)] = data
 
     def _write_cached(self, register: int, length: int) -> None:
