@@ -1,4 +1,4 @@
-from mactv.i2c import Af9013TunerBus
+from mactv.frontend import Af9013TunerBus
 
 
 class FakeBridge:

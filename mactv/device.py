@@ -5,8 +5,7 @@ from time import monotonic, sleep
 
 from .adapter import DTVAdapterConfig, DTVAdapter
 from .demux import TsDemuxer
-from .frontend import AF9013Frontend, FrontendStatus
-from .i2c import Af9013TunerBus
+from .frontend import AF9013Frontend, Af9013TunerBus, FrontendStatus
 from .bridge import AF9015Bridge
 from .tuner import TDA18271Tuner, Tuning
 from .usb import PyUsbTransport, UsbTransport
