@@ -1,4 +1,4 @@
-from mactv.bridge import AF9015Bridge, Command
+from mactv.bridge import AF9015Bridge, Command, ControlRequest
 
 
 class FakeTransport:
@@ -43,6 +43,15 @@ def test_firmware_is_chunked_to_control_buffer_size():
     assert transport.writes[-1][1][0] == Command.BOOT
 
 
+def test_reconnect_sends_only_header_without_ack():
+    transport = FakeTransport()
+    bridge = AF9015Bridge(transport)
+
+    bridge.transact(ControlRequest(Command.RECONNECT_USB, data=b"ignored"))
+
+    assert transport.writes[0][1] == bytes((Command.RECONNECT_USB, 0, 0, 0, 0, 0, 0, 0))
+
+
 def test_i2c_helpers_encode_af9013_mailbox():
     transport = FakeTransport(reply=b"\x00\x00")
     bridge = AF9015Bridge(transport)
@@ -61,3 +70,17 @@ def test_i2c_helpers_use_bridge_protocol():
 
     assert transport.writes[0][1] == bytes((Command.READ_WRITE_I2C, 0, 0xA1, 0, 0x18, 1, 2, 1))
     assert transport.writes[1][1] == bytes((Command.READ_WRITE_I2C, 1, 0x38, 0xD4, 0x17, 0, 3, 1, 0x08))
+
+
+def test_read_and_write_limits_match_linux_buffer_layout():
+    transport = FakeTransport(reply=b"\x00\x00" + bytes(range(61)))
+    bridge = AF9015Bridge(transport)
+
+    assert bridge.read_i2c(0x50, 0x18, 61) == bytes(range(61))
+
+    try:
+        bridge.write_i2c(0x50, 0x18, bytes(56))
+    except ValueError as error:
+        assert str(error) == "AF9015 control payload is limited to 55 bytes"
+    else:
+        raise AssertionError("56-byte write should exceed the AF9015 request buffer")

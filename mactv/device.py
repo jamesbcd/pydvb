@@ -184,9 +184,11 @@ class Af9015Device:
         """Match Linux's AF9015 golden-ratio EEPROM hash."""
         if len(data) != EEPROM_SIZE:
             raise ValueError("AF9015 EEPROM must contain 256 bytes")
+
+        GOLDEN_RATIO_PRIME = 0x9E370001 # 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1
         result = 0
         for offset in range(0, EEPROM_SIZE, 4):
-            result = ((result * 0x9E370001) + int.from_bytes(data[offset : offset + 4], "little")) & 0xFFFFFFFF
+            result = ((result * GOLDEN_RATIO_PRIME) + int.from_bytes(data[offset : offset + 4], "little")) & 0xFFFFFFFF
         return result
 
     def create_adapters(self) -> None:
