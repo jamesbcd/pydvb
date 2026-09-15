@@ -4,11 +4,11 @@ from pathlib import Path
 from time import monotonic, sleep
 
 from .adapter import DTVAdapterConfig, DTVAdapter
-from .demux import TsDemuxer
+from .demux import TSDemuxer
 from .frontend import AF9013Frontend, FrontendStatus
 from .bridge import AF9015Bridge
 from .tuner import TDA18271Tuner, Tuning
-from .usb import PyUsbTransport, UsbTransport
+from .usb import PyUSBTransport, USBTransport
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
 
@@ -29,7 +29,7 @@ TDA18271_TUNER_ID = 0x9C
 XTAL_CLOCKS = {0: 28_800_000, 1: 20_480_000, 2: 28_000_000, 3: 25_000_000}
 
 
-class Af9015Device:
+class AF9015Device:
     """Compose the bridge, I2C bus, and one or two DVB adapter chains (demodulator/tuner combinations)."""
 
 	# From Linux driver:
@@ -58,12 +58,12 @@ class Af9015Device:
 	#
 
     @classmethod
-    def open(cls, vendor_id: int, product_id: int) -> "Af9015Device":
-        return cls(PyUsbTransport.find(vendor_id, product_id), vendor_id, product_id)
+    def open(cls, vendor_id: int, product_id: int) -> "AF9015Device":
+        return cls(PyUSBTransport.find(vendor_id, product_id), vendor_id, product_id)
 
     def __init__(
         self,
-        transport: UsbTransport,
+        transport: USBTransport,
         vendor_id: int | None = None,
         product_id: int | None = None,
     ) -> None:
@@ -83,7 +83,7 @@ class Af9015Device:
     def close(self) -> None:
         self.bridge.transport.close()
 
-    def __enter__(self) -> "Af9015Device":
+    def __enter__(self) -> "AF9015Device":
         return self
 
     def __exit__(self, _exception_type: object, _exception: object, _traceback: object) -> None:
@@ -232,7 +232,7 @@ class Af9015Device:
             tuner = TDA18271Tuner(frontend) if frontend is not None else None
             if frontend is not None:
                 frontend.tuner = tuner
-            demuxer = TsDemuxer(
+            demuxer = TSDemuxer(
                 self.bridge,
                 adapter=adapter,
                 dual_mode=adapter_count == 2,

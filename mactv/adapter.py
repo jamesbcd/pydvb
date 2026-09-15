@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .demux import TsDemuxer
+from .demux import TSDemuxer
 from .frontend import AF9013Frontend
 from .tuner import TDA18271Tuner
 
@@ -24,6 +24,6 @@ class DTVAdapter:
     """One independently tunable AF9015 adapter chain."""
 
     config: DTVAdapterConfig
-    demuxer: TsDemuxer
+    demuxer: TSDemuxer
     tuner: TDA18271Tuner | None
     frontend: AF9013Frontend | None

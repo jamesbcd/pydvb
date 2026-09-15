@@ -4,7 +4,7 @@ import argparse
 
 import usb.core
 
-from .device import Af9015Device
+from .device import AF9015Device
 
 
 def main() -> int:
@@ -21,7 +21,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        device = Af9015Device.open(args.vendor_id, args.product_id)
+        device = AF9015Device.open(args.vendor_id, args.product_id)
     except (ValueError, usb.core.USBError) as error:
         print(f"Error: {error}")
         return 1

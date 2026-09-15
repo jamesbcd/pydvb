@@ -17,7 +17,7 @@ class FakeDevice:
 
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
-    monkeypatch.setattr(__main__.Af9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
     monkeypatch.setattr(sys, "argv", ["mactv", "--safe"])
 
     assert __main__.main() == 0

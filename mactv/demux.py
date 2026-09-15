@@ -22,7 +22,7 @@ class Demuxer(ABC):
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None: ...
 
 
-class TsDemuxer(Demuxer):
+class TSDemuxer(Demuxer):
     """Read one AF9015 USB transport stream and control its AF9013 filter.
 
     The AF9015 controls the USB endpoint, while the integrated AF9013

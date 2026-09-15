@@ -1,7 +1,7 @@
 from mactv.device import (
     DEMODULATOR_ADDRESS,
     EEPROM_ADDRESS,
-    Af9015Device,
+    AF9015Device,
 )
 
 
@@ -38,7 +38,7 @@ def test_read_configuration_creates_adapters_from_dual_eeprom():
     eeprom[0x48:0x4A] = (4570).to_bytes(2, "little")
     eeprom[0x4C] = 0x0B
 
-    device = Af9015Device(FakeTransport(bytes(eeprom)))
+    device = AF9015Device(FakeTransport(bytes(eeprom)))
     device.create_adapters()
     configurations = tuple(adapter.config for adapter in device.adapters)
 
@@ -57,7 +57,7 @@ def test_tda18271_configuration_creates_coordinated_frontend():
     eeprom[0x38:0x3A] = (4570).to_bytes(2, "little")
     eeprom[0x3C] = 0x9C
 
-    device = Af9015Device(FakeTransport(bytes(eeprom)))
+    device = AF9015Device(FakeTransport(bytes(eeprom)))
     device.create_adapters()
     configurations = tuple(adapter.config for adapter in device.adapters)
 

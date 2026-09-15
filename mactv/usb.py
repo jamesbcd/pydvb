@@ -14,16 +14,16 @@ HEADER_LENGTH = 8
 ACK_LENGTH = 2
 
 
-class UsbTransport(Protocol):
+class USBTransport(Protocol):
     def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None: ...
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes: ...
 
     def close(self) -> None: ...
 
-    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "UsbTransport": ...
+    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "USBTransport": ...
 
-class PyUsbTransport:
+class PyUSBTransport:
     """Small adapter around a configured ``usb.core.Device`` object."""
 
     def __init__(
@@ -50,7 +50,7 @@ class PyUsbTransport:
         product_id: int,
         interface: int = 0,
         configure: bool = False,
-    ) -> "PyUsbTransport":
+    ) -> "PyUSBTransport":
         try:
             import usb.core
         except ImportError as exc:
@@ -77,7 +77,7 @@ class PyUsbTransport:
             raise RuntimeError("PyUSB is required for USB resource cleanup") from exc
         usb.util.dispose_resources(self.device)
 
-    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "PyUsbTransport":
+    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "PyUSBTransport":
         """Release this handle and wait for the same USB device to reappear."""
         if self.vendor_id is None or self.product_id is None:
             raise RuntimeError("reconnect requires a transport created by PyUsbTransport.find()")

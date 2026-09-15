@@ -1,4 +1,4 @@
-from mactv.device import Af9015Device
+from mactv.device import AF9015Device
 
 
 class FakeTransport:
@@ -22,7 +22,7 @@ class FakeTransport:
 
 
 def test_initialize_skips_firmware_for_warm_device():
-    device = Af9015Device(FakeTransport())
+    device = AF9015Device(FakeTransport())
 
     device.initialize()
 
@@ -31,7 +31,7 @@ def test_initialize_skips_firmware_for_warm_device():
 
 
 def test_initialize_does_not_upload_firmware_by_default():
-    device = Af9015Device(FakeTransport(warm=False))
+    device = AF9015Device(FakeTransport(warm=False))
 
     try:
         device.initialize(download_firmware=False)

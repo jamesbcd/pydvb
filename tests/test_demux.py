@@ -1,7 +1,7 @@
 import pytest
 
 from mactv.bridge import AF9015Bridge
-from mactv.demux import TsDemuxer
+from mactv.demux import TSDemuxer
 
 
 class FakeTransport:
@@ -23,7 +23,7 @@ class FakeTransport:
 
 def test_pid_filter_programs_af9013_slot():
     transport = FakeTransport()
-    demuxer = TsDemuxer(AF9015Bridge(transport), demodulator_address=0x1D)
+    demuxer = TSDemuxer(AF9015Bridge(transport), demodulator_address=0x1D)
 
     demuxer.set_pid_filter(0x123)
 
@@ -38,7 +38,7 @@ def test_pid_filter_programs_af9013_slot():
 
 def test_pid_filter_reuses_freed_slot_and_controls_filter():
     transport = FakeTransport()
-    demuxer = TsDemuxer(AF9015Bridge(transport))
+    demuxer = TSDemuxer(AF9015Bridge(transport))
 
     demuxer.enable_pid_filter()
     demuxer.set_pid_filter(100)
@@ -54,7 +54,7 @@ def test_pid_filter_reuses_freed_slot_and_controls_filter():
 
 
 def test_pid_filter_rejects_more_than_32_slots():
-    demuxer = TsDemuxer(AF9015Bridge(FakeTransport()))
+    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()))
 
     for pid in range(32):
         demuxer.set_pid_filter(pid)
@@ -64,6 +64,6 @@ def test_pid_filter_rejects_more_than_32_slots():
 
 
 def test_full_speed_stream_uses_five_packets():
-    demuxer = TsDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
+    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
 
     assert demuxer.packet_count == 5

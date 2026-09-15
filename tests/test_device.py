@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from mactv.device import Af9015Device, DEFAULT_FIRMWARE_PATH
+from mactv.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 
 
 class FakeTransport:
@@ -31,7 +31,7 @@ def test_device_loads_firmware_from_path(tmp_path):
     firmware_path = tmp_path / "test.fw"
     firmware_path.write_bytes(b"firmware")
     transport = FakeTransport()
-    device = Af9015Device(transport)
+    device = AF9015Device(transport)
 
     device.download_firmware(firmware_path=firmware_path)
 
@@ -40,7 +40,7 @@ def test_device_loads_firmware_from_path(tmp_path):
 
 def test_firmware_bytes_and_path_are_mutually_exclusive(tmp_path):
     with pytest.raises(ValueError):
-        Af9015Device(FakeTransport()).download_firmware(b"firmware", tmp_path / "test.fw")
+        AF9015Device(FakeTransport()).download_firmware(b"firmware", tmp_path / "test.fw")
 
 
 class ReconnectTransport:
@@ -69,7 +69,7 @@ class ReconnectTransport:
 def test_reconnect_replaces_handle_after_get_config_succeeds():
     candidate = ReconnectTransport(b"\x00\x00\x02")
     original = ReconnectTransport(b"\x00\x00\x00", (candidate,))
-    device = Af9015Device(original, vendor_id=0x0413, product_id=0x6029)
+    device = AF9015Device(original, vendor_id=0x0413, product_id=0x6029)
 
     assert device.reconnect(timeout=1, poll_interval=0.001) == 0x02
     assert original.closed

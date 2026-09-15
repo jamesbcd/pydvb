@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from threading import Lock
 
-from .usb import ACK_LENGTH, BUFFER_LENGTH, CONTROL_IN, CONTROL_OUT, HEADER_LENGTH, UsbTransport
+from .usb import ACK_LENGTH, BUFFER_LENGTH, CONTROL_IN, CONTROL_OUT, HEADER_LENGTH, USBTransport
 
 
 class Command(IntEnum):
@@ -40,7 +40,7 @@ class ControlRequest:
 class AF9015Bridge:
     """AF9015 command layer, equivalent to Linux ``af9015_ctrl_msg``."""
 
-    def __init__(self, transport: UsbTransport, timeout_ms: int = 2000) -> None:
+    def __init__(self, transport: USBTransport, timeout_ms: int = 2000) -> None:
         self.transport = transport
         self.timeout_ms = timeout_ms
         self._sequence = 0
