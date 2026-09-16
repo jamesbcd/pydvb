@@ -58,8 +58,7 @@ def test_frontend_programs_serial_ts_mode_on_output_pin_7():
         28_800_000,
         4_570_000,
         False,
-        ts_mode=AF9013Frontend.TS_MODE_SERIAL,
-        ts_output_pin=AF9013Frontend.TS_OUTPUT_PIN_7,
+        adapter=1,
     )
 
     frontend.init()
@@ -67,7 +66,7 @@ def test_frontend_programs_serial_ts_mode_on_output_pin_7():
     assert bus.registers[frontend.REG_TS_CONTROL] == b"\x0c"
 
 
-def test_frontend_programs_per_adapter_gpio_nibbles():
+def test_frontend_programs_adapter_zero_gpio_nibbles():
     bus = FakeBus()
     frontend = AF9013Frontend(
         bus,
@@ -76,18 +75,35 @@ def test_frontend_programs_per_adapter_gpio_nibbles():
         28_800_000,
         4_570_000,
         False,
-        gpio=(
-            AF9013Frontend.GPIO_HI,
-            0,
-            0,
-            AF9013Frontend.GPIO_TUNER_ON,
-        ),
     )
 
     frontend.init()
 
     assert bus.registers[frontend.REG_GPIO_01] == b"\x07"
     assert bus.registers[frontend.REG_GPIO_23] == b"\x30"
+
+
+def test_frontend_programs_adapter_one_gpio_nibbles():
+    bus = FakeBus()
+    frontend = AF9013Frontend(
+        bus,
+        0x1D,
+        None,
+        28_800_000,
+        4_570_000,
+        False,
+        adapter=1,
+    )
+
+    frontend.init()
+
+    assert bus.registers[frontend.REG_GPIO_01] == b"\x33"
+    assert bus.registers[frontend.REG_GPIO_23] == b"\x00"
+
+
+def test_frontend_rejects_unknown_adapter():
+    with pytest.raises(ValueError, match="adapter must be 0 or 1"):
+        AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False, adapter=2)
 
 
 def test_frontend_sleep_stops_tuner():
@@ -106,7 +122,7 @@ def test_frontend_opens_and_closes_af9013_gate_for_tuner_access():
     frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)
     bus.registers[frontend.GATE_REGISTER] = b"\x00"
 
-    frontend.gated_write(0x60, 0, b"\x84")
+    frontend.gated_write_register(0x60, 0, b"\x84")
 
     assert bus.writes == [
         (0x1C, frontend.GATE_REGISTER, b"\x08", 3, 1),

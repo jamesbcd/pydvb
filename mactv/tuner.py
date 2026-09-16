@@ -155,14 +155,14 @@ class TDA18271Tuner(I2CTuner):
         self.current_tuning: Tuning | None = None
 
     def _read(self, register: int, length: int) -> bytes:
-        return self.frontend.gated_read(self.i2c_address, register, length)
+        return self.frontend.gated_read_register(self.i2c_address, register, length)
 
     def _write(self, register: int, data: bytes) -> None:
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         if register + len(data) > self.REGISTER_COUNT:
             raise ValueError("TDA18271 register write exceeds register map")
-        self.frontend.gated_write(self.i2c_address, register, data)
+        self.frontend.gated_write_register(self.i2c_address, register, data)
         self._registers[register : register + len(data)] = data
 
     def _write_cached(self, register: int, length: int) -> None:

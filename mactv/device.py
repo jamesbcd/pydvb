@@ -225,31 +225,7 @@ class AF9015Device:
                     config.intermed_freq_hz,
                     config.spectrum_inverted,
                     config.tuner_id,
-                    ts_mode=(
-                        AF9013Frontend.TS_MODE_SERIAL
-                        if adapter == 1
-                        else AF9013Frontend.TS_MODE_USB
-                    ),
-                    ts_output_pin=(
-                        AF9013Frontend.TS_OUTPUT_PIN_7
-                        if adapter == 1
-                        else AF9013Frontend.TS_OUTPUT_PIN_DEFAULT
-                    ),
-                    gpio=(
-                        (
-                            AF9013Frontend.GPIO_TUNER_ON,
-                            AF9013Frontend.GPIO_LO,
-                            0,
-                            0,
-                        )
-                        if adapter == 1
-                        else (
-                            AF9013Frontend.GPIO_HI,
-                            0,
-                            0,
-                            AF9013Frontend.GPIO_TUNER_ON,
-                        )
-                    ),
+                    adapter=adapter,
                 )
                 if config.tuner_id == TDA18271_TUNER_ID
                 else None

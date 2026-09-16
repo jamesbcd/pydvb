@@ -8,11 +8,11 @@ class FakeFrontend:
         self.writes = []
         self.gated_reads = 0
 
-    def gated_read(self, address, register, length):
+    def gated_read_register(self, address, register, length):
         self.gated_reads += 1
         return bytes((0x84,)) + bytes(length - 1)
 
-    def gated_write(self, address, register, data):
+    def gated_write_register(self, address, register, data):
         self.writes.append((address, register, bytes(data)))
 
 
