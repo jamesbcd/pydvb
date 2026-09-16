@@ -1,6 +1,7 @@
 """Test command-line tool for the Leadtek AF9015 device."""
 
 import argparse
+import pprint
 
 import usb.core
 
@@ -33,6 +34,14 @@ def main() -> int:
         print("Device is cold; initializing and downloading firmware to device...")
         device.initialize()
         print(f"Device state: {'warm' if device.is_warm else 'cold'}")
+    else:
+        device.initialize()
+
+    print(f"Adapter count: {device.adapter_count}")
+    for index, adapter in enumerate(device.adapters):
+        print(f"Adapter index {index}:")
+        pprint.pprint(adapter.config)
+        print()
 
     return 0
 
