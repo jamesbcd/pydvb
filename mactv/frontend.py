@@ -7,7 +7,7 @@ from math import log10
 from time import monotonic, sleep
 
 from .bridge import AF9015Bridge
-from .tuner import Tuner, Tuning
+from .tuner import CodeRate, GuardInterval, Hierarchy, Modulation, Tuner, Tuning, TransmissionMode
 
 
 @dataclass(frozen=True)
@@ -283,21 +283,6 @@ class AF9013Frontend:
         self._initialized = True
         self._sleeping = False
 
-    @staticmethod
-    def _parameter_code(value: str, values: dict[str, int], name: str) -> tuple[int, bool]:
-        """Convert a DVB-T parameter value to its demodulator code and auto flag.
-
-        For example, ``_parameter_code("8k", {"2k": 0, "8k": 1}, "mode")``
-        returns ``(1, False)``, while passing ``"auto"`` returns ``(0, True)``.
-        Unsupported values raise ``ValueError``.
-        """
-        if value == "auto":
-            return 0, True
-        try:
-            return values[value], False
-        except KeyError as error:
-            raise ValueError(f"unsupported DVB-T {name}: {value}") from error
-
     def _transmission_parameters(self, tuning: Tuning) -> tuple[bytes, bool]:
         """Pack tuning parameters into AF9013 transmission bytes and report auto mode.
 
@@ -305,36 +290,68 @@ class AF9013Frontend:
         hierarchy, modulation, and HP/LP code rates in the bit fields expected
         by the AF9013. For example, a fully specified 8k, 1/32, QAM64 tuning
         produces ``(b"\\x01\\x90\\x12", False)``; if any parameter is
-        ``"auto"``, the flag is ``True`` instead.
+        an ``AUTO`` enum member, the flag is ``True`` instead.
 
         For example::
 
             frontend._transmission_parameters(
-                Tuning(650_000_000, transmission_mode="8k", guard_interval="1/32",
-                       hierarchy="none", modulation="qam64", code_rate_hp="3/4",
-                       code_rate_lp="3/4")
+                  Tuning(650_000_000, transmission_mode=TransmissionMode.K8,
+                      guard_interval=GuardInterval.GI_1_32, hierarchy=Hierarchy.NONE,
+                      modulation=Modulation.QAM64, code_rate_hp=CodeRate.RATE_3_4,
+                      code_rate_lp=CodeRate.RATE_3_4)
             )
             # (b"\\x01\\x90\\x12", False)
         """
-        transmission_mode, auto_mode = self._parameter_code(
-            tuning.transmission_mode, {"2k": 0, "8k": 1}, "transmission mode"
+        transmission_mode = {
+            TransmissionMode.AUTO:  0,
+            TransmissionMode.K2:    0,
+            TransmissionMode.K8:    1
+        }[tuning.transmission_mode]
+        guard_interval = {
+            GuardInterval.AUTO:     0,
+            GuardInterval.GI_1_32:  0,
+            GuardInterval.GI_1_16:  1,
+            GuardInterval.GI_1_8:   2,
+            GuardInterval.GI_1_4:   3,
+        }[tuning.guard_interval]
+        hierarchy = {
+            Hierarchy.AUTO:         0,
+            Hierarchy.NONE:         0,
+            Hierarchy.LEVEL_1:      1,
+            Hierarchy.LEVEL_2:      2,
+            Hierarchy.LEVEL_4:      3,
+        }[tuning.hierarchy]
+        modulation = {
+            Modulation.AUTO:        0,
+            Modulation.QPSK:        0,
+            Modulation.QAM16:       1,
+            Modulation.QAM64:       2,
+        }[tuning.modulation]
+        code_rate_hp = {
+            CodeRate.AUTO:          0,
+            CodeRate.RATE_1_2:      0,
+            CodeRate.RATE_2_3:      1,
+            CodeRate.RATE_3_4:      2,
+            CodeRate.RATE_5_6:      3,
+            CodeRate.RATE_7_8:      4,
+        }[tuning.code_rate_hp]
+        code_rate_lp = {
+            CodeRate.AUTO:          0,
+            CodeRate.RATE_1_2:      0,
+            CodeRate.RATE_2_3:      1,
+            CodeRate.RATE_3_4:      2,
+            CodeRate.RATE_5_6:      3,
+            CodeRate.RATE_7_8:      4,
+            CodeRate.NONE:          0,
+        }[tuning.code_rate_lp]
+        auto_mode = (
+            tuning.transmission_mode is TransmissionMode.AUTO
+            or tuning.guard_interval is GuardInterval.AUTO
+            or tuning.hierarchy is Hierarchy.AUTO
+            or tuning.modulation is Modulation.AUTO
+            or tuning.code_rate_hp is CodeRate.AUTO
+            or tuning.code_rate_lp is CodeRate.AUTO
         )
-        guard_interval, guard_auto = self._parameter_code(
-            tuning.guard_interval, {"1/32": 0, "1/16": 1, "1/8": 2, "1/4": 3}, "guard interval"
-        )
-        hierarchy, hierarchy_auto = self._parameter_code(
-            tuning.hierarchy, {"none": 0, "1": 1, "2": 2, "4": 3}, "hierarchy"
-        )
-        modulation, modulation_auto = self._parameter_code(
-            tuning.modulation, {"qpsk": 0, "qam16": 1, "qam64": 2}, "modulation"
-        )
-        code_rate_hp, hp_auto = self._parameter_code(
-            tuning.code_rate_hp, {"1/2": 0, "2/3": 1, "3/4": 2, "5/6": 3, "7/8": 4}, "HP code rate"
-        )
-        code_rate_lp, lp_auto = self._parameter_code(
-            tuning.code_rate_lp, {"1/2": 0, "2/3": 1, "3/4": 2, "5/6": 3, "7/8": 4, "none": 0}, "LP code rate"
-        )
-        auto_mode |= guard_auto or hierarchy_auto or modulation_auto or hp_auto or lp_auto
         return bytes(
             (
                 transmission_mode | guard_interval << 2 | hierarchy << 4,
@@ -424,12 +441,40 @@ class AF9013Frontend:
         if self.current_tuning is None:
             return None
         transmission = self._read_register(self.REG_TRANSMISSION, 3)
-        modulation = {0: "qpsk", 1: "qam16", 2: "qam64"}.get((transmission[1] >> 6) & 3, "auto")
-        mode = {0: "2k", 1: "8k"}.get(transmission[0] & 3, "auto")
-        guard = {0: "1/32", 1: "1/16", 2: "1/8", 3: "1/4"}[(transmission[0] >> 2) & 3]
-        hierarchy = {0: "none", 1: "1", 2: "2", 3: "4"}.get((transmission[0] >> 4) & 7, "auto")
-        hp = {0: "1/2", 1: "2/3", 2: "3/4", 3: "5/6", 4: "7/8"}.get(transmission[2] & 7, "auto")
-        lp = {0: "1/2", 1: "2/3", 2: "3/4", 3: "5/6", 4: "7/8"}.get((transmission[2] >> 3) & 7, "auto")
+        modulation = {
+            0: Modulation.QPSK,
+            1: Modulation.QAM16,
+            2: Modulation.QAM64,
+        }.get((transmission[1] >> 6) & 3, Modulation.AUTO)
+        mode = {0: TransmissionMode.K2, 1: TransmissionMode.K8}.get(
+            transmission[0] & 3, TransmissionMode.AUTO
+        )
+        guard = {
+            0: GuardInterval.GI_1_32,
+            1: GuardInterval.GI_1_16,
+            2: GuardInterval.GI_1_8,
+            3: GuardInterval.GI_1_4,
+        }[(transmission[0] >> 2) & 3]
+        hierarchy = {
+            0: Hierarchy.NONE,
+            1: Hierarchy.LEVEL_1,
+            2: Hierarchy.LEVEL_2,
+            3: Hierarchy.LEVEL_4,
+        }.get((transmission[0] >> 4) & 7, Hierarchy.AUTO)
+        hp = {
+            0: CodeRate.RATE_1_2,
+            1: CodeRate.RATE_2_3,
+            2: CodeRate.RATE_3_4,
+            3: CodeRate.RATE_5_6,
+            4: CodeRate.RATE_7_8,
+        }.get(transmission[2] & 7, CodeRate.AUTO)
+        lp = {
+            0: CodeRate.RATE_1_2,
+            1: CodeRate.RATE_2_3,
+            2: CodeRate.RATE_3_4,
+            3: CodeRate.RATE_5_6,
+            4: CodeRate.RATE_7_8,
+        }.get((transmission[2] >> 3) & 7, CodeRate.AUTO)
         return Tuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
 
     def read_metrics(self) -> FrontendMetrics:

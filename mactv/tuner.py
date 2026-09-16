@@ -1,6 +1,7 @@
 """Tuner interfaces and the AF9015-supported TDA18271 implementation."""
 
 from dataclasses import dataclass
+from enum import Enum
 from time import sleep
 from typing import TYPE_CHECKING, Protocol
 
@@ -8,16 +9,55 @@ if TYPE_CHECKING:
     from .frontend import AF9013Frontend
 
 
+class TransmissionMode(str, Enum):
+    AUTO = "auto"
+    K2 = "2k"
+    K8 = "8k"
+
+
+class GuardInterval(str, Enum):
+    AUTO = "auto"
+    GI_1_32 = "1/32"
+    GI_1_16 = "1/16"
+    GI_1_8 = "1/8"
+    GI_1_4 = "1/4"
+
+
+class Hierarchy(str, Enum):
+    AUTO = "auto"
+    NONE = "none"
+    LEVEL_1 = "1"
+    LEVEL_2 = "2"
+    LEVEL_4 = "4"
+
+
+class Modulation(str, Enum):
+    AUTO = "auto"
+    QPSK = "qpsk"
+    QAM16 = "qam16"
+    QAM64 = "qam64"
+
+
+class CodeRate(str, Enum):
+    AUTO = "auto"
+    RATE_1_2 = "1/2"
+    RATE_2_3 = "2/3"
+    RATE_3_4 = "3/4"
+    RATE_5_6 = "5/6"
+    RATE_7_8 = "7/8"
+    NONE = "none"
+
+
 @dataclass(frozen=True)
 class Tuning:
     frequency_hz: int
     bandwidth_hz: int = 8_000_000
-    transmission_mode: str = "auto"
-    guard_interval: str = "auto"
-    hierarchy: str = "auto"
-    modulation: str = "auto"
-    code_rate_hp: str = "auto"
-    code_rate_lp: str = "auto"
+    transmission_mode: TransmissionMode = TransmissionMode.AUTO
+    guard_interval: GuardInterval = GuardInterval.AUTO
+    hierarchy: Hierarchy = Hierarchy.AUTO
+    modulation: Modulation = Modulation.AUTO
+    code_rate_hp: CodeRate = CodeRate.AUTO
+    code_rate_lp: CodeRate = CodeRate.AUTO
 
 
 class Tuner(Protocol):
