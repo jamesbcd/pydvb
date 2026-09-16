@@ -85,6 +85,10 @@ class AF9013Frontend:
     REG_BER_COUNTER = 0xD385
 
     CLOCK_CODES = {28_800_000: 0,20_480_000: 1, 28_000_000: 2, 25_000_000: 3}
+
+    # Carrier Frequency Offset Estimation (CFOE) coefficients are hardcoded look-Up table (LUT) configuration
+    # values used by the demodulator to compensate for frequency drifts and offsets. They depend on the
+    # demodulator clock frequency and the signal bandwidth.
     COEFFICIENTS = {
         (28_800_000, 8_000_000): bytes.fromhex("028a28a30514511100a28f3d00a28a2900a2851401451414"),
         (28_800_000, 7_000_000): bytes.fromhex("0238e38e0471c707008e3d55008e38e4008e3472011c7132"),
@@ -281,6 +285,12 @@ class AF9013Frontend:
 
     @staticmethod
     def _parameter_code(value: str, values: dict[str, int], name: str) -> tuple[int, bool]:
+        """Convert a DVB-T parameter value to its demodulator code and auto flag.
+
+        For example, ``_parameter_code("8k", {"2k": 0, "8k": 1}, "mode")``
+        returns ``(1, False)``, while passing ``"auto"`` returns ``(0, True)``.
+        Unsupported values raise ``ValueError``.
+        """
         if value == "auto":
             return 0, True
         try:
@@ -289,6 +299,23 @@ class AF9013Frontend:
             raise ValueError(f"unsupported DVB-T {name}: {value}") from error
 
     def _transmission_parameters(self, tuning: Tuning) -> tuple[bytes, bool]:
+        """Pack tuning parameters into AF9013 transmission bytes and report auto mode.
+
+        The returned bytes contain the transmission mode, guard interval,
+        hierarchy, modulation, and HP/LP code rates in the bit fields expected
+        by the AF9013. For example, a fully specified 8k, 1/32, QAM64 tuning
+        produces ``(b"\\x01\\x90\\x12", False)``; if any parameter is
+        ``"auto"``, the flag is ``True`` instead.
+
+        For example::
+
+            frontend._transmission_parameters(
+                Tuning(650_000_000, transmission_mode="8k", guard_interval="1/32",
+                       hierarchy="none", modulation="qam64", code_rate_hp="3/4",
+                       code_rate_lp="3/4")
+            )
+            # (b"\\x01\\x90\\x12", False)
+        """
         transmission_mode, auto_mode = self._parameter_code(
             tuning.transmission_mode, {"2k": 0, "8k": 1}, "transmission mode"
         )
@@ -328,12 +355,19 @@ class AF9013Frontend:
         if tuning.bandwidth_hz not in (6_000_000, 7_000_000, 8_000_000):
             raise ValueError("AF9013 DVB-T bandwidth must be 6, 7, or 8 MHz")
 
+        # Program the tuner with the desired tuning parameters
         self.tuner.tune(tuning)
+
+        # Configure the AF9013 demodulator with the appropriate CFOE coefficients, based on the
+        # demodulator clock frequency and the signal bandwidth.
         coefficients = self.COEFFICIENTS.get((self.clock_hz, tuning.bandwidth_hz))
         if coefficients is None:
             raise ValueError("unsupported AF9013 clock and bandwidth combination")
         if tuning.bandwidth_hz != self._last_bandwidth_hz:
             self._write_register(self.REG_CFOE, coefficients)
+
+        # Configure the AF9013 demodulator with the appropriate frequency control settings, based on the
+        # intermediate frequency and the demodulator clock frequency.
         sampling_frequency = self.intermediate_frequency_hz
         while sampling_frequency > self.clock_hz // 2:
             sampling_frequency -= self.clock_hz
@@ -342,7 +376,6 @@ class AF9013Frontend:
         frequency_word = round(sampling_frequency * 0x800000 / self.clock_hz)
         if inverted:
             frequency_word = 0x800000 - frequency_word
-
         frequency_data = bytes(
             (
                 frequency_word & 0xFF,
@@ -361,10 +394,13 @@ class AF9013Frontend:
         self._write_register(self.REG_FREQUENCY_CONTROL, frequency_data)
         self._write_register(self.REG_FREQUENCY_CONTROL_EXT, frequency_data + complement_data)
 
-        self._update_bits(self.REG_TPS_STATUS, 0x08, 0x08)
-        self._update_bits(self.REG_MPEG_STATUS, 0x40, 0)
-        self._update_bits(self.REG_EMPTY_CHANNEL, 0x01, 0)
-        self._update_bits(self.REG_EMPTY_DVBT_CHANNEL, 0x01, 0)
+        # Clear status flags
+        self._update_bits(self.REG_TPS_STATUS, 0x08, 0x08)  # Clear TPS lock flag
+        self._update_bits(self.REG_MPEG_STATUS, 0x40, 0)    # Clear MPEG2 lock flag
+        self._update_bits(self.REG_EMPTY_CHANNEL, 0x01, 0)  # Clear empty channel flag
+        self._update_bits(self.REG_EMPTY_DVBT_CHANNEL, 0x01, 0)  # Clear empty DVB-T channel flag
+
+        # Configure transmission parameters and easy mode settings based on the current tuning
         transmission, auto_mode = self._transmission_parameters(tuning)
         transmission = bytearray(transmission)
         transmission[1] |= {6_000_000: 0, 7_000_000: 1 << 2, 8_000_000: 2 << 2}[tuning.bandwidth_hz]
