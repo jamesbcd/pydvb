@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 class Tuning:
     frequency_hz: int
     bandwidth_hz: int = 8_000_000
+    transmission_mode: str = "auto"
+    guard_interval: str = "auto"
+    hierarchy: str = "auto"
+    modulation: str = "auto"
+    code_rate_hp: str = "auto"
+    code_rate_lp: str = "auto"
 
 
 class Tuner(Protocol):
