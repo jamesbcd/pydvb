@@ -78,7 +78,7 @@ class RFCalibrationBand:
 
 
 class Tuner(Protocol):
-    def init(self) -> None: ...
+    def init_hardware(self) -> None: ...
 
     def tune(self, tuning: Tuning) -> None: ...
 
@@ -321,6 +321,24 @@ class TDA18271Tuner(Tuner):
                 self._registers[register] = value
         return values
 
+    def init_hardware(self) -> None:
+        chip_id = self._read_register(self.REG_ID, 1)[0]
+        if chip_id not in (self.CHIP_ID_HDC1, self.CHIP_ID_HDC2):
+            raise IOError(f"unexpected TDA18271 ID 0x{chip_id:02x}")
+        self._chip_id = chip_id
+        if self._initialized:
+            self._registers[self.REG_EP3] &= 0x1F
+            self._write_cached(self.REG_EP3, 1)
+            self._sleeping = False
+            return
+        self._registers[:] = self.DEFAULT_REGISTERS[chip_id]
+        for register in range(0, self.REGISTER_COUNT, self.INIT_CHUNK_SIZE):
+            length = min(self.INIT_CHUNK_SIZE, self.REGISTER_COUNT - register)
+            self._write_cached(register, length)
+        self._image_rejection_calibration()
+        self._initialized = True
+        self._sleeping = False
+
     def _lookup_rf_band(self, frequency_hz: int) -> RFCalibrationBand:
         for limit_hz, _, defaults_hz in self.RF_CAL_BANDS:
             if frequency_hz <= limit_hz:
@@ -560,24 +578,6 @@ class TDA18271Tuner(Tuner):
         self._write_cached(self.REG_EP4, 1)
         self._write_cached(self.REG_EP1, 1)
 
-    def init(self) -> None:
-        chip_id = self._read_register(self.REG_ID, 1)[0]
-        if chip_id not in (self.CHIP_ID_HDC1, self.CHIP_ID_HDC2):
-            raise IOError(f"unexpected TDA18271 ID 0x{chip_id:02x}")
-        self._chip_id = chip_id
-        if self._initialized:
-            self._registers[self.REG_EP3] &= 0x1F
-            self._write_cached(self.REG_EP3, 1)
-            self._sleeping = False
-            return
-        self._registers[:] = self.DEFAULT_REGISTERS[chip_id]
-        for register in range(0, self.REGISTER_COUNT, self.INIT_CHUNK_SIZE):
-            length = min(self.INIT_CHUNK_SIZE, self.REGISTER_COUNT - register)
-            self._write_cached(register, length)
-        self._image_rejection_calibration()
-        self._initialized = True
-        self._sleeping = False
-
     def _set_main_pll(self, frequency_hz: int) -> None:
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
@@ -689,7 +689,7 @@ class TDA18271Tuner(Tuner):
             raise ValueError("frequency is outside the TDA18271 range")
         if tuning.bandwidth_hz not in (6_000_000, 7_000_000, 8_000_000):
             raise ValueError("TDA18271 DVB-T bandwidth must be 6, 7, or 8 MHz")
-        self.init()
+        self.init_hardware()
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
 

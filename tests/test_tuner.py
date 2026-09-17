@@ -21,7 +21,7 @@ def test_tda18271_init_uses_linux_16_byte_chunks():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
 
-    tuner.init()
+    tuner.init_hardware()
 
     assert frontend.gated_reads == 1
     assert [len(data) for _, _, data in frontend.writes[:3]] == [16, 16, 7]
@@ -44,7 +44,7 @@ def test_tda18271_state_properties_are_read_only():
     with pytest.raises(AttributeError):
         tuner.sleeping = False
 
-    tuner.init()
+    tuner.init_hardware()
 
     assert tuner.chip_id == tuner.CHIP_ID_HDC2
     assert tuner.initialized
@@ -97,11 +97,11 @@ def test_tda18271_hdc1_tune_runs_rf_tracking_calibration():
 def test_tda18271_reinit_wakes_without_resetting_register_cache():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
-    tuner.init()
+    tuner.init_hardware()
     write_count = len(frontend.writes)
     tuner._registers[tuner.REG_EB14] = 0x42
 
-    tuner.init()
+    tuner.init_hardware()
 
     assert len(frontend.writes) == write_count + 1
     assert tuner._registers[tuner.REG_EB14] == 0x42
@@ -111,7 +111,7 @@ def test_tda18271_uses_hdc1_defaults_and_pll_map():
     frontend = FakeFrontend(0x83)
     tuner = TDA18271Tuner(frontend)
 
-    tuner.init()
+    tuner.init_hardware()
 
     assert frontend.writes[0][2][tuner.REG_ID] == 0x83
     assert frontend.writes[1][2][tuner.REG_EB1 - 16] == 0xFF

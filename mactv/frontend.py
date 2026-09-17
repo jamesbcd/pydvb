@@ -254,7 +254,7 @@ class AF9013Frontend:
         position = 0 if gpio in (0, 2) else 4
         self._update_bits(register, 0x0F << position, value << position)
 
-    def init(self) -> None:
+    def init_hardware(self) -> None:
         clock_code = self.CLOCK_CODES.get(self.clock_hz)
         if clock_code is None:
             raise ValueError("AF9013 clock must be 20.48, 25, 28, or 28.8 MHz")
@@ -275,7 +275,7 @@ class AF9013Frontend:
             ts_control |= 0x08
         self._update_bits(self.REG_TS_CONTROL, 0x0E, ts_control)
         self._update_bits(self.REG_LOCK_LED, 0x01, 0x01)
-        self.tuner.init() if self.tuner is not None else None
+        self.tuner.init_hardware() if self.tuner is not None else None
         self._initialized = True
         self._sleeping = False
 
@@ -360,7 +360,7 @@ class AF9013Frontend:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
         if not self._initialized:
-            self.init()
+            self.init_hardware()
         if self.clock_hz <= 0 or self.intermediate_frequency_hz <= 0:
             raise ValueError("AF9013 clock and IF must be configured")
         if not 174_000_000 <= tuning.frequency_hz <= 862_000_000:

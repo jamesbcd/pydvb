@@ -24,7 +24,7 @@ class FakeTuner:
         self.tunings = []
         self.sleep_calls = 0
 
-    def init(self):
+    def init_hardware(self):
         pass
 
     def tune(self, tuning):
@@ -62,7 +62,7 @@ def test_frontend_programs_serial_ts_mode_on_output_pin_7():
         adapter=1,
     )
 
-    frontend.init()
+    frontend.init_hardware()
 
     assert bus.registers[frontend.REG_TS_CONTROL] == b"\x0c"
 
@@ -78,7 +78,7 @@ def test_frontend_programs_adapter_zero_gpio_nibbles():
         False,
     )
 
-    frontend.init()
+    frontend.init_hardware()
 
     assert bus.registers[frontend.REG_GPIO_01] == b"\x07"
     assert bus.registers[frontend.REG_GPIO_23] == b"\x30"
@@ -96,7 +96,7 @@ def test_frontend_programs_adapter_one_gpio_nibbles():
         adapter=1,
     )
 
-    frontend.init()
+    frontend.init_hardware()
 
     assert bus.registers[frontend.REG_GPIO_01] == b"\x33"
     assert bus.registers[frontend.REG_GPIO_23] == b"\x00"
@@ -111,7 +111,7 @@ def test_frontend_sleep_stops_tuner():
     tuner = FakeTuner()
     frontend = AF9013Frontend(FakeBus(), 0x1C, tuner, 28_800_000, 4_570_000, False)
 
-    frontend.init()
+    frontend.init_hardware()
     frontend.bridge.registers[frontend.REG_RESET] = b"\x02"
     frontend.sleep()
 
@@ -169,7 +169,7 @@ def test_frontend_sleep_raises_when_reset_does_not_complete():
     tuner = FakeTuner()
     bus = FakeBus()
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
-    frontend.init()
+    frontend.init_hardware()
 
     with pytest.raises(TimeoutError):
         frontend.sleep()
