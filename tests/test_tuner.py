@@ -30,6 +30,32 @@ def test_tda18271_init_uses_linux_16_byte_chunks():
     assert all(address == 0x60 for address, _, _ in frontend.writes)
 
 
+def test_tda18271_state_properties_are_read_only():
+    tuner = TDA18271Tuner(FakeFrontend())
+
+    assert tuner.chip_id is None
+    assert not tuner.initialized
+    assert tuner.sleeping
+
+    with pytest.raises(AttributeError):
+        tuner.chip_id = tuner.CHIP_ID_HDC1
+    with pytest.raises(AttributeError):
+        tuner.initialized = True
+    with pytest.raises(AttributeError):
+        tuner.sleeping = False
+
+    tuner.init()
+
+    assert tuner.chip_id == tuner.CHIP_ID_HDC2
+    assert tuner.initialized
+    assert not tuner.sleeping
+
+    tuner.sleep()
+
+    assert tuner.initialized
+    assert tuner.sleeping
+
+
 def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
@@ -108,3 +134,52 @@ def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):
     tuner.tune(Tuning(650_000_000, 8_000_000))
 
     assert len(frontend.writes) < writes_after_calibration * 2
+
+
+def test_tda18271_tune_wakes_after_sleep():
+    frontend = FakeFrontend()
+    tuner = TDA18271Tuner(frontend)
+    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.sleep()
+
+    tuner.tune(Tuning(650_000_000, 8_000_000))
+
+    assert tuner._registers[tuner.REG_EP3] & 0x80 == 0
+
+
+def test_tda18271_power_scan_keeps_successful_downward_frequency(monkeypatch):
+    tuner = TDA18271Tuner(FakeFrontend())
+    tuner._chip_id = 0x84
+    tuner._apply_rf_maps = lambda _: None
+    tuner._write_cached = lambda *_: None
+    tuner._set_main_pll = lambda _: None
+    readings = iter((0, 0, 10))
+    tuner._read_extended = lambda: tuner._registers.__setitem__(tuner.REG_EB10, next(readings)) or b""
+    tuner._lookup_cid_target = lambda _: (10, 0)
+    monkeypatch.setattr("mactv.tuner.sleep", lambda _: None)
+
+    calibrated, frequency_hz = tuner._power_scan(100_000_000)
+
+    assert calibrated
+    assert frequency_hz == 99_800_000
+
+
+def test_tda18271_thermometer_retries_ambiguous_reading(monkeypatch):
+    class ThermometerFrontend(FakeFrontend):
+        def __init__(self):
+            super().__init__()
+            self.thermometer_values = iter((0x20, 0x00))
+
+        def gated_read_register(self, address, register, length):
+            values = bytearray(super().gated_read_register(address, register, length))
+            if length == TDA18271Tuner.REGISTER_COUNT:
+                values[TDA18271Tuner.REG_TM] = next(self.thermometer_values)
+            return bytes(values)
+
+    tuner = TDA18271Tuner(ThermometerFrontend())
+    tuner._chip_id = 0x84
+    monkeypatch.setattr("mactv.tuner.sleep", lambda _: None)
+
+    temperature = tuner._read_thermometer()
+
+    assert temperature == 60

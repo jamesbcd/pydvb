@@ -32,6 +32,15 @@ The AF9013 demodulator and individual tuner chips still need chip-specific
 drivers. The public `Tuner` interface is intentionally ready for those drivers
 without coupling them to PyUSB.
 
+The bundled `TDA18271Tuner` implements the AF9015 digital DVB-T path: 6, 7,
+and 8 MHz channel bandwidths for the supported HDC1 and HDC2 tuner variants,
+including Linux-compatible PLL, image-rejection, RF tracking-filter, and
+temperature calibration. It intentionally does not expose the full Linux
+TDA18271 driver's analog TV/FM, ATSC, QAM, or DVB-T2 modes, slave-tuner and
+output-option configuration, selectable I2C gates, or external AGC callbacks.
+Those features are outside the AF9015 DVB-T integration currently provided by
+this package.
+
 By default, `download_firmware()` loads
 `mactv/firmware/dvb-usb-af9015.fw`. An alternate image can be selected with
 `device.download_firmware(firmware_path="/path/to/image.fw")`.
