@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import IntEnum
 from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
@@ -14,7 +15,18 @@ HEADER_LENGTH = 8
 ACK_LENGTH = 2
 
 
+class USBSpeed(IntEnum):
+    UNKNOWN = 0
+    LOW = 1
+    FULL = 2
+    HIGH_USB2 = 3
+    SUPER_USB3_GEN1 = 4
+    SUPER_PLUS_USB3_GEN2 = 5
+
+
 class USBTransport(Protocol):
+    def get_speed(self) -> USBSpeed: ...
+
     def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None: ...
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes: ...
@@ -38,10 +50,12 @@ class PyUSBTransport:
         self.vendor_id = vendor_id
         self.product_id = product_id
 
-    @property
-    def is_full_speed(self) -> bool:
-        """Whether PyUSB reports the device as USB full speed."""
-        return getattr(self.usb_device, "speed", None) == USB_SPEED_FULL
+    def get_speed(self) -> USBSpeed:
+        """Return the USB speed reported by PyUSB."""
+        try:
+            return USBSpeed(getattr(self.usb_device, "speed", USBSpeed.UNKNOWN))
+        except (TypeError, ValueError):
+            return USBSpeed.UNKNOWN
 
     @classmethod
     def find(

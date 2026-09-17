@@ -3,7 +3,7 @@
 from pathlib import Path
 from time import monotonic, sleep
 
-from .usb import PyUSBTransport, USBTransport
+from .usb import PyUSBTransport, USBTransport, USBSpeed
 from .bridge import AF9015Bridge
 from .frontend import AF9013Frontend, FrontendStatus
 from .demux import TSDemuxer
@@ -232,7 +232,7 @@ class AF9015Device:
                 adapter=adapter,
                 dual_mode=adapter_count == 2,
                 demodulator_address=demodulator_address,
-                full_speed=bool(getattr(self.bridge.transport, "is_full_speed", False)),
+                full_speed=self.bridge.transport.get_speed() == USBSpeed.FULL,
             )
             frontend.demuxer = demuxer
             self.adapters.append(frontend)

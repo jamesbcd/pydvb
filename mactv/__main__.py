@@ -6,6 +6,7 @@ import pprint
 import usb.core
 
 from .device import AF9015Device
+from .usb import USBSpeed
 
 
 def main() -> int:
@@ -37,17 +38,20 @@ def main() -> int:
     else:
         device.init_hardware()
 
+    print(f"USB speed: {device.bridge.transport.get_speed().name}")
     print(f"Adapter count: {device.adapter_count}")
     for index, frontend in enumerate(device.adapters):
         print(f"Adapter {index}:")
         print(f"Frontend index {index} configuration:")
-        pprint.pprint(frontend.get_config_dict())
+        pprint.pprint(frontend.get_config_dict(), underscore_numbers=True)
         print()
         print(f"Demodulator index {index} configuration:")
-        pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None)
+        pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None,
+                      underscore_numbers=True)
         print()
         print(f"Tuner index {index} configuration:")
-        pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None)
+        pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None,
+                      underscore_numbers=True)
         print()
 
     return 0

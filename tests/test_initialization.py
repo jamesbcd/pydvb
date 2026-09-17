@@ -1,10 +1,14 @@
 from mactv.device import AF9015Device
+from mactv.usb import USBSpeed
 
 
 class FakeTransport:
     def __init__(self, warm=True):
         self.warm = warm
         self.writes = []
+
+    def get_speed(self):
+        return USBSpeed.UNKNOWN
 
     def bulk_write(self, endpoint, data, timeout):
         self.writes.append(bytes(data))

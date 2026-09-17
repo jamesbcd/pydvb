@@ -3,12 +3,16 @@ from mactv.device import (
     EEPROM_ADDRESS,
     AF9015Device,
 )
+from mactv.usb import USBSpeed
 
 
 class FakeTransport:
     def __init__(self, eeprom):
         self.eeprom = eeprom
         self.writes = []
+
+    def get_speed(self):
+        return USBSpeed.UNKNOWN
 
     def bulk_write(self, endpoint, data, timeout):
         self.writes.append(bytes(data))

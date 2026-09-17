@@ -1,5 +1,5 @@
 from mactv.bridge import AF9015Bridge, Command, ControlRequest
-from mactv.usb import PyUSBTransport
+from mactv.usb import PyUSBTransport, USBSpeed
 
 
 class FakeTransport:
@@ -21,11 +21,15 @@ class FakeTransport:
         return self
 
 
-def test_is_full_speed_matches_pyusb_speed_value():
-    assert PyUSBTransport(type("Device", (), {"speed": 2})()).is_full_speed
-    assert not PyUSBTransport(type("Device", (), {"speed": 1})()).is_full_speed
-    assert not PyUSBTransport(type("Device", (), {"speed": 3})()).is_full_speed
-    assert not PyUSBTransport(type("Device", (), {})()).is_full_speed
+def test_get_speed_maps_pyusb_speed_value_to_enum():
+    assert PyUSBTransport(type("Device", (), {"speed": 2})()).get_speed() is USBSpeed.FULL
+    assert PyUSBTransport(type("Device", (), {"speed": 1})()).get_speed() is USBSpeed.LOW
+    assert PyUSBTransport(type("Device", (), {"speed": 3})()).get_speed() is USBSpeed.HIGH_USB2
+
+
+def test_get_speed_returns_unknown_for_missing_or_invalid_value():
+    assert PyUSBTransport(type("Device", (), {})()).get_speed() is USBSpeed.UNKNOWN
+    assert PyUSBTransport(type("Device", (), {"speed": 99})()).get_speed() is USBSpeed.UNKNOWN
 
 
 def test_read_i2c_uses_linux_af9015_frame():

@@ -14,7 +14,7 @@ from .tuner import (
     TransmissionMode,
 )
 from .bridge import AF9015Bridge
-from .usb import PyUSBTransport
+from .usb import PyUSBTransport, USBSpeed
 
 __all__ = [
     "AF9015Bridge",
@@ -27,6 +27,7 @@ __all__ = [
     "FrontendStatus",
     "Modulation",
     "PyUSBTransport",
+    "USBSpeed",
     "Tuner",
     "TDA18271Tuner",
     "TSDemuxer",
