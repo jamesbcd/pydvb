@@ -113,6 +113,8 @@ class AF9015Device:
         self.create_adapters()
         if len(self.adapters) > 1:
             self._start_secondary_demodulator(self.adapters[1].demodulator_address)
+        for frontend in self.adapters:
+            frontend.init_hardware()
 
     def download_firmware(
         self,

@@ -212,8 +212,7 @@ class AF9013Frontend:
         }
 
     def _read_register(self, register: int, length: int = 1) -> bytes:
-        return self.bridge.read_i2c(
-            self.demodulator_address,
+        return self.bridge.read_memory(
             register,
             length,
             address_length=3,
@@ -221,8 +220,7 @@ class AF9013Frontend:
         )
 
     def _write_register(self, register: int, data: bytes) -> None:
-        self.bridge.write_i2c(
-            self.demodulator_address,
+        self.bridge.write_memory(
             register,
             data,
             address_length=3,
@@ -230,16 +228,14 @@ class AF9013Frontend:
         )
 
     def _set_gate(self, enabled: bool) -> None:
-        current = self.bridge.read_i2c(
-            self.demodulator_address,
+        current = self.bridge.read_memory(
             self.GATE_REGISTER,
             1,
             address_length=3,
             mailbox=self.GATE_MAILBOX,
         )[0]
         value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
-        self.bridge.write_i2c(
-            self.demodulator_address,
+        self.bridge.write_memory(
             self.GATE_REGISTER,
             bytes((value,)),
             address_length=3,

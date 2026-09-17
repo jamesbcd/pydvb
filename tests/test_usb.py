@@ -69,6 +69,15 @@ def test_i2c_helpers_encode_af9013_mailbox():
     assert transport.writes[0][1] == bytes((Command.READ_WRITE_I2C, 0, 0x38, 0xD4, 0x17, 1, 3, 1, 0x08))
 
 
+def test_memory_helpers_encode_af9013_register_access():
+    transport = FakeTransport()
+    bridge = AF9015Bridge(transport)
+
+    bridge.read_memory(0xD417, 1, address_length=3, mailbox=1)
+
+    assert transport.writes[0][1] == bytes((Command.READ_MEMORY, 0, 0, 0xD4, 0x17, 1, 3, 1))
+
+
 def test_i2c_helpers_use_bridge_protocol():
     transport = FakeTransport()
     bridge = AF9015Bridge(transport)

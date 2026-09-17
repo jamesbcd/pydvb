@@ -106,14 +106,42 @@ class AF9015Bridge:
                 raise IOError(f"AF9015 command failed with status 0x{reply[1]:02x}")
             return reply[ACK_LENGTH:] if is_read else b""
 
-    def read_memory(self, address: int, length: int) -> bytes:
-        return self.transact(ControlRequest(Command.READ_MEMORY, address=address, read_length=length))
+    def read_memory(
+        self,
+        address: int,
+        length: int,
+        address_length: int = 0,
+        mailbox: int = 0,
+    ) -> bytes:
+        return self.transact(
+            ControlRequest(
+                Command.READ_MEMORY,
+                address=address,
+                mailbox=mailbox,
+                address_length=address_length,
+                read_length=length,
+            )
+        )
 
     def get_state(self) -> int:
         return self.transact(ControlRequest(Command.GET_CONFIG, read_length=1))[0]
 
-    def write_memory(self, address: int, data: bytes) -> None:
-        self.transact(ControlRequest(Command.WRITE_MEMORY, address=address, data=bytes(data)))
+    def write_memory(
+        self,
+        address: int,
+        data: bytes,
+        address_length: int = 0,
+        mailbox: int = 0,
+    ) -> None:
+        self.transact(
+            ControlRequest(
+                Command.WRITE_MEMORY,
+                address=address,
+                mailbox=mailbox,
+                address_length=address_length,
+                data=bytes(data),
+            )
+        )
 
     def update_memory_bits(self, address: int, mask: int, value: int) -> None:
         current = self.read_memory(address, 1)[0]

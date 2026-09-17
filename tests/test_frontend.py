@@ -18,6 +18,12 @@ class FakeBus:
         self.writes.append((address, register, bytes(data), address_length, mailbox))
         self.registers[register] = bytes(data)
 
+    def read_memory(self, register, length, address_length=0, mailbox=0):
+        return self.read_i2c(0x1C, register, length, address_length, mailbox)
+
+    def write_memory(self, register, data, address_length=0, mailbox=0):
+        self.write_i2c(0x1C, register, data, address_length, mailbox)
+
 
 class FakeTuner:
     def __init__(self):
