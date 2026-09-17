@@ -3,11 +3,11 @@
 from pathlib import Path
 from time import monotonic, sleep
 
-from .demux import TSDemuxer
-from .frontend import AF9013Frontend, FrontendStatus
-from .bridge import AF9015Bridge
-from .tuner import TDA18271Tuner, Tuning
 from .usb import PyUSBTransport, USBTransport
+from .bridge import AF9015Bridge
+from .frontend import AF9013Frontend, FrontendStatus
+from .demux import TSDemuxer
+from .tuner import TDA18271Tuner, Tuning
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
 
