@@ -63,8 +63,7 @@ class TSDemuxer(Demuxer):
         self._pid_slots: dict[int, int] = {}
         self._pid_filter_enabled = False
 
-    @property
-    def config_dict(self) -> dict[str, object]:
+    def get_config_dict(self) -> dict[str, object]:
         """Return demuxer configuration and current state for diagnostics."""
         return {
             "adapter": self.adapter,

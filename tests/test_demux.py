@@ -85,10 +85,10 @@ def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
     assert transport.writes == []
 
 
-def test_demuxer_config_dict_contains_configuration_and_is_a_snapshot():
+def test_demuxer_get_config_dict_contains_configuration_and_is_a_snapshot():
     demuxer = TSDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
 
-    config = demuxer.config_dict
+    config = demuxer.get_config_dict()
 
     assert config == {
         "adapter": 0,
@@ -106,5 +106,5 @@ def test_demuxer_config_dict_contains_configuration_and_is_a_snapshot():
 
     config["buffer_size"] = 1
     config["pid_slots"][100] = 0
-    assert demuxer.config_dict["buffer_size"] == 64
-    assert demuxer.config_dict["pid_slots"] == {}
+    assert demuxer.get_config_dict()["buffer_size"] == 64
+    assert demuxer.get_config_dict()["pid_slots"] == {}

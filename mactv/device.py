@@ -96,7 +96,7 @@ class AF9015Device:
     def is_warm(self) -> bool:
         return self.bridge.get_state() == 0x02
 
-    def initialize(
+    def init_hardware(
         self,
         firmware: bytes | None = None,
         firmware_path: str | Path | None = None,
@@ -106,7 +106,7 @@ class AF9015Device:
         if not self.is_warm:
             if not download_firmware:
                 raise RuntimeError(
-                    "AF9015 firmware is not running; call initialize(download_firmware=True) "
+                    "AF9015 firmware is not running; call init_hardware(download_firmware=True) "
                     "to download it explicitly"
                 )
             self.download_firmware(firmware, firmware_path)

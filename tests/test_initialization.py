@@ -24,7 +24,7 @@ class FakeTransport:
 def test_initialize_skips_firmware_for_warm_device():
     device = AF9015Device(FakeTransport())
 
-    device.initialize()
+    device.init_hardware()
 
     assert len(device.adapters) == 1
     assert device.firmware_size == 0
@@ -34,7 +34,7 @@ def test_initialize_does_not_upload_firmware_by_default():
     device = AF9015Device(FakeTransport(warm=False))
 
     try:
-        device.initialize(download_firmware=False)
+        device.init_hardware(download_firmware=False)
     except RuntimeError as error:
         assert "download_firmware=True" in str(error)
     else:

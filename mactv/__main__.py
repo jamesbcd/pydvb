@@ -32,22 +32,22 @@ def main() -> int:
         if args.safe:
             return 0
         print("Device is cold; initializing and downloading firmware to device...")
-        device.initialize()
+        device.init_hardware()
         print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     else:
-        device.initialize()
+        device.init_hardware()
 
     print(f"Adapter count: {device.adapter_count}")
-    for index, adapter in enumerate(device.adapters):
-        print(f"Adapter index {index}:")
-        pprint.pprint({
-            "demod_address": adapter.demodulator_address,
-            "clock_hz": adapter.clock_hz,
-            "intermediate_frequency_hz": adapter.intermediate_frequency_hz,
-            "mt2060_if": adapter.mt2060_if,
-            "tuner_id": adapter.tuner_id,
-            "spectrum_inverted": adapter.spectrum_inverted,
-        })
+    for index, frontend in enumerate(device.adapters):
+        print(f"Adapter {index}:")
+        print(f"Frontend index {index} configuration:")
+        pprint.pprint(frontend.get_config_dict())
+        print()
+        print(f"Demodulator index {index} configuration:")
+        pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None)
+        print()
+        print(f"Tuner index {index} configuration:")
+        pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None)
         print()
 
     return 0

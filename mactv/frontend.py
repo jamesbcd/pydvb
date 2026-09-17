@@ -192,8 +192,7 @@ class AF9013Frontend:
         self._bit_count = 0
         self._block_count = 0
 
-    @property
-    def config_dict(self) -> dict[str, object]:
+    def get_config_dict(self) -> dict[str, object]:
         """Return frontend configuration and current tuning state for diagnostics."""
         return {
             "demodulator_address": self.demodulator_address,

@@ -84,6 +84,8 @@ class Tuner(Protocol):
 
     def sleep(self) -> None: ...
 
+    def get_config_dict(self) -> dict[str, object]: ...
+
 
 class TDA18271Tuner(Tuner):
     """AF9015 digital DVB-T driver for NXP TDA18271 HDC1 and HDC2 tuners.
@@ -298,8 +300,7 @@ class TDA18271Tuner(Tuner):
     def sleeping(self) -> bool:
         return self._sleeping
 
-    @property
-    def config_dict(self) -> dict[str, object]:
+    def get_config_dict(self) -> dict[str, object]:
         """Return tuner configuration and current state for diagnostics."""
         return {
             "i2c_address": self.i2c_address,

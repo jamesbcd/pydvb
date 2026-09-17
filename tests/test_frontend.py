@@ -107,10 +107,10 @@ def test_frontend_rejects_unknown_adapter():
         AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False, adapter=2)
 
 
-def test_frontend_config_dict_contains_configuration_and_is_a_snapshot():
+def test_frontend_get_config_dict_contains_configuration_and_is_a_snapshot():
     frontend = AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False)
 
-    config = frontend.config_dict
+    config = frontend.get_config_dict()
 
     assert config == {
         "demodulator_address": 0x1C,
@@ -130,7 +130,7 @@ def test_frontend_config_dict_contains_configuration_and_is_a_snapshot():
     }
 
     config["clock_hz"] = 1
-    assert frontend.config_dict["clock_hz"] == 28_800_000
+    assert frontend.get_config_dict()["clock_hz"] == 28_800_000
 
 
 def test_frontend_sleep_stops_tuner():
