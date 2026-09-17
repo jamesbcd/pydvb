@@ -283,6 +283,8 @@ class TDA18271Tuner(I2CTuner):
         super().__init__(frontend, i2c_address)
         if i2c_address != self.I2C_ADDRESS:
             raise ValueError("TDA18271 must use I2C address 0x60")
+        # For now, we initialize the register cache with the default values for chip ID 0x84. init() will update
+        # this as needed.
         self._registers = bytearray(self.DEFAULT_REGISTERS[0x84])
         self._chip_id: int | None = None
         self._initialized = False
@@ -292,10 +294,10 @@ class TDA18271Tuner(I2CTuner):
         self._rf_calibration_initialized = False
         self._rf_calibration_temperature: int | None = None
 
-    def _read(self, register: int, length: int) -> bytes:
+    def _read_register(self, register: int, length: int) -> bytes:
         return self.frontend.gated_read_register(self.i2c_address, register, length)
 
-    def _write(self, register: int, data: bytes) -> None:
+    def _write_register(self, register: int, data: bytes) -> None:
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         if register + len(data) > self.REGISTER_COUNT:
@@ -304,10 +306,10 @@ class TDA18271Tuner(I2CTuner):
         self._registers[register : register + len(data)] = data
 
     def _write_cached(self, register: int, length: int) -> None:
-        self._write(register, bytes(self._registers[register : register + length]))
+        self._write_register(register, bytes(self._registers[register : register + length]))
 
     def _read_extended(self) -> bytes:
-        values = self._read(self.REG_ID, self.REGISTER_COUNT)
+        values = self._read_register(self.REG_ID, self.REGISTER_COUNT)
         if len(values) != self.REGISTER_COUNT:
             raise IOError("short TDA18271 extended register read")
         for register, value in enumerate(values):
@@ -550,7 +552,7 @@ class TDA18271Tuner(I2CTuner):
         self._write_cached(self.REG_EP1, 1)
 
     def init(self) -> None:
-        chip_id = self._read(self.REG_ID, 1)[0]
+        chip_id = self._read_register(self.REG_ID, 1)[0]
         if chip_id not in (0x83, 0x84):
             raise IOError(f"unexpected TDA18271 ID 0x{chip_id:02x}")
         self._chip_id = chip_id
