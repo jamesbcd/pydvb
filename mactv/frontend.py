@@ -192,6 +192,26 @@ class AF9013Frontend:
         self._bit_count = 0
         self._block_count = 0
 
+    @property
+    def config_dict(self) -> dict[str, object]:
+        """Return frontend configuration and current tuning state for diagnostics."""
+        return {
+            "demodulator_address": self.demodulator_address,
+            "tuner_id": self.tuner_id,
+            "adapter": self.adapter,
+            "clock_hz": self.clock_hz,
+            "intermediate_frequency_hz": self.intermediate_frequency_hz,
+            "spectrum_inverted": self.spectrum_inverted,
+            "mt2060_if": self.mt2060_if,
+            "ts_mode": self.ts_mode,
+            "ts_output_pin": self.ts_output_pin,
+            "gpio": self.gpio,
+            "initialized": self._initialized,
+            "sleeping": self._sleeping,
+            "current_tuning": self.current_tuning,
+            "last_bandwidth_hz": self._last_bandwidth_hz,
+        }
+
     def _read_register(self, register: int, length: int = 1) -> bytes:
         return self.bridge.read_i2c(
             self.demodulator_address,

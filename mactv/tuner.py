@@ -298,6 +298,19 @@ class TDA18271Tuner(Tuner):
     def sleeping(self) -> bool:
         return self._sleeping
 
+    @property
+    def config_dict(self) -> dict[str, object]:
+        """Return tuner configuration and current state for diagnostics."""
+        return {
+            "i2c_address": self.i2c_address,
+            "chip_id": self._chip_id,
+            "initialized": self._initialized,
+            "sleeping": self._sleeping,
+            "current_tuning": self.current_tuning,
+            "rf_calibration_initialized": self._rf_calibration_initialized,
+            "rf_calibration_temperature": self._rf_calibration_temperature,
+        }
+
     def _read_register(self, register: int, length: int) -> bytes:
         return self.frontend.gated_read_register(self.i2c_address, register, length)
 

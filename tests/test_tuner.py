@@ -56,6 +56,25 @@ def test_tda18271_state_properties_are_read_only():
     assert tuner.sleeping
 
 
+def test_tda18271_config_dict_contains_configuration_and_is_a_snapshot():
+    tuner = TDA18271Tuner(FakeFrontend())
+
+    config = tuner.config_dict
+
+    assert config == {
+        "i2c_address": 0x60,
+        "chip_id": None,
+        "initialized": False,
+        "sleeping": True,
+        "current_tuning": None,
+        "rf_calibration_initialized": False,
+        "rf_calibration_temperature": None,
+    }
+
+    config["i2c_address"] = 1
+    assert tuner.config_dict["i2c_address"] == 0x60
+
+
 def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)

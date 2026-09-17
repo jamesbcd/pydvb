@@ -63,6 +63,23 @@ class TSDemuxer(Demuxer):
         self._pid_slots: dict[int, int] = {}
         self._pid_filter_enabled = False
 
+    @property
+    def config_dict(self) -> dict[str, object]:
+        """Return demuxer configuration and current state for diagnostics."""
+        return {
+            "adapter": self.adapter,
+            "dual_mode": self._dual_mode,
+            "demodulator_address": self.demodulator_address,
+            "endpoint": self.endpoint,
+            "buffer_size": self._buffer_size,
+            "packet_count": self.packet_count,
+            "running": self._running,
+            "configured": self._configured,
+            "pid_filter_enabled": self._pid_filter_enabled,
+            "pids": frozenset(self._pid_slots),
+            "pid_slots": dict(self._pid_slots),
+        }
+
     def start(self) -> None:
         if not self._configured:
             stream_register = 0xDD88 if self.adapter == 0 else 0xDD8A

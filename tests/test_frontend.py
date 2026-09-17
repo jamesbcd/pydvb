@@ -107,6 +107,32 @@ def test_frontend_rejects_unknown_adapter():
         AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False, adapter=2)
 
 
+def test_frontend_config_dict_contains_configuration_and_is_a_snapshot():
+    frontend = AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False)
+
+    config = frontend.config_dict
+
+    assert config == {
+        "demodulator_address": 0x1C,
+        "tuner_id": 0x9C,
+        "adapter": 0,
+        "clock_hz": 28_800_000,
+        "intermediate_frequency_hz": 4_570_000,
+        "spectrum_inverted": False,
+        "mt2060_if": 0,
+        "ts_mode": frontend.TS_MODE_USB,
+        "ts_output_pin": frontend.TS_OUTPUT_PIN_DEFAULT,
+        "gpio": frontend.gpio,
+        "initialized": False,
+        "sleeping": True,
+        "current_tuning": None,
+        "last_bandwidth_hz": None,
+    }
+
+    config["clock_hz"] = 1
+    assert frontend.config_dict["clock_hz"] == 28_800_000
+
+
 def test_frontend_sleep_stops_tuner():
     tuner = FakeTuner()
     frontend = AF9013Frontend(FakeBus(), 0x1C, tuner, 28_800_000, 4_570_000, False)

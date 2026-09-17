@@ -83,3 +83,28 @@ def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
 
     assert demuxer.pids == frozenset()
     assert transport.writes == []
+
+
+def test_demuxer_config_dict_contains_configuration_and_is_a_snapshot():
+    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
+
+    config = demuxer.config_dict
+
+    assert config == {
+        "adapter": 0,
+        "dual_mode": False,
+        "demodulator_address": 0x1C,
+        "endpoint": demuxer.endpoint,
+        "buffer_size": 64,
+        "packet_count": 5,
+        "running": False,
+        "configured": False,
+        "pid_filter_enabled": False,
+        "pids": frozenset(),
+        "pid_slots": {},
+    }
+
+    config["buffer_size"] = 1
+    config["pid_slots"][100] = 0
+    assert demuxer.config_dict["buffer_size"] == 64
+    assert demuxer.config_dict["pid_slots"] == {}
