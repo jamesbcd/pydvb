@@ -49,4 +49,5 @@ By default, `download_firmware()` loads
 reads the EEPROM configuration, and creates a second demuxer when the device
 reports dual-tuner mode. Firmware upload is disabled by default; enable it
 explicitly with `device.initialize(download_firmware=True)`. Adapter
-configuration is available through each `device.adapters` entry.
+configuration is available through each `AF9013Frontend` in
+`device.adapters`; its transport-stream demuxer is available as `.demuxer`.

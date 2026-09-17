@@ -40,14 +40,14 @@ def test_read_configuration_creates_adapters_from_dual_eeprom():
 
     device = AF9015Device(FakeTransport(bytes(eeprom)))
     device.create_adapters()
-    configurations = tuple(adapter.config for adapter in device.adapters)
+    adapters = tuple(device.adapters)
 
-    assert len(configurations) == 2
+    assert len(adapters) == 2
     assert device.adapter_count == 2
-    assert device.adapters[0].demuxer.endpoint == 0x84
-    assert device.adapters[1].demuxer.endpoint == 0x85
-    assert configurations[0].demod_address == DEMODULATOR_ADDRESS
-    assert configurations[1].demod_address == 0x1D
+    assert adapters[0].demuxer.endpoint == 0x84
+    assert adapters[1].demuxer.endpoint == 0x85
+    assert adapters[0].demodulator_address == DEMODULATOR_ADDRESS
+    assert adapters[1].demodulator_address == 0x1D
     assert device.eeprom_hash == device._eeprom_hash(bytes(eeprom))
 
 
@@ -59,9 +59,8 @@ def test_tda18271_configuration_creates_coordinated_frontend():
 
     device = AF9015Device(FakeTransport(bytes(eeprom)))
     device.create_adapters()
-    configurations = tuple(adapter.config for adapter in device.adapters)
+    adapter = device.adapters[0]
 
-    assert device.adapters[0].config is configurations[0]
-    assert device.adapters[0].tuner is not None
-    assert device.adapters[0].frontend is not None
-    assert device.adapters[0].frontend.tuner is device.adapters[0].tuner
+    assert adapter.tuner is not None
+    assert adapter.demuxer is not None
+    assert adapter.mt2060_if == 0

@@ -3,7 +3,6 @@
 from pathlib import Path
 from time import monotonic, sleep
 
-from .adapter import DTVAdapterConfig, DTVAdapter
 from .demux import TSDemuxer
 from .frontend import AF9013Frontend, FrontendStatus
 from .bridge import AF9015Bridge
@@ -76,7 +75,7 @@ class AF9015Device:
 
     def _reset_with_bridge(self, bridge: AF9015Bridge) -> None:
         self.bridge = bridge
-        self.adapters: list[DTVAdapter] = []
+        self.adapters: list[AF9013Frontend] = []
         self.eeprom: bytes | None = None
         self.eeprom_hash: int | None = None
  
@@ -113,7 +112,7 @@ class AF9015Device:
             self.download_firmware(firmware, firmware_path)
         self.create_adapters()
         if len(self.adapters) > 1:
-            self._start_secondary_demodulator(self.adapters[1].config.demod_address)
+            self._start_secondary_demodulator(self.adapters[1].demodulator_address)
 
     def download_firmware(
         self,
@@ -204,51 +203,43 @@ class AF9015Device:
             offset = adapter * EEPROM_ADAPTER_OFFSET
             tuner_id = eeprom[EEPROM_TUNER_ID + offset]
             spectrum_inverted = tuner_id not in {0x04, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F}
-            config = DTVAdapterConfig(
-                demod_address=demod_addresses[adapter],
-                clock_hz=XTAL_CLOCKS.get(eeprom[EEPROM_XTAL_TYPE + offset], 0),
-                intermed_freq_hz=(
-                    int.from_bytes(eeprom[EEPROM_IF_LOW + offset : EEPROM_IF_HIGH + offset + 1], "little") * 1000
-                ),
-                mt2060_if=int.from_bytes(
-                    eeprom[EEPROM_MT2060_IF_LOW + offset : EEPROM_MT2060_IF_HIGH + offset + 1], "little"
-                ),
-                tuner_id=tuner_id,
-                spectrum_inverted=spectrum_inverted,
+            demodulator_address = demod_addresses[adapter]
+            clock_hz = XTAL_CLOCKS.get(eeprom[EEPROM_XTAL_TYPE + offset], 0)
+            intermediate_frequency_hz = (
+                int.from_bytes(eeprom[EEPROM_IF_LOW + offset : EEPROM_IF_HIGH + offset + 1], "little") * 1000
             )
-            frontend = (
-                AF9013Frontend(
-                    self.bridge,
-                    config.demod_address,
-                    None,
-                    config.clock_hz,
-                    config.intermed_freq_hz,
-                    config.spectrum_inverted,
-                    config.tuner_id,
-                    adapter=adapter,
-                )
-                if config.tuner_id == TDA18271_TUNER_ID
-                else None
+            mt2060_if = int.from_bytes(
+                eeprom[EEPROM_MT2060_IF_LOW + offset : EEPROM_MT2060_IF_HIGH + offset + 1], "little"
+            )
+            frontend = AF9013Frontend(
+                self.bridge,
+                demodulator_address,
+                None,
+                clock_hz,
+                intermediate_frequency_hz,
+                spectrum_inverted,
+                tuner_id,
+                adapter=adapter,
+                mt2060_if=mt2060_if,
             )
             # TDA18271 sits behind the AF9013's I2C gate, so the frontend is its own bus.
-            tuner = TDA18271Tuner(frontend) if frontend is not None else None
-            if frontend is not None:
-                frontend.tuner = tuner
+            tuner = TDA18271Tuner(frontend) if tuner_id == TDA18271_TUNER_ID else None
+            frontend.tuner = tuner
             demuxer = TSDemuxer(
                 self.bridge,
                 adapter=adapter,
                 dual_mode=adapter_count == 2,
-                demodulator_address=config.demod_address,
+                demodulator_address=demodulator_address,
                 full_speed=bool(getattr(self.bridge.transport, "is_full_speed", False)),
             )
-            self.adapters.append(DTVAdapter(config, demuxer, tuner, frontend))
+            frontend.demuxer = demuxer
+            self.adapters.append(frontend)
 
     def tune(self, adapter: int, tuning: Tuning, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
-        if not 0 <= adapter < len(self.adapters) or self.adapters[adapter].frontend is None:
+        if not 0 <= adapter < len(self.adapters) or self.adapters[adapter].tuner is None:
             raise ValueError("adapter has no supported AF9013/TDA18271 frontend")
-        frontend = self.adapters[adapter].frontend
-        assert frontend is not None
+        frontend = self.adapters[adapter]
         frontend.tune(tuning)
         return frontend.wait_for_lock() if wait_for_lock else frontend.read_status()
 

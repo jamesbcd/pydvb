@@ -5,9 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import log10
 from time import monotonic, sleep
+from typing import TYPE_CHECKING
 
 from .bridge import AF9015Bridge
 from .tuner import CodeRate, GuardInterval, Hierarchy, Modulation, Tuner, Tuning, TransmissionMode
+
+if TYPE_CHECKING:
+    from .demux import TSDemuxer
 
 
 @dataclass(frozen=True)
@@ -159,6 +163,7 @@ class AF9013Frontend:
         spectrum_inverted: bool,
         tuner_id: int = 0x9C,
         adapter: int = 0,
+        mt2060_if: int = 0,
     ) -> None:
         if adapter not in (0, 1):
             raise ValueError("AF9013 adapter must be 0 or 1")
@@ -170,6 +175,8 @@ class AF9013Frontend:
         self.spectrum_inverted = spectrum_inverted
         self.tuner_id = tuner_id
         self.adapter = adapter
+        self.mt2060_if = mt2060_if
+        self.demuxer: TSDemuxer | None = None
         self.ts_mode = self.TS_MODE_SERIAL if adapter == 1 else self.TS_MODE_USB
         self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter == 1 else self.TS_OUTPUT_PIN_DEFAULT
         self.gpio = (

@@ -40,7 +40,14 @@ def main() -> int:
     print(f"Adapter count: {device.adapter_count}")
     for index, adapter in enumerate(device.adapters):
         print(f"Adapter index {index}:")
-        pprint.pprint(adapter.config)
+        pprint.pprint({
+            "demod_address": adapter.demodulator_address,
+            "clock_hz": adapter.clock_hz,
+            "intermediate_frequency_hz": adapter.intermediate_frequency_hz,
+            "mt2060_if": adapter.mt2060_if,
+            "tuner_id": adapter.tuner_id,
+            "spectrum_inverted": adapter.spectrum_inverted,
+        })
         print()
 
     return 0
