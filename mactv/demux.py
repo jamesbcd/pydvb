@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from threading import Lock
 
 from .bridge import AF9015Bridge
 from .usb import STREAM_ENDPOINTS
@@ -54,9 +55,11 @@ class TSDemuxer(Demuxer):
         self._dual_mode = dual_mode
         self.demodulator_address = demodulator_address
         self.endpoint = STREAM_ENDPOINTS[adapter]
+        self._buffer_size = 64 if full_speed else 512
         self.packet_count = 5 if full_speed else self.TS_PACKET_COUNT
         self._running = False
         self._configured = False
+        self._pid_lock = Lock()
         self._pid_slots: dict[int, int] = {}
         self._pid_filter_enabled = False
 
@@ -66,7 +69,7 @@ class TSDemuxer(Demuxer):
             buffer_register = 0xDD0C if self.adapter == 0 else 0xDD0D
             buffer_words = self.packet_count * self.TS_PACKET_SIZE // 4
             self.bridge.write_memory(stream_register, buffer_words.to_bytes(2, "little"))
-            self.bridge.write_memory(buffer_register, bytes((512 // 4,)))
+            self.bridge.write_memory(buffer_register, bytes((self._buffer_size // 4,)))
             self.bridge.update_memory_bits(0xD50B, 0x01, 0x01 if self._dual_mode else 0)
             self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
             self._configured = True
@@ -100,36 +103,40 @@ class TSDemuxer(Demuxer):
         )
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
-        if not 0 <= pid <= 0x1FFF:
-            raise ValueError("PID must be between 0 and 0x1fff")
-        if enabled:
-            if pid in self._pid_slots:
-                return
-            if len(self._pid_slots) >= self.PID_FILTER_COUNT:
-                raise ValueError("AF9015 PID filter has 32 slots")
-            slot = next(index for index in range(self.PID_FILTER_COUNT) if index not in self._pid_slots.values())
-            self.bridge.write_i2c(
-                self.demodulator_address,
-                self.AF9013_PID_FILTER_VALUE,
-                pid.to_bytes(2, "little"),
-                address_length=3,
-            )
-            self.bridge.write_i2c(
-                self.demodulator_address,
-                self.AF9013_PID_FILTER_SLOT,
-                bytes((0x20 | slot,)),
-                address_length=3,
-            )
-            self._pid_slots[pid] = slot
-        else:
-            slot = self._pid_slots.pop(pid, None)
-            if slot is not None:
+        if not 0 <= pid <= 0x2000:
+            raise ValueError("PID must be between 0 and 0x2000")
+        if pid == 0x2000:
+            return
+
+        with self._pid_lock:
+            if enabled:
+                if pid in self._pid_slots:
+                    return
+                if len(self._pid_slots) >= self.PID_FILTER_COUNT:
+                    raise ValueError("AF9015 PID filter has 32 slots")
+                slot = next(index for index in range(self.PID_FILTER_COUNT) if index not in self._pid_slots.values())
+                self.bridge.write_i2c(
+                    self.demodulator_address,
+                    self.AF9013_PID_FILTER_VALUE,
+                    pid.to_bytes(2, "little"),
+                    address_length=3,
+                )
                 self.bridge.write_i2c(
                     self.demodulator_address,
                     self.AF9013_PID_FILTER_SLOT,
-                    bytes((slot,)),
+                    bytes((0x20 | slot,)),
                     address_length=3,
                 )
+                self._pid_slots[pid] = slot
+            else:
+                slot = self._pid_slots.pop(pid, None)
+                if slot is not None:
+                    self.bridge.write_i2c(
+                        self.demodulator_address,
+                        self.AF9013_PID_FILTER_SLOT,
+                        bytes((slot,)),
+                        address_length=3,
+                    )
 
     def enable_pid_filter(self, enabled: bool = True) -> None:
         """Enable or disable AF9013 hardware PID filtering."""

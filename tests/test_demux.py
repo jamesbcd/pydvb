@@ -12,7 +12,7 @@ class FakeTransport:
         self.writes.append((endpoint, bytes(data)))
 
     def bulk_read(self, endpoint, length, timeout):
-        return b"\x00\x00"
+        return b"\x00\x00\x00"
 
     def close(self):
         pass
@@ -64,6 +64,22 @@ def test_pid_filter_rejects_more_than_32_slots():
 
 
 def test_full_speed_stream_uses_five_packets():
-    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
+    transport = FakeTransport()
+    demuxer = TSDemuxer(AF9015Bridge(transport), full_speed=True)
 
     assert demuxer.packet_count == 5
+
+    demuxer.start()
+
+    buffer_writes = [packet for _, packet in transport.writes if packet[3:5] == b"\xdd\x0c"]
+    assert buffer_writes[-1][8:] == b"\x10"
+
+
+def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
+    transport = FakeTransport()
+    demuxer = TSDemuxer(AF9015Bridge(transport))
+
+    demuxer.set_pid_filter(0x2000)
+
+    assert demuxer.pids == frozenset()
+    assert transport.writes == []
