@@ -1,4 +1,5 @@
 from mactv.bridge import AF9015Bridge, Command, ControlRequest
+from mactv.usb import PyUSBTransport
 
 
 class FakeTransport:
@@ -18,6 +19,13 @@ class FakeTransport:
 
     def reconnect(self, timeout=5.0, poll_interval=0.1):
         return self
+
+
+def test_is_full_speed_matches_pyusb_speed_value():
+    assert PyUSBTransport(type("Device", (), {"speed": 2})()).is_full_speed
+    assert not PyUSBTransport(type("Device", (), {"speed": 1})()).is_full_speed
+    assert not PyUSBTransport(type("Device", (), {"speed": 3})()).is_full_speed
+    assert not PyUSBTransport(type("Device", (), {})()).is_full_speed
 
 
 def test_read_i2c_uses_linux_af9015_frame():

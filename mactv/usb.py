@@ -8,7 +8,7 @@ from typing import Any, Protocol, cast
 CONTROL_OUT = 0x02
 CONTROL_IN = 0x81
 STREAM_ENDPOINTS = (0x84, 0x85)
-USB_SPEED_FULL = 1
+USB_SPEED_FULL = 2
 BUFFER_LENGTH = 63
 HEADER_LENGTH = 8
 ACK_LENGTH = 2
@@ -28,12 +28,12 @@ class PyUSBTransport:
 
     def __init__(
         self,
-        device: Any,
+        usb_device: Any,
         interface: int = 0,
         vendor_id: int | None = None,
         product_id: int | None = None,
     ) -> None:
-        self.device = device
+        self.usb_device = usb_device
         self.interface = interface
         self.vendor_id = vendor_id
         self.product_id = product_id
@@ -41,7 +41,7 @@ class PyUSBTransport:
     @property
     def is_full_speed(self) -> bool:
         """Whether PyUSB reports the device as USB full speed."""
-        return getattr(self.device, "speed", None) == USB_SPEED_FULL
+        return getattr(self.usb_device, "speed", None) == USB_SPEED_FULL
 
     @classmethod
     def find(
@@ -56,18 +56,18 @@ class PyUSBTransport:
         except ImportError as exc:
             raise RuntimeError("PyUSB is required for hardware access") from exc
 
-        device = cast(Any, usb.core.find(idVendor=vendor_id, idProduct=product_id))
-        if device is None:
+        usb_device = cast(Any, usb.core.find(idVendor=vendor_id, idProduct=product_id))
+        if usb_device is None:
             raise ValueError(f"USB device {vendor_id:04x}:{product_id:04x} was not found")
         if configure:
-            device.set_configuration()
-        return cls(device, interface, vendor_id, product_id)
+            usb_device.set_configuration()
+        return cls(usb_device, interface, vendor_id, product_id)
 
     def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None:
-        self.device.write(endpoint, data, timeout=timeout)
+        self.usb_device.write(endpoint, data, timeout=timeout)
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
-        return bytes(self.device.read(endpoint, length, timeout=timeout))
+        return bytes(self.usb_device.read(endpoint, length, timeout=timeout))
 
     def close(self) -> None:
         """Release the libusb handle before a device reset or re-enumeration."""
@@ -75,7 +75,7 @@ class PyUSBTransport:
             import usb.util
         except ImportError as exc:
             raise RuntimeError("PyUSB is required for USB resource cleanup") from exc
-        usb.util.dispose_resources(self.device)
+        usb.util.dispose_resources(self.usb_device)
 
     def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "PyUSBTransport":
         """Release this handle and wait for the same USB device to reappear."""
