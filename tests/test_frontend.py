@@ -46,7 +46,8 @@ def test_frontend_tunes_tuner_and_programs_frequency_and_bandwidth():
     assert any(register == frontend.REG_FREQUENCY_CONTROL for _, register, _, _, _ in bus.writes)
     assert any(register == frontend.REG_FREQUENCY_CONTROL_EXT for _, register, data, _, _ in bus.writes if len(data) == 6)
     bus.registers[frontend.REG_MPEG_STATUS] = b"\x40"
-    assert frontend.read_status() == FrontendStatus(True, True, True, True, True)
+    status = frontend.read_status()
+    assert (status.signal, status.carrier, status.viterbi, status.sync, status.lock) == (True, True, True, True, True)
 
 
 def test_frontend_programs_serial_ts_mode_on_output_pin_7():
@@ -138,7 +139,7 @@ def test_frontend_cnr_uses_kernel_fixed_point_scale():
     bus.registers[AF9013Frontend.REG_MODULATION] = b"\x00"
     frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)
 
-    metrics = frontend.read_metrics()
+    metrics = frontend.read_status()
 
     expected = (log10(1_000_000) - log10(1_690_000 - 1_000_000) + 3_355_443 / 2**24) * 13
     assert metrics.snr_db == pytest.approx(expected)
@@ -150,7 +151,7 @@ def test_frontend_ber_reads_counts_and_resets_measurement_window():
     bus.registers[AF9013Frontend.REG_BER_COUNTER] = bytes((100, 0, 3, 2, 1, 6, 5))
     frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)
 
-    metrics = frontend.read_metrics()
+    metrics = frontend.read_status()
 
     assert metrics.bit_errors == 0x010203
     assert metrics.block_errors == 0x0506

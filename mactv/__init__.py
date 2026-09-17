@@ -3,7 +3,7 @@
 from .adapter import DTVAdapterConfig, DTVAdapter
 from .device import AF9015Device
 from .demux import Demuxer, TSDemuxer
-from .frontend import AF9013Frontend, FrontendMetrics, FrontendStatus
+from .frontend import AF9013Frontend, FrontendStatus
 from .tuner import (
     CodeRate,
     GuardInterval,
@@ -28,7 +28,6 @@ __all__ = [
     "GuardInterval",
     "Hierarchy",
     "FrontendStatus",
-    "FrontendMetrics",
     "Modulation",
     "PyUSBTransport",
     "Tuner",

@@ -12,21 +12,17 @@ from .tuner import CodeRate, GuardInterval, Hierarchy, Modulation, Tuner, Tuning
 
 @dataclass(frozen=True)
 class FrontendStatus:
-    """The lock state exposed by the AF9013 MPEG/TPS status bits."""
+    """The AF9013 lock state and reception metrics."""
 
     signal: bool
     carrier: bool
     viterbi: bool
     sync: bool
     lock: bool
-
-
-@dataclass(frozen=True)
-class FrontendMetrics:
-    signal_strength_dbm: int | None
-    snr_db: float | None
-    bit_errors: int | None
-    block_errors: int | None
+    signal_strength_dbm: int | None = None
+    snr_db: float | None = None
+    bit_errors: int | None = None
+    block_errors: int | None = None
     bit_count: int | None = None
     block_count: int | None = None
 
@@ -434,10 +430,61 @@ class AF9013Frontend:
         mpeg_locked = bool(self._read_register(self.REG_MPEG_STATUS)[0] & 0x40)
         tps_locked = bool(self._read_register(self.REG_TPS_STATUS)[0] & 0x08)
         if mpeg_locked:
-            return FrontendStatus(True, True, True, True, True)
-        return FrontendStatus(tps_locked, tps_locked, tps_locked, False, False)
+            signal = carrier = viterbi = sync = lock = True
+        else:
+            signal = carrier = viterbi = tps_locked
+            sync = lock = False
 
-    def read_frontend(self) -> Tuning | None:
+        strength = snr = bit_errors = block_errors = None
+        if viterbi and self._read_register(0x9BEE)[0] & 1:
+            rf = self._read_register(0xD07C, 2)
+            limits = self._read_register(0x9BBD)[0] + self._read_register(0x9BD0)[0], self._read_register(0x9BE2)[0] + self._read_register(0x9BE4)[0]
+            if limits[0] != limits[1]:
+                strength = int(30000 * (sum(rf) - limits[1]) / (limits[0] - limits[1]) - 80000)
+        if viterbi and self._read_register(self.REG_CNR_READY)[0] & 0x08:
+            value = int.from_bytes(self._read_register(self.REG_CNR, 3), "little")
+            modulation = (self._read_register(self.REG_MODULATION)[0] >> 6) & 3
+            bounds = {
+                0: (653799, 1689999, 0, 1690000, 13, 3355443),
+                1: (371105, 827999, 370000, 828000, 6, 43900382),
+                2: (193246, 424999, 193000, 425000, 8, 49912218),
+            }.get(modulation)
+            if bounds:
+                low, high, lower_offset, top, factor, offset = bounds
+                value = max(low, min(high, value))
+                snr = (log10(value - lower_offset) - log10(top - value) + offset / 2**24) * factor
+        if sync and self._read_register(self.REG_BER_READY)[0] & 0x10:
+            counter = self._read_register(self.REG_BER_COUNTER, 7)
+            packet_count = int.from_bytes(counter[0:2], "little")
+            bit_errors = int.from_bytes(counter[2:5], "little")
+            block_errors = int.from_bytes(counter[5:7], "little")
+            bit_count = packet_count * 204 * 8
+            self._bit_count += bit_count
+            self._block_count += packet_count
+            self._block_errors += block_errors
+            if packet_count != 10_000:
+                self._write_register(self.REG_BER_COUNTER, (10_000).to_bytes(2, "little"))
+            self._update_bits(self.REG_BER_READY, 0x20, 0x20)
+            block_errors = self._block_errors
+            bit_count = self._bit_count
+            block_count = self._block_count
+        else:
+            bit_count = block_count = None
+        return FrontendStatus(
+            signal,
+            carrier,
+            viterbi,
+            sync,
+            lock,
+            strength,
+            snr,
+            bit_errors,
+            block_errors,
+            bit_count,
+            block_count,
+        )
+
+    def read_tuning(self) -> Tuning | None:
         if self.current_tuning is None:
             return None
         transmission = self._read_register(self.REG_TRANSMISSION, 3)
@@ -476,48 +523,6 @@ class AF9013Frontend:
             4: CodeRate.RATE_7_8,
         }.get((transmission[2] >> 3) & 7, CodeRate.AUTO)
         return Tuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
-
-    def read_metrics(self) -> FrontendMetrics:
-        status = self.read_status()
-        strength = snr = bit_errors = block_errors = None
-        if status.viterbi and self._read_register(0x9BEE)[0] & 1:
-            rf = self._read_register(0xD07C, 2)
-            limits = self._read_register(0x9BBD)[0] + self._read_register(0x9BD0)[0], self._read_register(0x9BE2)[0] + self._read_register(0x9BE4)[0]
-            if limits[0] != limits[1]:
-                strength = int(30000 * (sum(rf) - limits[1]) / (limits[0] - limits[1]) - 80000)
-        if status.viterbi and self._read_register(self.REG_CNR_READY)[0] & 0x08:
-            value = int.from_bytes(self._read_register(self.REG_CNR, 3), "little")
-            modulation = (self._read_register(self.REG_MODULATION)[0] >> 6) & 3
-            bounds = {
-                0: (653799, 1689999, 0, 1690000, 13, 3355443),
-                1: (371105, 827999, 370000, 828000, 6, 43900382),
-                2: (193246, 424999, 193000, 425000, 8, 49912218),
-            }.get(modulation)
-            if bounds:
-                low, high, lower_offset, top, factor, offset = bounds
-                value = max(low, min(high, value))
-                snr = (log10(value - lower_offset) - log10(top - value) + offset / 2**24) * factor
-        if status.sync and self._read_register(self.REG_BER_READY)[0] & 0x10:
-            counter = self._read_register(self.REG_BER_COUNTER, 7)
-            packet_count = int.from_bytes(counter[0:2], "little")
-            bit_errors = int.from_bytes(counter[2:5], "little")
-            block_errors = int.from_bytes(counter[5:7], "little")
-            bit_count = packet_count * 204 * 8
-            self._bit_count += bit_count
-            self._block_count += packet_count
-            self._block_errors += block_errors
-            if packet_count != 10_000:
-                self._write_register(self.REG_BER_COUNTER, (10_000).to_bytes(2, "little"))
-            self._update_bits(self.REG_BER_READY, 0x20, 0x20)
-            return FrontendMetrics(
-                strength,
-                snr,
-                bit_errors,
-                self._block_errors,
-                self._bit_count,
-                self._block_count,
-            )
-        return FrontendMetrics(strength, snr, bit_errors, block_errors)
 
     def wait_for_lock(self, timeout: float = 4.0, poll_interval: float = 0.05) -> FrontendStatus:
         deadline = monotonic() + timeout
