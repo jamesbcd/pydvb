@@ -308,6 +308,7 @@ class TDA18271Tuner(Tuner):
             "initialized": self._initialized,
             "sleeping": self._sleeping,
             "current_tuning": self.current_tuning,
+            "temperature": self._read_thermometer() if self._initialized else None,
             "rf_calibration_initialized": self._rf_calibration_initialized,
             "rf_calibration_temperature": self._rf_calibration_temperature,
         }
@@ -377,7 +378,8 @@ class TDA18271Tuner(Tuner):
             sleep(0.010)
             self._read_extended()
         code = self._registers[self.REG_TM] & 0x0F
-        low_values = (60, 62, 66, 64, 74, 72, 68, 70, 90, 88, 84, 86, 76, 78, 82, 80)
+        # Temperature values are in Gray-code ordering, and likely represent actual temperatures in Celsius.
+        low_values = (60, 62, 66, 64, 74, 72, 68, 70, 90, 88, 84, 86, 76, 78, 82, 80) 
         high_values = (92, 94, 98, 96, 106, 104, 100, 102, 122, 120, 116, 118, 108, 110, 114, 112)
         temperature = (high_values if self._registers[self.REG_TM] & 0x20 else low_values)[code]
         self._registers[self.REG_TM] &= ~0x10

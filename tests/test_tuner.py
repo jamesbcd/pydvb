@@ -67,12 +67,21 @@ def test_tda18271_get_config_dict_contains_configuration_and_is_a_snapshot():
         "initialized": False,
         "sleeping": True,
         "current_tuning": None,
+        "temperature": None,
         "rf_calibration_initialized": False,
         "rf_calibration_temperature": None,
     }
 
     config["i2c_address"] = 1
     assert tuner.get_config_dict()["i2c_address"] == 0x60
+
+
+def test_tda18271_get_config_dict_includes_temperature_after_initialization():
+    tuner = TDA18271Tuner(FakeFrontend())
+
+    tuner.init_hardware()
+
+    assert tuner.get_config_dict()["temperature"] == 60
 
 
 def test_tda18271_tune_programs_pll_and_dvb_t_registers():
