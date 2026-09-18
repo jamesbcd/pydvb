@@ -5,7 +5,7 @@ import pprint
 
 import usb.core
 
-from mactv.tuner import CodeRate, GuardInterval, Hierarchy, Modulation, TransmissionMode, Tuning
+from mactv.tuner import Tuning
 
 from .device import AF9015Device
 from .usb import USBSpeed
@@ -72,12 +72,6 @@ def main() -> int:
     tuning = Tuning(
         frequency_hz=args.frequency,
         bandwidth_hz=args.bandwidth * 1_000_000,
-        transmission_mode = TransmissionMode.K8,
-        guard_interval = GuardInterval.GI_1_16,
-        hierarchy = Hierarchy.NONE,
-        modulation = Modulation.QAM64,
-        code_rate_hp = CodeRate.RATE_3_4,
-        code_rate_lp = CodeRate.NONE,   
     )
     status = device.tune(args.adapter, tuning, True)
 

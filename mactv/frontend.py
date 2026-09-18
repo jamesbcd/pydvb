@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from .demux import TSDemuxer
 
 
+DEFAULT_LOCK_TIMEOUT: float | None = 60.0
+
+
 @dataclass(frozen=True)
 class FrontendStatus:
     """The AF9013 lock state and reception metrics."""
@@ -38,7 +41,6 @@ class AF9013Frontend:
 
     # Tuner I2C gate: same register as REG_RESET, gated via a separate mailbox.
     GATE_REGISTER = 0xD417
-    GATE_MAILBOX = 1
     GATE_MASK = 0x08
 
     TS_MODE_USB = 0
@@ -212,35 +214,50 @@ class AF9013Frontend:
         }
 
     def _read_register(self, register: int, length: int = 1) -> bytes:
+        command = ((length - 1) << 2) | 0x02
+        if register & 0xFF00 == 0xAE00:
+            return b"".join(
+                self.bridge.read_memory(
+                    register + offset,
+                    1,
+                    address_length=3,
+                    mailbox=0x02,
+                    i2c_address=self.demodulator_address,
+                )
+                for offset in range(length)
+            )
         return self.bridge.read_memory(
             register,
             length,
             address_length=3,
-            mailbox=0,
+            mailbox=command,
+            i2c_address=self.demodulator_address,
         )
 
     def _write_register(self, register: int, data: bytes) -> None:
+        command = ((len(data) - 1) << 2) | 0x03
+        if register & 0xFF00 == 0xAE00:
+            for offset, value in enumerate(data):
+                self.bridge.write_memory(
+                    register + offset,
+                    bytes((value,)),
+                    address_length=3,
+                    mailbox=0x03,
+                    i2c_address=self.demodulator_address,
+                )
+            return
         self.bridge.write_memory(
             register,
             data,
             address_length=3,
-            mailbox=0,
+            mailbox=command,
+            i2c_address=self.demodulator_address,
         )
 
     def _set_gate(self, enabled: bool) -> None:
-        current = self.bridge.read_memory(
-            self.GATE_REGISTER,
-            1,
-            address_length=3,
-            mailbox=self.GATE_MAILBOX,
-        )[0]
+        current = self._read_register(self.GATE_REGISTER)[0]
         value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
-        self.bridge.write_memory(
-            self.GATE_REGISTER,
-            bytes((value,)),
-            address_length=3,
-            mailbox=self.GATE_MAILBOX,
-        )
+        self._write_register(self.GATE_REGISTER, bytes((value,)))
 
     def gated_read_register(self, address: int, register: int, length: int) -> bytes:
         """Read from the tuner behind this demodulator's I2C gate."""
@@ -549,9 +566,17 @@ class AF9013Frontend:
         }.get((transmission[2] >> 3) & 7, CodeRate.AUTO)
         return Tuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
 
-    def wait_for_lock(self, timeout: float = 4.0, poll_interval: float = 0.05) -> FrontendStatus:
-        deadline = monotonic() + timeout
-        while monotonic() < deadline:
+    def wait_for_lock(
+        self,
+        timeout: float | None = DEFAULT_LOCK_TIMEOUT,
+        poll_interval: float = 0.05,
+    ) -> FrontendStatus:
+        if timeout is not None and timeout < 0:
+            raise ValueError("timeout must be non-negative")
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
+        deadline = monotonic() + timeout if timeout is not None else None
+        while deadline is None or monotonic() < deadline:
             status = self.read_status()
             if status.lock:
                 return status

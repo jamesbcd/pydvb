@@ -112,10 +112,12 @@ class AF9015Bridge:
         length: int,
         address_length: int = 0,
         mailbox: int = 0,
+        i2c_address: int = 0,
     ) -> bytes:
         return self.transact(
             ControlRequest(
                 Command.READ_MEMORY,
+                i2c_address=i2c_address,
                 address=address,
                 mailbox=mailbox,
                 address_length=address_length,
@@ -132,10 +134,12 @@ class AF9015Bridge:
         data: bytes,
         address_length: int = 0,
         mailbox: int = 0,
+        i2c_address: int = 0,
     ) -> None:
         self.transact(
             ControlRequest(
                 Command.WRITE_MEMORY,
+                i2c_address=i2c_address,
                 address=address,
                 mailbox=mailbox,
                 address_length=address_length,

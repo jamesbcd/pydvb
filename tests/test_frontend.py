@@ -18,11 +18,11 @@ class FakeBus:
         self.writes.append((address, register, bytes(data), address_length, mailbox))
         self.registers[register] = bytes(data)
 
-    def read_memory(self, register, length, address_length=0, mailbox=0):
-        return self.read_i2c(0x1C, register, length, address_length, mailbox)
+    def read_memory(self, register, length, address_length=0, mailbox=0, i2c_address=0):
+        return self.read_i2c(i2c_address or 0x1C, register, length, address_length, mailbox)
 
-    def write_memory(self, register, data, address_length=0, mailbox=0):
-        self.write_i2c(0x1C, register, data, address_length, mailbox)
+    def write_memory(self, register, data, address_length=0, mailbox=0, i2c_address=0):
+        self.write_i2c(i2c_address or 0x1C, register, data, address_length, mailbox)
 
 
 class FakeTuner:
@@ -174,9 +174,9 @@ def test_frontend_opens_and_closes_af9013_gate_for_tuner_access():
     frontend.gated_write_register(0x60, 0, b"\x84")
 
     assert bus.writes == [
-        (0x1C, frontend.GATE_REGISTER, b"\x08", 3, 1),
+        (0x1C, frontend.GATE_REGISTER, b"\x08", 3, 3),
         (0x60, 0, b"\x84", 1, 0),
-        (0x1C, frontend.GATE_REGISTER, b"\x00", 3, 1),
+        (0x1C, frontend.GATE_REGISTER, b"\x00", 3, 3),
     ]
 
 
@@ -211,6 +211,16 @@ def test_frontend_ber_reads_counts_and_resets_measurement_window():
     assert (frontend.REG_BER_READY, b"\x30") in [
         (register, data) for _, register, data, _, _ in bus.writes
     ]
+
+
+def test_frontend_wait_for_lock_can_use_a_finite_timeout():
+    bus = FakeBus()
+    bus.registers[AF9013Frontend.REG_MPEG_STATUS] = b"\x00"
+    frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)
+
+    status = frontend.wait_for_lock(timeout=0, poll_interval=0.01)
+
+    assert not status.lock
 
 
 def test_frontend_sleep_raises_when_reset_does_not_complete():

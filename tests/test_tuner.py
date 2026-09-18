@@ -94,6 +94,7 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
     assert pll_write[tuner.REG_MPD - tuner.REG_EP1] != 0
     assert any(register == tuner.REG_EB13 for _, register, _ in frontend.writes)
+    assert any(register == tuner.REG_TM and len(data) == 7 for _, register, data in frontend.writes)
     assert all(len(data) <= tuner.I2C_WRITE_CHUNK_SIZE for _, _, data in frontend.writes)
 
 
@@ -103,6 +104,36 @@ def test_tda18271_reports_linux_standard_map_if_frequency():
     tuner.tune(Tuning(177_500_000, 7_000_000))
 
     assert tuner.get_if_frequency_hz() == 3_500_000
+
+
+def test_tda18271_hdc2_calibration_uses_linux_rf_cal_base_at_177_5_mhz():
+    tuner = TDA18271Tuner(FakeFrontend())
+    tuner._chip_id = tuner.CHIP_ID_HDC2
+    tuner._rf_calibration_initialized = True
+    tuner._rf_calibration_temperature = None
+    tuner._write_cached = lambda *_: None
+
+    tuner._apply_hdc2_calibration(177_500_000)
+
+    assert tuner._registers[tuner.REG_EB14] == 0x1D
+
+
+def test_tda18271_hdc2_calibration_switches_slopes_at_second_point():
+    tuner = TDA18271Tuner(FakeFrontend())
+    tuner._chip_id = tuner.CHIP_ID_HDC2
+    tuner._rf_calibration_initialized = True
+    tuner._rf_calibration_temperature = None
+    tuner._write_cached = lambda *_: None
+    band = tuner._lookup_rf_band(177_500_000)
+    band.measured_hz[:] = [177_000_000, 177_400_000, 178_000_000]
+    band.slope_low = 0
+    band.offset_low = 0
+    band.slope_high = 2
+    band.offset_high = 7
+
+    tuner._apply_hdc2_calibration(177_500_000)
+
+    assert tuner._registers[tuner.REG_EB14] == 0xEC
 
 
 def test_tda18271_rejects_unsupported_bandwidth():
