@@ -37,6 +37,11 @@ def main() -> int:
         help="Log USB bulk transfers",
     )
     parser.add_argument(
+        "--sleep",
+        action="store_true",
+        help="Put the initialized device into its low-power state instead of tuning",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -73,14 +78,21 @@ def main() -> int:
         device.init_hardware()
         print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     else:
+        print("Device is warm; reinitializing hardware...")
         device.init_hardware()
 
-    # Brisbane DVB-T transmitters use 7 MHz channels.
-    tuning = Tuning(
-        frequency_hz=args.frequency,
-        bandwidth_hz=args.bandwidth * 1_000_000,
-    )
-    status = device.tune(args.adapter, tuning, True)
+    if args.sleep:
+        print("Putting device to sleep...")
+        device.sleep()
+        print("Device is sleeping")
+    else:
+        # Brisbane DVB-T transmitters use 7 MHz channels.
+        tuning = Tuning(
+            frequency_hz=args.frequency,
+            bandwidth_hz=args.bandwidth * 1_000_000,
+        )
+        print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
+        device.tune(tuning, adapter=args.adapter, wait_for_lock=True)
 
     print(f"USB speed: {device.bridge.transport.get_speed().name}")
     print(f"Adapter count: {device.adapter_count}")
@@ -101,6 +113,7 @@ def main() -> int:
         pprint.pprint(frontend.read_status(), underscore_numbers=True)
         print()
 
+    status = device.adapters[args.adapter].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
     return 0 if status.lock else 2
 

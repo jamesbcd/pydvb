@@ -22,9 +22,27 @@ class FakeTransport:
         return self
 
 
+class FakeFrontend:
+    def __init__(self):
+        self.sleep_calls = 0
+
+    def sleep(self):
+        self.sleep_calls += 1
+
+
 def test_default_firmware_path_exists():
     assert DEFAULT_FIRMWARE_PATH == Path(__file__).parents[1] / "mactv" / "firmware" / "dvb-usb-af9015.fw"
     assert DEFAULT_FIRMWARE_PATH.is_file()
+
+
+def test_device_sleep_sleeps_all_frontends():
+    device = AF9015Device(FakeTransport())
+    frontends = [FakeFrontend(), FakeFrontend()]
+    device.adapters = frontends
+
+    device.sleep()
+
+    assert [frontend.sleep_calls for frontend in frontends] == [1, 1]
 
 
 def test_device_loads_firmware_from_path(tmp_path):

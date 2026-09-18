@@ -82,6 +82,11 @@ class AF9015Device:
     def close(self) -> None:
         self.bridge.transport.close()
 
+    def sleep(self) -> None:
+        """Put all configured frontends into their low-power state."""
+        for frontend in self.adapters:
+            frontend.sleep()
+
     def __enter__(self) -> "AF9015Device":
         return self
 
@@ -237,7 +242,7 @@ class AF9015Device:
             frontend.demuxer = demuxer
             self.adapters.append(frontend)
 
-    def tune(self, adapter: int, tuning: Tuning, wait_for_lock: bool = True) -> FrontendStatus:
+    def tune(self, tuning: Tuning, adapter: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
         if not 0 <= adapter < len(self.adapters) or self.adapters[adapter].tuner is None:
             raise ValueError("adapter has no supported AF9013/TDA18271 frontend")

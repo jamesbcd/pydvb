@@ -22,6 +22,8 @@ waits for MPEG lock, and prints frontend reception metrics. It exits with
 status 0 when locked and status 2 when tuning completes without lock. Use
 another multiplex frequency, such as `184.5`, with `--frequency` when testing
 local reception. `--safe` only checks the USB device state and does not tune.
+Use `--sleep` to initialize the device and put it into its low-power state
+without tuning.
 
 The Leadtek device's USB IDs can be passed to `Af9015Device.open` after
 checking them with `system_profiler SPUSBHostDataType`:

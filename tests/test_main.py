@@ -8,6 +8,8 @@ from mactv import __main__
 class FakeDevice:
     def __init__(self):
         self.initialize_called = False
+        self.sleep_called = False
+        self.tune_called = False
 
     @property
     def is_warm(self):
@@ -15,6 +17,15 @@ class FakeDevice:
 
     def initialize(self):
         self.initialize_called = True
+
+    def init_hardware(self):
+        self.initialize_called = True
+
+    def sleep(self):
+        self.sleep_called = True
+
+    def tune(self, tuning, adapter, wait_for_lock):
+        self.tune_called = True
 
 
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
@@ -25,6 +36,18 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     assert __main__.main() == 0
     assert not device.initialize_called
     assert "Device state: cold" in capsys.readouterr().out
+
+
+def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
+    device = FakeDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "--sleep"])
+
+    assert __main__.main() == 0
+    assert device.initialize_called
+    assert device.sleep_called
+    assert not device.tune_called
+    assert "Device is sleeping" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
