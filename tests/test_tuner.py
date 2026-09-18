@@ -97,6 +97,14 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     assert all(len(data) <= tuner.I2C_WRITE_CHUNK_SIZE for _, _, data in frontend.writes)
 
 
+def test_tda18271_reports_linux_standard_map_if_frequency():
+    tuner = TDA18271Tuner(FakeFrontend())
+
+    tuner.tune(Tuning(177_500_000, 7_000_000))
+
+    assert tuner.get_if_frequency_hz() == 3_500_000
+
+
 def test_tda18271_rejects_unsupported_bandwidth():
     frontend = FakeFrontend()
     with pytest.raises(ValueError, match="6, 7, or 8 MHz"):

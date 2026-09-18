@@ -8,6 +8,7 @@
 # Ignore all __pycache__ directories
 **/__pycache__/
 .VSCodeCounter/
+research/
 
 # Optionally, ignore all compiled python bytecode files as well
 *.pyc

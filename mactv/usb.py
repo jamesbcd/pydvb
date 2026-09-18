@@ -78,10 +78,13 @@ class PyUSBTransport:
         return cls(usb_device, interface, vendor_id, product_id)
 
     def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None:
+        print(f"{monotonic():.6f} OUT ep=0x{endpoint:02x} {bytes(data).hex()}", flush=True)
         self.usb_device.write(endpoint, data, timeout=timeout)
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
-        return bytes(self.usb_device.read(endpoint, length, timeout=timeout))
+        data = bytes(self.usb_device.read(endpoint, length, timeout=timeout))
+        print(f"{monotonic():.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
+        return data
 
     def close(self) -> None:
         """Release the libusb handle before a device reset or re-enumeration."""

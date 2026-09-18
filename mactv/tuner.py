@@ -82,6 +82,8 @@ class Tuner(Protocol):
 
     def tune(self, tuning: Tuning) -> None: ...
 
+    def get_if_frequency_hz(self) -> int: ...
+
     def sleep(self) -> None: ...
 
     def get_config_dict(self) -> dict[str, object]: ...
@@ -313,6 +315,13 @@ class TDA18271Tuner(Tuner):
             "rf_calibration_initialized": self._rf_calibration_initialized,
             "rf_calibration_temperature": self._rf_calibration_temperature,
         }
+
+    def get_if_frequency_hz(self) -> int:
+        """Return the IF selected by the active digital standard map."""
+        if self._chip_id is None or self.current_tuning is None:
+            raise RuntimeError("TDA18271 has not been tuned")
+        if_frequency, _, _, _, _ = self.STANDARD_MAP[self._chip_id][self.current_tuning.bandwidth_hz]
+        return if_frequency
 
     def _read_register(self, register: int, length: int) -> bytes:
         return self.frontend.gated_read_register(self.i2c_address, register, length)

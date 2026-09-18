@@ -403,7 +403,10 @@ class AF9013Frontend:
 
         # Configure the AF9013 demodulator with the appropriate frequency control settings, based on the
         # intermediate frequency and the demodulator clock frequency.
-        sampling_frequency = self.intermediate_frequency_hz
+        get_if_frequency = getattr(self.tuner, "get_if_frequency_hz", None)
+        sampling_frequency = (
+            get_if_frequency() if get_if_frequency is not None else self.intermediate_frequency_hz
+        )
         while sampling_frequency > self.clock_hz // 2:
             sampling_frequency -= self.clock_hz
         inverted = self.spectrum_inverted if sampling_frequency < 0 else not self.spectrum_inverted
