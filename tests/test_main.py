@@ -28,6 +28,19 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [([], False), (["--usb-log"], True)],
+)
+def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
+    device = FakeDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "--safe", *arguments])
+
+    assert __main__.main() == 0
+    assert __main__.usb_logging.LOG is expected
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [("177.5", 177_500_000), ("650", 650_000_000)],
 )

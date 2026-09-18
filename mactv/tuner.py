@@ -618,7 +618,7 @@ class TDA18271Tuner(Tuner):
         self._rf_calibration_initialized = True
 
     def _apply_hdc2_calibration_por(self) -> None:
-        """Restore the Linux driver's tuner POR state after RF calibration."""
+        """Restore the Linux driver's tuner power-on-reset state after RF calibration."""
         self._registers[self.REG_EB12] &= ~0x20
         self._write_cached(self.REG_EB12, 1)
         self._registers[self.REG_EB18] &= ~0x83

@@ -8,6 +8,7 @@ import usb.core
 from mactv.tuner import Tuning
 
 from .device import AF9015Device
+from . import usb as usb_logging
 from .usb import USBSpeed
 
 
@@ -31,6 +32,11 @@ def main() -> int:
         help="Only check device state; do not initialize or upload firmware",
     )
     parser.add_argument(
+        "--usb-log",
+        action="store_true",
+        help="Log USB bulk transfers",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -51,6 +57,7 @@ def main() -> int:
         help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
+    usb_logging.LOG = args.usb_log
 
     try:
         device = AF9015Device.open(args.vendor_id, args.product_id)

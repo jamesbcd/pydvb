@@ -6,7 +6,7 @@ from enum import IntEnum
 from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
-LOG = True
+LOG = False
 
 CONTROL_OUT = 0x02
 CONTROL_IN = 0x81
