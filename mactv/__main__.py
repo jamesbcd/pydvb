@@ -11,6 +11,14 @@ from .device import AF9015Device
 from .usb import USBSpeed
 
 
+def parse_frequency(value: str) -> int:
+    """Parse a frequency in MHz (for example, ``177.5``)."""
+    frequency_mhz = float(value)
+    if frequency_mhz <= 0:
+        raise argparse.ArgumentTypeError("frequency must be positive")
+    return round(frequency_mhz * 1_000_000)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Test an AF9015 device"
@@ -21,6 +29,26 @@ def main() -> int:
         "--safe",
         action="store_true",
         help="Only check device state; do not initialize or upload firmware",
+    )
+    parser.add_argument(
+        "--frequency",
+        type=parse_frequency,
+        default=177_500_000,
+        help="DVB-T centre frequency in MHz (default: 177.5)",
+    )
+    parser.add_argument(
+        "--bandwidth",
+        type=int,
+        choices=(6, 7, 8),
+        default=7,
+        metavar="MHZ",
+        help="DVB-T channel bandwidth in MHz (default: 7)",
+    )
+    parser.add_argument(
+        "--adapter",
+        type=int,
+        default=0,
+        help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
 
@@ -40,10 +68,10 @@ def main() -> int:
     else:
         device.init_hardware()
 
-    # Try tuning to 7 Brisbane
+    # Brisbane DVB-T transmitters use 7 MHz channels.
     tuning = Tuning(
-        frequency_hz = 177_500_000,
-        bandwidth_hz = 7_000_000,
+        frequency_hz=args.frequency,
+        bandwidth_hz=args.bandwidth * 1_000_000,
         transmission_mode = TransmissionMode.K8,
         guard_interval = GuardInterval.GI_1_16,
         hierarchy = Hierarchy.NONE,
@@ -51,7 +79,7 @@ def main() -> int:
         code_rate_hp = CodeRate.RATE_3_4,
         code_rate_lp = CodeRate.NONE,   
     )
-    device.tune(0, tuning, True)
+    status = device.tune(args.adapter, tuning, True)
 
     print(f"USB speed: {device.bridge.transport.get_speed().name}")
     print(f"Adapter count: {device.adapter_count}")
@@ -72,7 +100,8 @@ def main() -> int:
         pprint.pprint(frontend.read_status(), underscore_numbers=True)
         print()
 
-    return 0
+    print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
+    return 0 if status.lock else 2
 
 
 if __name__ == "__main__":

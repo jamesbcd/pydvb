@@ -11,6 +11,18 @@ Install the package and PyUSB with:
 python3 -m pip install -e .[test]
 ```
 
+For a live Brisbane DVB-T lock test, connect an antenna and run:
+
+```sh
+python3 -m mactv --frequency 177.5 --bandwidth 7
+```
+
+The command uploads the bundled firmware when needed, initializes the tuner,
+waits for MPEG lock, and prints frontend reception metrics. It exits with
+status 0 when locked and status 2 when tuning completes without lock. Use
+another multiplex frequency, such as `184.5`, with `--frequency` when testing
+local reception. `--safe` only checks the USB device state and does not tune.
+
 The Leadtek device's USB IDs can be passed to `Af9015Device.open` after
 checking them with `system_profiler SPUSBHostDataType`:
 
