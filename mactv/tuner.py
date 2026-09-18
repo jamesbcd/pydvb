@@ -460,6 +460,8 @@ class TDA18271Tuner(Tuner):
             self._write_cached(register, length)
         self._image_rejection_calibration()
         self._initialized = True
+        if self._chip_id == self.CHIP_ID_HDC2:
+            self._initialize_hdc2_calibration()
         self._sleeping = False
 
     def _lookup_rf_band(self, frequency_hz: int) -> RFCalibrationBand:

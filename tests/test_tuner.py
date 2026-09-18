@@ -17,7 +17,8 @@ class FakeFrontend:
         self.writes.append((address, register, bytes(data)))
 
 
-def test_tda18271_init_uses_linux_16_byte_chunks():
+def test_tda18271_init_uses_linux_16_byte_chunks(monkeypatch):
+    monkeypatch.setattr(TDA18271Tuner, "_initialize_hdc2_calibration", lambda self: None)
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
 
@@ -193,7 +194,7 @@ def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):
     frontend = FakeFrontend(0x84)
     tuner = TDA18271Tuner(frontend)
 
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.init_hardware()
 
     assert tuner._rf_calibration_initialized
     assert tuner._rf_calibration_temperature is not None
