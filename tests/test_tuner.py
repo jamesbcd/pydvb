@@ -94,6 +94,7 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
     assert pll_write[tuner.REG_MPD - tuner.REG_EP1] != 0
     assert any(register == tuner.REG_EB13 for _, register, _ in frontend.writes)
+    assert all(len(data) <= tuner.I2C_WRITE_CHUNK_SIZE for _, _, data in frontend.writes)
 
 
 def test_tda18271_rejects_unsupported_bandwidth():

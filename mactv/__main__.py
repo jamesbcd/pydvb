@@ -5,6 +5,8 @@ import pprint
 
 import usb.core
 
+from mactv.tuner import CodeRate, GuardInterval, Hierarchy, Modulation, TransmissionMode, Tuning
+
 from .device import AF9015Device
 from .usb import USBSpeed
 
@@ -38,6 +40,19 @@ def main() -> int:
     else:
         device.init_hardware()
 
+    # Try tuning to 7 Brisbane
+    tuning = Tuning(
+        frequency_hz = 177_500_000,
+        bandwidth_hz = 7_000_000,
+        transmission_mode = TransmissionMode.K8,
+        guard_interval = GuardInterval.GI_1_16,
+        hierarchy = Hierarchy.NONE,
+        modulation = Modulation.QAM64,
+        code_rate_hp = CodeRate.RATE_3_4,
+        code_rate_lp = CodeRate.NONE,   
+    )
+    device.tune(0, tuning, True)
+
     print(f"USB speed: {device.bridge.transport.get_speed().name}")
     print(f"Adapter count: {device.adapter_count}")
     for index, frontend in enumerate(device.adapters):
@@ -52,6 +67,9 @@ def main() -> int:
         print(f"Tuner index {index} configuration:")
         pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None,
                       underscore_numbers=True)
+        print()
+        print(f"Frontend index {index} status:")
+        pprint.pprint(frontend.read_status(), underscore_numbers=True)
         print()
 
     return 0

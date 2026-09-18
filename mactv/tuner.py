@@ -108,6 +108,7 @@ class TDA18271Tuner(Tuner):
     I2C_ADDRESS = 0x60
     REGISTER_COUNT = 39
     INIT_CHUNK_SIZE = 16
+    I2C_WRITE_CHUNK_SIZE = 20
     MIN_FREQUENCY_HZ = 45_000_000
     MAX_FREQUENCY_HZ = 865_000_000
 
@@ -325,7 +326,12 @@ class TDA18271Tuner(Tuner):
         self._registers[register : register + len(data)] = data
 
     def _write_cached(self, register: int, length: int) -> None:
-        self._write_register(register, bytes(self._registers[register : register + length]))
+        for offset in range(0, length, self.I2C_WRITE_CHUNK_SIZE):
+            chunk_length = min(self.I2C_WRITE_CHUNK_SIZE, length - offset)
+            self._write_register(
+                register + offset,
+                bytes(self._registers[register + offset : register + offset + chunk_length]),
+            )
 
     def _read_extended(self) -> bytes:
         values = self._read_register(self.REG_ID, self.REGISTER_COUNT)

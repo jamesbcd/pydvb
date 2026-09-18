@@ -7,6 +7,7 @@
 /mactv/firmware/*
 # Ignore all __pycache__ directories
 **/__pycache__/
+.VSCodeCounter/
 
 # Optionally, ignore all compiled python bytecode files as well
 *.pyc
