@@ -614,7 +614,20 @@ class TDA18271Tuner(Tuner):
                         )
                         band.offset_high = second_delta
         self._rf_calibration_temperature = self._read_thermometer()
+        self._apply_hdc2_calibration_por()
         self._rf_calibration_initialized = True
+
+    def _apply_hdc2_calibration_por(self) -> None:
+        """Restore the Linux driver's tuner POR state after RF calibration."""
+        self._registers[self.REG_EB12] &= ~0x20
+        self._write_cached(self.REG_EB12, 1)
+        self._registers[self.REG_EB18] &= ~0x83
+        self._registers[self.REG_EB21] |= 0x03
+        self._registers[self.REG_EP3] = (self._registers[self.REG_EP3] & 0x1F) | 0x80
+        self._write_cached(self.REG_EB18, 1)
+        self._write_cached(self.REG_EP3, 1)
+        self._registers[self.REG_EB23] &= ~0x06
+        self._write_cached(self.REG_EB21, 3)
 
     def _apply_hdc2_calibration(self, frequency_hz: int) -> None:
         if not self._rf_calibration_initialized:
