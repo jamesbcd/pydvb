@@ -38,7 +38,7 @@ class USBTransport(Protocol):
     def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "USBTransport": ...
 
 class PyUSBTransport:
-    """Small adapter around a configured ``usb.core.Device`` object."""
+    """Small adapter class around a configured ``usb.core.Device`` object."""
 
     def __init__(
         self,
