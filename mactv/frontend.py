@@ -5,13 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import log10
 from time import monotonic, sleep
-from typing import TYPE_CHECKING
 
 from .bridge import AF9015Bridge
 from .tuner import CodeRate, GuardInterval, Hierarchy, Modulation, Tuner, Tuning, TransmissionMode
-
-if TYPE_CHECKING:
-    from .demux import TSDemuxer
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 60.0
@@ -178,7 +174,6 @@ class AF9013Frontend:
         self.tuner_id = tuner_id
         self.adapter_index = adapter_index
         self.mt2060_if = mt2060_if
-        self.demuxer: TSDemuxer | None = None
         self.ts_mode = self.TS_MODE_SERIAL if adapter_index == 1 else self.TS_MODE_USB
         self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter_index == 1 else self.TS_OUTPUT_PIN_DEFAULT
         self.gpio = (
