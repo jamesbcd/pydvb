@@ -35,6 +35,8 @@ class TSDemuxer(Demuxer):
     PID_FILTER_COUNT = 32
     TS_PACKET_SIZE = 188
     TS_PACKET_COUNT = 87
+    MPEG_TS_SYNC_BYTE = 0x47
+    SYNC_PACKET_COUNT = 4
     AF9013_PID_FILTER_CONTROL = 0xD503
     AF9013_PID_FILTER_SLOT = 0xD504
     AF9013_PID_FILTER_VALUE = 0xD505
@@ -63,6 +65,8 @@ class TSDemuxer(Demuxer):
         self._pid_lock = Lock()
         self._pid_slots: dict[int, int] = {}
         self._pid_filter_enabled = False
+        self._ts_buffer = bytearray()
+        self._ts_synchronized = False
 
     def get_config_dict(self) -> dict[str, object]:
         """Return demuxer configuration and current state for diagnostics."""
@@ -91,6 +95,8 @@ class TSDemuxer(Demuxer):
             self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
             self._configured = True
 
+        self._ts_buffer.clear()
+        self._ts_synchronized = False
         if self.adapter_index == 0:
             self.bridge.update_memory_bits(0xDD13, 0x20, 0)
             self.bridge.update_memory_bits(0xDD11, 0x20, 0x20)
@@ -117,9 +123,37 @@ class TSDemuxer(Demuxer):
     def read_ts(self, timeout_ms: int = 2000) -> bytes:
         if not self._running:
             raise RuntimeError("demuxer is not started")
-        return self.bridge.transport.bulk_read(
+        self._ts_buffer.extend(self.bridge.transport.bulk_read(
             self.endpoint, self.packet_count * self.TS_PACKET_SIZE, timeout_ms
-        )
+        ))
+
+        if not self._ts_synchronized:
+            sync_run = self.TS_PACKET_SIZE * (self.SYNC_PACKET_COUNT - 1)
+            sync_start = next(
+                (
+                    index
+                    for index, value in enumerate(self._ts_buffer)
+                    if value == self.MPEG_TS_SYNC_BYTE
+                    and index + sync_run < len(self._ts_buffer)
+                    and all(
+                        self._ts_buffer[index + offset] == 0x47
+                        for offset in range(0, sync_run + 1, self.TS_PACKET_SIZE)
+                    )
+                ),
+                None,
+            )
+            if sync_start is None:
+                keep = sync_run
+                if len(self._ts_buffer) > keep:
+                    del self._ts_buffer[:-keep]
+                return b""
+            del self._ts_buffer[:sync_start]
+            self._ts_synchronized = True
+
+        packet_bytes = len(self._ts_buffer) - len(self._ts_buffer) % self.TS_PACKET_SIZE
+        data = bytes(self._ts_buffer[:packet_bytes])
+        del self._ts_buffer[:packet_bytes]
+        return data
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
         if not 0 <= pid <= 0x2000:

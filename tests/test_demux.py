@@ -21,6 +21,17 @@ class FakeTransport:
         return self
 
 
+class StreamTransport(FakeTransport):
+    def __init__(self, chunks):
+        super().__init__()
+        self.chunks = iter(chunks)
+
+    def bulk_read(self, endpoint, length, timeout):
+        if endpoint == 0x81:
+            return bytes(length)
+        return next(self.chunks)
+
+
 def test_pid_filter_programs_af9013_slot():
     transport = FakeTransport()
     demuxer = TSDemuxer(AF9015Bridge(transport), demodulator_address=0x1D)
@@ -73,6 +84,27 @@ def test_full_speed_stream_uses_five_packets():
 
     buffer_writes = [packet for _, packet in transport.writes if packet[3:5] == b"\xdd\x0c"]
     assert buffer_writes[-1][8:] == b"\x10"
+
+
+def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():
+    packet = b"\x47" + b"a" * 187
+    preamble = b"\x47" + b"noise" * 60
+    transport = StreamTransport([preamble + packet * 4])
+    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer.start()
+
+    assert demuxer.read_ts() == packet * 4
+
+
+def test_read_ts_buffers_partial_packets():
+    packet = b"\x47" + b"a" * 187
+    transport = StreamTransport([packet * 4, packet[:10], packet[10:]])
+    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer.start()
+
+    assert demuxer.read_ts() == packet * 4
+    assert demuxer.read_ts() == b""
+    assert demuxer.read_ts() == packet
 
 
 def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
