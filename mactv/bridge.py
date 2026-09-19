@@ -38,7 +38,11 @@ class ControlRequest:
 
 
 class AF9015Bridge:
-    """AF9015 command layer, equivalent to Linux ``af9015_ctrl_msg``."""
+    """Translate AF9015 commands and I2C transactions onto a USB transport.
+
+    This is the low-level bridge shared by the device's logical adapters and
+    their AF9013 frontends.
+    """
 
     def __init__(self, transport: USBTransport, timeout_ms: int = 2000) -> None:
         self.transport = transport

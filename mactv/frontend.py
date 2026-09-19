@@ -31,7 +31,11 @@ class FrontendStatus:
 
 
 class AF9013Frontend:
-    """Configure one AF9013 demodulator and its attached tuner."""
+    """Control one AF9013 DVB-T demodulator and its attached tuner.
+
+    The frontend is the tuner's I2C gate and owns tuner configuration and
+    tuning state; transport-stream demultiplexing belongs to the adapter.
+    """
 
     API_VERSION = b"\x00\x01\x09\x00"
 

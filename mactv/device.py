@@ -30,7 +30,11 @@ XTAL_CLOCKS = {0: 28_800_000, 1: 20_480_000, 2: 28_000_000, 3: 25_000_000}
 
 
 class AF9015Device:
-    """Compose the bridge, I2C bus, and one or two DVB adapter chains (demodulator/tuner combinations)."""
+    """Represent the physical AF9015 USB receiver and its logical DVB adapters.
+
+    The device owns the USB bridge and composes one or two ``AF9015Adapter``
+    instances from the receiver's EEPROM configuration.
+    """
 
 	# From Linux driver:
     #

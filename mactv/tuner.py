@@ -90,7 +90,7 @@ class Tuner(Protocol):
 
 
 class TDA18271Tuner(Tuner):
-    """AF9015 digital DVB-T driver for NXP TDA18271 HDC1 and HDC2 tuners.
+    """Control an NXP TDA18271 HDC1 or HDC2 tuner attached to an AF9013 frontend.
 
     The implementation supports 6, 7, and 8 MHz channels and follows the
     Linux ``tda18271`` driver's register-cache, PLL, image-rejection, RF

@@ -10,6 +10,8 @@ from .usb import STREAM_ENDPOINTS
 
 
 class Demuxer(ABC):
+    """Interface for starting, reading, and filtering a transport stream."""
+
     @abstractmethod
     def start(self) -> None: ...
 
@@ -24,10 +26,10 @@ class Demuxer(ABC):
 
 
 class TSDemuxer(Demuxer):
-    """Read one AF9015 USB transport stream and control its AF9013 filter.
+    """Read the transport stream for one logical AF9015 adapter.
 
-    The AF9015 controls the USB endpoint, while the integrated AF9013
-    demodulator owns the 32 hardware PID slots.
+    The demuxer controls the adapter's USB endpoint and the integrated AF9013
+    demodulator's 32 hardware PID slots.
     """
 
     PID_FILTER_COUNT = 32
