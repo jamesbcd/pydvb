@@ -35,7 +35,7 @@ def wait_for_clients(server, count):
     raise AssertionError("HTTP clients did not connect")
 
 
-def test_server_fans_out_transport_stream_to_multiple_clients():
+def test_server_fans_out_transport_stream_to_multiple_clients(capsys):
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(adapter, port=0)
     serving = Thread(target=server.serve_forever)
@@ -65,6 +65,14 @@ def test_server_fans_out_transport_stream_to_multiple_clients():
         serving.join(timeout=2)
 
     assert adapter.stopped.is_set()
+    output = ""
+    deadline = monotonic() + 2
+    while monotonic() < deadline and output.count("Client disconnected:") < 2:
+        output += capsys.readouterr().out
+        sleep(0.01)
+    output += capsys.readouterr().out
+    assert output.count("Client connected:") == 2
+    assert output.count("Client disconnected:") == 2
 
 
 def test_server_returns_not_found_for_unknown_endpoint():

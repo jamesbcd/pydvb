@@ -146,6 +146,8 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
         owner = cast(_HTTPServer, self.server).owner
         client = owner._register_client()
+        client_address = f"{self.client_address[0]}:{self.client_address[1]}"
+        print(f"Client connected: {client_address}", flush=True)
         try:
             self.protocol_version = "HTTP/1.1"
             self.send_response(200)
@@ -168,6 +170,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             pass
         finally:
             owner._unregister_client(client)
+            print(f"Client disconnected: {client_address}", flush=True)
 
     def log_message(self, format: str, *_args: object) -> None:
         return
