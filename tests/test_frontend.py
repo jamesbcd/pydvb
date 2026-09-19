@@ -49,15 +49,24 @@ def test_frontend_tunes_tuner_and_programs_frequency_and_bandwidth():
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
     tuning = Tuning(650_000_000, 8_000_000)
 
-    status = frontend.tune(tuning)
+    status = frontend.tune(tuning, wait_for_lock=False)
 
     assert tuner.tunings == [tuning]
-    assert status.lock
     assert any(register == frontend.REG_FREQUENCY_CONTROL for _, register, _, _, _ in bus.writes)
     assert any(register == frontend.REG_FREQUENCY_CONTROL_EXT for _, register, data, _, _ in bus.writes if len(data) == 6)
     bus.registers[frontend.REG_MPEG_STATUS] = b"\x40"
     status = frontend.read_status()
     assert (status.signal, status.carrier, status.viterbi, status.sync, status.lock) == (True, True, True, True, True)
+
+
+def test_frontend_tune_waits_for_lock_by_default(monkeypatch):
+    bus = FakeBus()
+    tuner = FakeTuner()
+    frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
+    expected_status = FrontendStatus(True, True, True, True, True)
+    monkeypatch.setattr(frontend, "wait_for_lock", lambda: expected_status)
+
+    assert frontend.tune(Tuning(650_000_000, 8_000_000)) is expected_status
 
 
 def test_frontend_uses_tuner_selected_if_frequency():

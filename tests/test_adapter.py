@@ -25,8 +25,9 @@ class FakeFrontend:
     def sleep(self):
         self.calls.append(("sleep",))
 
-    def tune(self, tuning):
+    def tune(self, tuning, wait_for_lock=True):
         self.calls.append(("tune", tuning))
+        return self.wait_for_lock() if wait_for_lock else self.read_status()
 
     def wait_for_lock(self, timeout=None, poll_interval=0.05):
         self.calls.append(("wait_for_lock", timeout, poll_interval))
