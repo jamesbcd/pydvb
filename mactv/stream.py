@@ -244,6 +244,8 @@ class TSStream:
         try:
             while not self._stop_event.is_set():
                 chunk = self.source.read_ts(self.read_timeout_ms)
+                if not chunk:
+                    continue
                 self._put_chunk(chunk)
         except BaseException as error:
             if not self._stop_event.is_set():

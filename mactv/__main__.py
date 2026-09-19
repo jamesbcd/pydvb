@@ -16,7 +16,7 @@ from .usb import USBSpeed
 
 TS_PACKET_SIZE = 188
 MAX_CAPTURE_BYTES = ((15 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
-EMPTY_READ_TIMEOUT_SECONDS = 5.0
+READ_TIMEOUT_SECONDS = 5.0
 
 
 def parse_frequency(value: str) -> int:
@@ -31,31 +31,26 @@ def capture_stream(
     adapter,
     output_path: Path,
     max_bytes: int = MAX_CAPTURE_BYTES,
-    empty_read_timeout: float = EMPTY_READ_TIMEOUT_SECONDS,
+    read_timeout: float = READ_TIMEOUT_SECONDS,
 ) -> tuple[int, float]:
     """Capture transport-stream data to disk and return bytes and elapsed seconds."""
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
-    if empty_read_timeout < 0:
-        raise ValueError("empty_read_timeout must be non-negative")
+    if read_timeout < 0:
+        raise ValueError("read_timeout must be non-negative")
 
     stream = TSStream(adapter)
     bytes_written = 0
-    empty_read_deadline = None
     start_time = monotonic()
     try:
         print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
         stream.start()
         with output_path.open("wb") as output:
             while bytes_written < max_bytes:
-                chunk = stream.read()
-                if not chunk:
-                    if empty_read_deadline is None:
-                        empty_read_deadline = monotonic() + empty_read_timeout
-                    if monotonic() >= empty_read_deadline:
-                        raise IOError("transport stream read returned no data")
-                    continue
-                empty_read_deadline = None
+                try:
+                    chunk = stream.read(timeout=read_timeout)
+                except TimeoutError as error:
+                    raise IOError("transport stream read returned no data") from error
                 remaining = max_bytes - bytes_written
                 output.write(chunk[:remaining])
                 bytes_written += min(len(chunk), remaining)

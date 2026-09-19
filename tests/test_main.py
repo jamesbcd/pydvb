@@ -1,4 +1,5 @@
 import sys
+from itertools import repeat
 
 import pytest
 
@@ -139,12 +140,12 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
     assert adapter.events.count("read") >= 2
 
 
-def test_capture_stream_retries_empty_reads(tmp_path):
+def test_capture_stream_waits_for_data_after_empty_reads(tmp_path):
     adapter = FakeStreamAdapter([b"", b"data"])
     output_path = tmp_path / "capture.ts"
 
     bytes_written, _ = __main__.capture_stream(
-        adapter, output_path, max_bytes=4, empty_read_timeout=1
+        adapter, output_path, max_bytes=4, read_timeout=1
     )
 
     assert bytes_written == 4
@@ -154,13 +155,14 @@ def test_capture_stream_retries_empty_reads(tmp_path):
     assert adapter.events.count("read") >= 2
 
 
-def test_capture_stream_fails_after_empty_read_timeout(tmp_path):
-    adapter = FakeStreamAdapter([b""])
+def test_capture_stream_fails_after_read_timeout(tmp_path):
+    adapter = FakeStreamAdapter(repeat(b""))
     output_path = tmp_path / "capture.ts"
 
     with pytest.raises(IOError, match="transport stream read returned no data"):
-        __main__.capture_stream(adapter, output_path, max_bytes=4, empty_read_timeout=0)
+        __main__.capture_stream(adapter, output_path, max_bytes=4, read_timeout=0)
 
     assert adapter.events[0] == "start"
-    assert adapter.events[-2:] == ["stop", "sleep"]
+    assert "stop" in adapter.events
+    assert adapter.events[-1] == "sleep"
     assert adapter.events.count("read") >= 1
