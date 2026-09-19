@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from mactv import __main__
+from mactv.frontend import FrontendStatus
 
 
 class FakeDevice:
@@ -28,6 +29,12 @@ class FakeDevice:
         self.tune_called = True
 
 
+class FakeUnlockedRecordingDevice(FakeDevice):
+    def tune(self, tuning, adapter_index, wait_for_lock):
+        self.tune_called = True
+        return FrontendStatus(False, False, False, False, False)
+
+
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
@@ -48,6 +55,17 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     assert device.sleep_called
     assert not device.tune_called
     assert "Device is sleeping" in capsys.readouterr().out
+
+
+def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
+    device = FakeUnlockedRecordingDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "--record", str(tmp_path / "capture.ts")])
+
+    assert __main__.main() == 2
+    output = capsys.readouterr().out
+    assert "frontend did not lock" in output
+    assert "transport stream read returned no data" not in output
 
 
 @pytest.mark.parametrize(

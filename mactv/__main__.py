@@ -126,6 +126,7 @@ def main() -> int:
         print("Device is warm; reinitializing hardware...")
         device.init_hardware()
 
+    tuning_status = None
     if args.sleep:
         print("Putting device to sleep...")
         device.sleep()
@@ -137,9 +138,13 @@ def main() -> int:
             bandwidth_hz=args.bandwidth * 1_000_000,
         )
         print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
-        device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+        tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
 
     if args.record is not None:
+        if tuning_status is None or not tuning_status.lock:
+            print("Capture failed: frontend did not lock; no transport stream is available")
+            return 2
+        print(f"Frontend lock acquired. Starting capture to {args.record}")
         adapter = device.adapters[args.adapter_index]
         try:
             bytes_written, elapsed = capture_stream(adapter, args.record)
