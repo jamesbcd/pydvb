@@ -23,6 +23,15 @@ class FakeTransport:
         return self
 
 
+class OrderedTransport(FakeTransport):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    def close(self):
+        self.events.append("close")
+
+
 class FakeFrontend:
     def __init__(self):
         self.sleep_calls = 0
@@ -70,6 +79,21 @@ def test_device_sleep_sleeps_all_frontends():
     device.sleep()
 
     assert [frontend.sleep_calls for frontend in frontends] == [1, 1]
+
+
+def test_device_close_stops_adapters_before_closing_transport():
+    transport = OrderedTransport()
+    device = AF9015Device(transport)
+    adapter = FakeAdapter()
+    device.adapters = [adapter]
+
+    original_stop = adapter.stop
+    adapter.stop = lambda: (adapter.calls.append(("stop",)), transport.events.append("stop"))
+    device.close()
+
+    assert transport.events == ["stop", "close"]
+    assert adapter.calls == [("stop",)]
+    adapter.stop = original_stop
 
 
 def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter():

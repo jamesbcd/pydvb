@@ -1,6 +1,7 @@
 """High-level AF9015 device composition."""
 
 from pathlib import Path
+from threading import RLock
 from time import monotonic, sleep
 
 from .usb import PyUSBTransport, USBTransport, USBSpeed
@@ -75,6 +76,7 @@ class AF9015Device:
         self.product_id = product_id
         self.firmware_size = 0
         self.firmware_checksum = 0
+        self._control_lock = RLock() # Lock to protect device control operations
         bridge = AF9015Bridge(transport)
         self._reset_with_bridge(bridge)
 
@@ -97,14 +99,41 @@ class AF9015Device:
 
     @property
     def adapter_count(self) -> int:
-        return len(self.adapters) or 1
+        """Return the number of configured logical adapters.
+
+        Threading:
+            Safe to read concurrently with device control operations. The
+            result is a snapshot and may change during initialization.
+        """
+        with self._control_lock:
+            return len(self.adapters) or 1
 
     @property
     def is_warm(self) -> bool:
-        return self.bridge.get_state() == 0x02
+        """Return whether the AF9015 firmware is running.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            device control operations are serialized and this may block on
+            USB I/O.
+        """
+        with self._control_lock:
+            return self.bridge.get_state() == 0x02
 
     def close(self) -> None:
-        self.bridge.transport.close()
+        """Stop configured adapters and release the USB transport.
+
+        Threading:
+            Safe to call concurrently with device control operations. The
+            operation is serialized and waits for active adapter reads to
+            stop before disposing the USB handle.
+        """
+        with self._control_lock:
+            try:
+                for adapter in self.adapters:
+                    adapter.stop()
+            finally:
+                self.bridge.transport.close()
 
     def init_hardware(
         self,
@@ -112,35 +141,54 @@ class AF9015Device:
         firmware_path: str | Path | None = None,
         download_firmware: bool = True,
     ) -> None:
-        """Bring the device to the configured state used by the Linux driver."""
-        if not self.is_warm:
-            if not download_firmware:
-                raise RuntimeError(
-                    "AF9015 firmware is not running; call init_hardware(download_firmware=True) "
-                    "to download it explicitly"
-                )
-            self.download_firmware(firmware, firmware_path)
-        self._create_adapters()
-        if len(self.adapters) > 1:
-            self._start_secondary_demodulator(self.adapters[1].frontend.demodulator_address)
-        for adapter in self.adapters:
-            adapter.init_hardware()
+        """Bring the device to the configured state used by the Linux driver.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            the complete initialization and any firmware reconnect are
+            serialized. This method may block on USB I/O and device
+            re-enumeration.
+        """
+        with self._control_lock:
+            for adapter in self.adapters:
+                adapter.stop()
+            if not self.is_warm:
+                if not download_firmware:
+                    raise RuntimeError(
+                        "AF9015 firmware is not running; call init_hardware(download_firmware=True) "
+                        "to download it explicitly"
+                    )
+                self.download_firmware(firmware, firmware_path)
+            self._create_adapters()
+            if len(self.adapters) > 1:
+                self._start_secondary_demodulator(self.adapters[1].frontend.demodulator_address)
+            for adapter in self.adapters:
+                adapter.init_hardware()
 
     def download_firmware(
         self,
         firmware: bytes | None = None,
         firmware_path: str | Path | None = None,
     ) -> None:
-        """Download firmware bytes, defaulting to the bundled AF9015 image."""
-        if firmware is not None and firmware_path is not None:
-            raise ValueError("provide firmware bytes or firmware_path, not both")
-        if firmware is None:
-            path = Path(firmware_path) if firmware_path is not None else DEFAULT_FIRMWARE_PATH
-            firmware = path.read_bytes()
-        self.bridge.download_firmware(firmware)
-        self.firmware_size = len(firmware)
-        self.firmware_checksum = sum(firmware) & 0xFFFF
-        self._reconnect()
+        """Download firmware bytes, defaulting to the bundled AF9015 image.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            downloading and USB re-enumeration are serialized. This method
+            may block on USB I/O and device re-enumeration.
+        """
+        with self._control_lock:
+            for adapter in self.adapters:
+                adapter.stop()
+            if firmware is not None and firmware_path is not None:
+                raise ValueError("provide firmware bytes or firmware_path, not both")
+            if firmware is None:
+                path = Path(firmware_path) if firmware_path is not None else DEFAULT_FIRMWARE_PATH
+                firmware = path.read_bytes()
+            self.bridge.download_firmware(firmware)
+            self.firmware_size = len(firmware)
+            self.firmware_checksum = sum(firmware) & 0xFFFF
+            self._reconnect()
 
     def _reconnect(
         self,
@@ -153,15 +201,16 @@ class AF9015Device:
         The new handle is accepted only after a ``GET_CONFIG`` transaction
         succeeds.
         """
-        new_transport = self.bridge.transport.reconnect(timeout, poll_interval)
-        candidate_bridge = AF9015Bridge(new_transport)
-        try:
-            state = candidate_bridge.get_state()
-        except Exception:
-            new_transport.close()
-            raise
-        self._reset_with_bridge(candidate_bridge)
-        return state
+        with self._control_lock:
+            new_transport = self.bridge.transport.reconnect(timeout, poll_interval)
+            candidate_bridge = AF9015Bridge(new_transport)
+            try:
+                state = candidate_bridge.get_state()
+            except Exception:
+                new_transport.close()
+                raise
+            self._reset_with_bridge(candidate_bridge)
+            return state
 
     def _create_adapters(self) -> None:
         """Read EEPROM configuration and create the device's adapter chains."""
@@ -247,34 +296,97 @@ class AF9015Device:
         raise TimeoutError("secondary AF9013 demodulator firmware timed out")
 
     def sleep(self) -> None:
-        """Put all configured frontends into their low-power state."""
-        for adapter in self.adapters:
-            adapter.sleep()
+        """Put all configured frontends into their low-power state.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            all frontend sleep operations are serialized across adapters and
+            may block on USB I/O.
+        """
+        with self._control_lock:
+            for adapter in self.adapters:
+                adapter.sleep()
 
     def tune(self, tuning: Tuning, adapter_index: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
-        """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
-        adapter = self._get_adapter(adapter_index)
-        if adapter.tuner is None:
-            raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
-        return adapter.tune(tuning, wait_for_lock)
+        """Tune one adapter's AF9013/TDA18271 frontend as a unit.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            control operations across all adapters are serialized. Tuning is
+            rejected while the selected adapter is streaming.
+        """
+        with self._control_lock:
+            adapter = self._get_adapter(adapter_index)
+            if adapter.tuner is None:
+                raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
+            return adapter.tune(tuning, wait_for_lock)
 
     def read_status(self, adapter_index: int = 0) -> FrontendStatus:
-        return self._get_adapter(adapter_index).read_status()
+        """Read one adapter's frontend status.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            device control operations are serialized and this may block on
+            USB I/O.
+        """
+        with self._control_lock:
+            return self._get_adapter(adapter_index).read_status()
 
     def start(self, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).start()
+        """Start transport-stream delivery for one adapter.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            lifecycle and control operations across all adapters are
+            serialized. This may wait for an in-flight read.
+        """
+        with self._control_lock:
+            self._get_adapter(adapter_index).start()
 
     def stop(self, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).stop()
+        """Stop transport-stream delivery for one adapter.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            lifecycle and control operations across all adapters are
+            serialized. This waits for an in-flight read before returning.
+        """
+        with self._control_lock:
+            self._get_adapter(adapter_index).stop()
 
     def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
-        return self._get_adapter(adapter_index).read_ts(timeout_ms)
+        """Read a transport-stream chunk from one adapter.
+
+        Threading:
+            The adapter permits one active read. This method snapshots the
+            adapter under the device lock, then releases that lock while USB
+            blocks so another device thread can initiate shutdown.
+        """
+        with self._control_lock:
+            adapter = self._get_adapter(adapter_index)
+        return adapter.read_ts(timeout_ms)
 
     def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
+        """Enable or disable one adapter's hardware PID filter slot.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            control operations across all adapters are serialized and may
+            block on USB I/O.
+        """
+        with self._control_lock:
+            self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
 
     def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).enable_pid_filter(enabled)
+        """Enable or disable one adapter's AF9013 PID filtering.
+
+        Threading:
+            Safe to call concurrently with other device control operations;
+            control operations across all adapters are serialized and may
+            block on USB I/O.
+        """
+        with self._control_lock:
+            self._get_adapter(adapter_index).enable_pid_filter(enabled)
 
 
 
