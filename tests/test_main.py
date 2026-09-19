@@ -24,7 +24,7 @@ class FakeDevice:
     def sleep(self):
         self.sleep_called = True
 
-    def tune(self, tuning, adapter, wait_for_lock):
+    def tune(self, tuning, adapter_index, wait_for_lock):
         self.tune_called = True
 
 

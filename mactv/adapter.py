@@ -17,8 +17,8 @@ class AF9015Adapter:
     demuxer: TSDemuxer
 
     @property
-    def adapter(self) -> int:
-        return self.frontend.adapter
+    def adapter_index(self) -> int:
+        return self.frontend.adapter_index
 
     @property
     def tuner(self) -> Tuner | None:

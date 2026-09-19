@@ -91,7 +91,7 @@ def test_demuxer_get_config_dict_contains_configuration_and_is_a_snapshot():
     config = demuxer.get_config_dict()
 
     assert config == {
-        "adapter": 0,
+        "adapter_index": 0,
         "dual_mode": False,
         "demodulator_address": 0x1C,
         "endpoint": demuxer.endpoint,

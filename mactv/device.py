@@ -207,11 +207,11 @@ class AF9015Device:
             demod_addresses.append(eeprom[EEPROM_DEMOD2_I2C] >> 1)
 
         self.adapters = []
-        for adapter in range(adapter_count):
-            offset = adapter * EEPROM_ADAPTER_OFFSET
+        for adapter_index in range(adapter_count):
+            offset = adapter_index * EEPROM_ADAPTER_OFFSET
             tuner_id = eeprom[EEPROM_TUNER_ID + offset]
             spectrum_inverted = tuner_id not in {0x04, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F}
-            demodulator_address = demod_addresses[adapter]
+            demodulator_address = demod_addresses[adapter_index]
             clock_hz = XTAL_CLOCKS.get(eeprom[EEPROM_XTAL_TYPE + offset], 0)
             intermediate_frequency_hz = (
                 int.from_bytes(eeprom[EEPROM_IF_LOW + offset : EEPROM_IF_HIGH + offset + 1], "little") * 1000
@@ -227,7 +227,7 @@ class AF9015Device:
                 intermediate_frequency_hz,
                 spectrum_inverted,
                 tuner_id,
-                adapter=adapter,
+                adapter_index=adapter_index,
                 mt2060_if=mt2060_if,
             )
             # TDA18271 sits behind the AF9013's I2C gate, so the frontend is its own bus.
@@ -235,18 +235,18 @@ class AF9015Device:
             frontend.tuner = tuner
             demuxer = TSDemuxer(
                 self.bridge,
-                adapter=adapter,
+                adapter_index=adapter_index,
                 dual_mode=adapter_count == 2,
                 demodulator_address=demodulator_address,
                 full_speed=self.bridge.transport.get_speed() == USBSpeed.FULL,
             )
             self.adapters.append(AF9015Adapter(frontend, demuxer))
 
-    def tune(self, tuning: Tuning, adapter: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
+    def tune(self, tuning: Tuning, adapter_index: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
-        if not 0 <= adapter < len(self.adapters) or self.adapters[adapter].tuner is None:
-            raise ValueError("adapter has no supported AF9013/TDA18271 frontend")
-        selected_adapter = self.adapters[adapter]
+        if not 0 <= adapter_index < len(self.adapters) or self.adapters[adapter_index].tuner is None:
+            raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
+        selected_adapter = self.adapters[adapter_index]
         selected_adapter.tune(tuning)
         return selected_adapter.wait_for_lock() if wait_for_lock else selected_adapter.read_status()
 

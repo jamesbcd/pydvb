@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from typing import cast
 
 from mactv.adapter import AF9015Adapter
+from mactv.demux import TSDemuxer
 from mactv.frontend import FrontendStatus
+from mactv.frontend import AF9013Frontend
+from mactv.tuner import Tuning
 
 
 @dataclass
@@ -11,7 +15,7 @@ class FakeTuner:
 
 class FakeFrontend:
     def __init__(self):
-        self.adapter = 1
+        self.adapter_index = 1
         self.tuner = FakeTuner()
         self.calls = []
 
@@ -57,10 +61,11 @@ class FakeDemuxer:
 def test_adapter_exposes_components_and_delegates_operations():
     frontend = FakeFrontend()
     demuxer = FakeDemuxer()
-    adapter = AF9015Adapter(frontend, demuxer)
+    adapter = AF9015Adapter(cast(AF9013Frontend, frontend), cast(TSDemuxer, demuxer))
 
     adapter.init_hardware()
-    adapter.tune("tuning")
+    tuning = Tuning(650_000_000)
+    adapter.tune(tuning)
     assert adapter.wait_for_lock(timeout=1, poll_interval=0.1).lock
     adapter.start()
     adapter.set_pid_filter(100)
@@ -69,11 +74,11 @@ def test_adapter_exposes_components_and_delegates_operations():
     adapter.stop()
     adapter.sleep()
 
-    assert adapter.adapter == 1
+    assert adapter.adapter_index == 1
     assert adapter.tuner is frontend.tuner
     assert frontend.calls == [
         ("init_hardware",),
-        ("tune", "tuning"),
+        ("tune", tuning),
         ("wait_for_lock", 1, 0.1),
         ("sleep",),
     ]

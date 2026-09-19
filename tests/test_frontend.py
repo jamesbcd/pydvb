@@ -81,7 +81,7 @@ def test_frontend_programs_serial_ts_mode_on_output_pin_7():
         28_800_000,
         4_570_000,
         False,
-        adapter=1,
+        adapter_index=1,
     )
 
     frontend.init_hardware()
@@ -115,7 +115,7 @@ def test_frontend_programs_adapter_one_gpio_nibbles():
         28_800_000,
         4_570_000,
         False,
-        adapter=1,
+        adapter_index=1,
     )
 
     frontend.init_hardware()
@@ -125,8 +125,8 @@ def test_frontend_programs_adapter_one_gpio_nibbles():
 
 
 def test_frontend_rejects_unknown_adapter():
-    with pytest.raises(ValueError, match="adapter must be 0 or 1"):
-        AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False, adapter=2)
+    with pytest.raises(ValueError, match="adapter_index must be 0 or 1"):
+        AF9013Frontend(FakeBus(), 0x1C, None, 28_800_000, 4_570_000, False, adapter_index=2)
 
 
 def test_frontend_get_config_dict_contains_configuration_and_is_a_snapshot():
@@ -137,7 +137,7 @@ def test_frontend_get_config_dict_contains_configuration_and_is_a_snapshot():
     assert config == {
         "demodulator_address": 0x1C,
         "tuner_id": 0x9C,
-        "adapter": 0,
+        "adapter_index": 0,
         "clock_hz": 28_800_000,
         "intermediate_frequency_hz": 4_570_000,
         "spectrum_inverted": False,

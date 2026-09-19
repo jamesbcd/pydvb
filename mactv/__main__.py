@@ -62,6 +62,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--adapter",
+        "--adapter-index",
+        dest="adapter_index",
         type=int,
         default=0,
         help="Adapter index to tune (default: 0)",
@@ -97,31 +99,31 @@ def main() -> int:
             bandwidth_hz=args.bandwidth * 1_000_000,
         )
         print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
-        device.tune(tuning, adapter=args.adapter, wait_for_lock=True)
+        device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
 
     if args.status:
         print(f"USB speed: {device.bridge.transport.get_speed().name}")
         print(f"Adapter count: {device.adapter_count}")
-        for index, adapter in enumerate(device.adapters):
-            print(f"Adapter {index}:")
-            print(f"Frontend index {index} configuration:")
+        for adapter_index, adapter in enumerate(device.adapters):
+            print(f"Adapter {adapter_index}:")
+            print(f"Frontend index {adapter_index} configuration:")
             pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
             print()
-            print(f"Demodulator index {index} configuration:")
+            print(f"Demodulator index {adapter_index} configuration:")
             pprint.pprint(adapter.demuxer.get_config_dict(),
                         underscore_numbers=True)
             print()
-            print(f"Tuner index {index} configuration:")
+            print(f"Tuner index {adapter_index} configuration:")
             pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
                         underscore_numbers=True)
             print()
-            print(f"Frontend index {index} status:")
+            print(f"Frontend index {adapter_index} status:")
             pprint.pprint(adapter.read_status(), underscore_numbers=True)
             print()
 
     if args.sleep:
         return 0
-    status = device.adapters[args.adapter].read_status()
+    status = device.adapters[args.adapter_index].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
     return 0 if status.lock else 2
 

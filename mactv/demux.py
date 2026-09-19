@@ -40,20 +40,20 @@ class TSDemuxer(Demuxer):
     def __init__(
         self,
         bridge: AF9015Bridge,
-        adapter: int = 0,
+        adapter_index: int = 0,
         dual_mode: bool = False,
         demodulator_address: int = 0x1C,
         full_speed: bool = False,
     ) -> None:
-        if adapter not in (0, 1) or (adapter == 1 and not dual_mode):
-            raise ValueError("adapter must be 0, or 1 for a dual tuner")
+        if adapter_index not in (0, 1) or (adapter_index == 1 and not dual_mode):
+            raise ValueError("adapter_index must be 0, or 1 for a dual tuner")
         if not 0 <= demodulator_address <= 0x7F:
             raise ValueError("demodulator address must be a 7-bit I2C address")
         self.bridge = bridge
-        self.adapter = adapter
+        self.adapter_index = adapter_index
         self._dual_mode = dual_mode
         self.demodulator_address = demodulator_address
-        self.endpoint = STREAM_ENDPOINTS[adapter]
+        self.endpoint = STREAM_ENDPOINTS[adapter_index]
         self._buffer_size = 64 if full_speed else 512
         self.packet_count = 5 if full_speed else self.TS_PACKET_COUNT
         self._running = False
@@ -65,7 +65,7 @@ class TSDemuxer(Demuxer):
     def get_config_dict(self) -> dict[str, object]:
         """Return demuxer configuration and current state for diagnostics."""
         return {
-            "adapter": self.adapter,
+            "adapter_index": self.adapter_index,
             "dual_mode": self._dual_mode,
             "demodulator_address": self.demodulator_address,
             "endpoint": self.endpoint,
@@ -80,8 +80,8 @@ class TSDemuxer(Demuxer):
 
     def start(self) -> None:
         if not self._configured:
-            stream_register = 0xDD88 if self.adapter == 0 else 0xDD8A
-            buffer_register = 0xDD0C if self.adapter == 0 else 0xDD0D
+            stream_register = 0xDD88 if self.adapter_index == 0 else 0xDD8A
+            buffer_register = 0xDD0C if self.adapter_index == 0 else 0xDD0D
             buffer_words = self.packet_count * self.TS_PACKET_SIZE // 4
             self.bridge.write_memory(stream_register, buffer_words.to_bytes(2, "little"))
             self.bridge.write_memory(buffer_register, bytes((self._buffer_size // 4,)))
@@ -89,7 +89,7 @@ class TSDemuxer(Demuxer):
             self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
             self._configured = True
 
-        if self.adapter == 0:
+        if self.adapter_index == 0:
             self.bridge.update_memory_bits(0xDD13, 0x20, 0)
             self.bridge.update_memory_bits(0xDD11, 0x20, 0x20)
             self.bridge.update_memory_bits(0xD507, 0x04, 0)
@@ -102,7 +102,7 @@ class TSDemuxer(Demuxer):
     def stop(self) -> None:
         if not self._running:
             return
-        if self.adapter == 0:
+        if self.adapter_index == 0:
             self.bridge.update_memory_bits(0xD507, 0x04, 0x04)
             self.bridge.update_memory_bits(0xDD11, 0x20, 0)
             self.bridge.update_memory_bits(0xDD13, 0x20, 0x20)

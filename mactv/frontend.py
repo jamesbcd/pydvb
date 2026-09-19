@@ -164,11 +164,11 @@ class AF9013Frontend:
         intermediate_frequency_hz: int,
         spectrum_inverted: bool,
         tuner_id: int = 0x9C,
-        adapter: int = 0,
+        adapter_index: int = 0,
         mt2060_if: int = 0,
     ) -> None:
-        if adapter not in (0, 1):
-            raise ValueError("AF9013 adapter must be 0 or 1")
+        if adapter_index not in (0, 1):
+            raise ValueError("AF9013 adapter_index must be 0 or 1")
         self.bridge = bridge
         self.demodulator_address = demodulator_address
         self.tuner = tuner
@@ -176,14 +176,14 @@ class AF9013Frontend:
         self.intermediate_frequency_hz = intermediate_frequency_hz
         self.spectrum_inverted = spectrum_inverted
         self.tuner_id = tuner_id
-        self.adapter = adapter
+        self.adapter_index = adapter_index
         self.mt2060_if = mt2060_if
         self.demuxer: TSDemuxer | None = None
-        self.ts_mode = self.TS_MODE_SERIAL if adapter == 1 else self.TS_MODE_USB
-        self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter == 1 else self.TS_OUTPUT_PIN_DEFAULT
+        self.ts_mode = self.TS_MODE_SERIAL if adapter_index == 1 else self.TS_MODE_USB
+        self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter_index == 1 else self.TS_OUTPUT_PIN_DEFAULT
         self.gpio = (
             (self.GPIO_HI, 0, 0, self.GPIO_TUNER_ON)
-            if adapter == 0
+            if adapter_index == 0
             else (self.GPIO_TUNER_ON, self.GPIO_LO, 0, 0)
         )
         self._initialized = False
@@ -199,7 +199,7 @@ class AF9013Frontend:
         return {
             "demodulator_address": self.demodulator_address,
             "tuner_id": self.tuner_id,
-            "adapter": self.adapter,
+            "adapter_index": self.adapter_index,
             "clock_hz": self.clock_hz,
             "intermediate_frequency_hz": self.intermediate_frequency_hz,
             "spectrum_inverted": self.spectrum_inverted,
