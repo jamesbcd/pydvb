@@ -14,6 +14,7 @@ from . import usb as usb_logging
 from .usb import USBSpeed
 
 MAX_CAPTURE_BYTES = 5 * 1024 * 1024
+EMPTY_READ_TIMEOUT_SECONDS = 5.0
 
 
 def parse_frequency(value: str) -> int:
@@ -24,13 +25,21 @@ def parse_frequency(value: str) -> int:
     return round(frequency_mhz * 1_000_000)
 
 
-def capture_stream(adapter, output_path: Path, max_bytes: int = MAX_CAPTURE_BYTES) -> tuple[int, float]:
+def capture_stream(
+    adapter,
+    output_path: Path,
+    max_bytes: int = MAX_CAPTURE_BYTES,
+    empty_read_timeout: float = EMPTY_READ_TIMEOUT_SECONDS,
+) -> tuple[int, float]:
     """Capture transport-stream data to disk and return bytes and elapsed seconds."""
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
+    if empty_read_timeout < 0:
+        raise ValueError("empty_read_timeout must be non-negative")
 
     started = False
     bytes_written = 0
+    empty_read_deadline = None
     start_time = monotonic()
     try:
         print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
@@ -40,7 +49,12 @@ def capture_stream(adapter, output_path: Path, max_bytes: int = MAX_CAPTURE_BYTE
             while bytes_written < max_bytes:
                 chunk = adapter.read_ts()
                 if not chunk:
-                    raise IOError("transport stream read returned no data")
+                    if empty_read_deadline is None:
+                        empty_read_deadline = monotonic() + empty_read_timeout
+                    if monotonic() >= empty_read_deadline:
+                        raise IOError("transport stream read returned no data")
+                    continue
+                empty_read_deadline = None
                 remaining = max_bytes - bytes_written
                 output.write(chunk[:remaining])
                 bytes_written += min(len(chunk), remaining)

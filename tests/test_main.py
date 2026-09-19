@@ -133,3 +133,26 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
         __main__.capture_stream(adapter, output_path, max_bytes=10)
 
     assert adapter.events == ["start", "read", "read", "stop", "sleep"]
+
+
+def test_capture_stream_retries_empty_reads(tmp_path):
+    adapter = FakeStreamAdapter([b"", b"data"])
+    output_path = tmp_path / "capture.ts"
+
+    bytes_written, _ = __main__.capture_stream(
+        adapter, output_path, max_bytes=4, empty_read_timeout=1
+    )
+
+    assert bytes_written == 4
+    assert output_path.read_bytes() == b"data"
+    assert adapter.events == ["start", "read", "read", "stop", "sleep"]
+
+
+def test_capture_stream_fails_after_empty_read_timeout(tmp_path):
+    adapter = FakeStreamAdapter([b""])
+    output_path = tmp_path / "capture.ts"
+
+    with pytest.raises(IOError, match="transport stream read returned no data"):
+        __main__.capture_stream(adapter, output_path, max_bytes=4, empty_read_timeout=0)
+
+    assert adapter.events == ["start", "read", "stop", "sleep"]
