@@ -159,6 +159,8 @@ class AF9015Device:
         with self._control_lock:
             self._hardware_initialized = False
             for adapter in self.adapters:
+                # We only reach this point if the adapters have been created previously,
+                # which means we are re-initializing the hardware and need to stop them first.
                 adapter.stop()
             if not self.is_warm:
                 if not download_firmware:
