@@ -9,6 +9,7 @@
 **/__pycache__/
 .VSCodeCounter/
 research/
+recordings/
 
 # Optionally, ignore all compiled python bytecode files as well
 *.pyc
