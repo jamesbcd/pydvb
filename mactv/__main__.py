@@ -32,6 +32,11 @@ def main() -> int:
         help="Only check device state; do not initialize or upload firmware",
     )
     parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print status information about the device",
+    )
+    parser.add_argument(
         "--usb-log",
         action="store_true",
         help="Log USB bulk transfers",
@@ -94,25 +99,28 @@ def main() -> int:
         print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
         device.tune(tuning, adapter=args.adapter, wait_for_lock=True)
 
-    print(f"USB speed: {device.bridge.transport.get_speed().name}")
-    print(f"Adapter count: {device.adapter_count}")
-    for index, frontend in enumerate(device.adapters):
-        print(f"Adapter {index}:")
-        print(f"Frontend index {index} configuration:")
-        pprint.pprint(frontend.get_config_dict(), underscore_numbers=True)
-        print()
-        print(f"Demodulator index {index} configuration:")
-        pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None,
-                      underscore_numbers=True)
-        print()
-        print(f"Tuner index {index} configuration:")
-        pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None,
-                      underscore_numbers=True)
-        print()
-        print(f"Frontend index {index} status:")
-        pprint.pprint(frontend.read_status(), underscore_numbers=True)
-        print()
+    if args.status:
+        print(f"USB speed: {device.bridge.transport.get_speed().name}")
+        print(f"Adapter count: {device.adapter_count}")
+        for index, frontend in enumerate(device.adapters):
+            print(f"Adapter {index}:")
+            print(f"Frontend index {index} configuration:")
+            pprint.pprint(frontend.get_config_dict(), underscore_numbers=True)
+            print()
+            print(f"Demodulator index {index} configuration:")
+            pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None,
+                        underscore_numbers=True)
+            print()
+            print(f"Tuner index {index} configuration:")
+            pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None,
+                        underscore_numbers=True)
+            print()
+            print(f"Frontend index {index} status:")
+            pprint.pprint(frontend.read_status(), underscore_numbers=True)
+            print()
 
+    if args.sleep:
+        return 0
     status = device.adapters[args.adapter].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
     return 0 if status.lock else 2
