@@ -84,36 +84,10 @@ class AF9015Device:
         self.eeprom: bytes | None = None
         self.eeprom_hash: int | None = None
  
-    def close(self) -> None:
-        self.bridge.transport.close()
-
-    def sleep(self) -> None:
-        """Put all configured frontends into their low-power state."""
-        for adapter in self.adapters:
-            adapter.sleep()
-
     def _get_adapter(self, adapter_index: int) -> AF9015Adapter:
         if not 0 <= adapter_index < len(self.adapters):
             raise ValueError(f"adapter_index {adapter_index} is not configured")
         return self.adapters[adapter_index]
-
-    def read_status(self, adapter_index: int = 0) -> FrontendStatus:
-        return self._get_adapter(adapter_index).read_status()
-
-    def start(self, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).start()
-
-    def stop(self, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).stop()
-
-    def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
-        return self._get_adapter(adapter_index).read_ts(timeout_ms)
-
-    def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
-
-    def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
-        self._get_adapter(adapter_index).enable_pid_filter(enabled)
 
     def __enter__(self) -> "AF9015Device":
         return self
@@ -128,6 +102,9 @@ class AF9015Device:
     @property
     def is_warm(self) -> bool:
         return self.bridge.get_state() == 0x02
+
+    def close(self) -> None:
+        self.bridge.transport.close()
 
     def init_hardware(
         self,
@@ -186,45 +163,6 @@ class AF9015Device:
         self._reset_with_bridge(candidate_bridge)
         return state
 
-    def _start_secondary_demodulator(self, address: int) -> None:
-        status = self.bridge.read_i2c_byte(address, 0x98BE, address_length=3)
-        if status == 0x0C:
-            return
-        self.bridge.write_memory(0xD416, b"\x04")
-        self.bridge.copy_firmware(self.firmware_size, self.firmware_checksum)
-        self.bridge.write_memory(0xD416, b"\x14")
-        self.bridge.write_i2c_byte(address, 0xE205, 0x01, address_length=3)
-
-        deadline = monotonic() + 1.0
-        while monotonic() < deadline:
-            status = self.bridge.read_i2c_byte(address, 0x98BE, address_length=3)
-            if status == 0x0C:
-                return
-            if status == 0x04:
-                raise IOError("secondary AF9013 demodulator firmware failed")
-            sleep(0.02)
-        raise TimeoutError("secondary AF9013 demodulator firmware timed out")
-
-    def _read_eeprom(self) -> bytes:
-        """Read and cache the complete 256-byte AF9015 EEPROM."""
-        self.eeprom = bytes(
-            self.bridge.read_i2c(EEPROM_ADDRESS, offset, 1)[0]
-            for offset in range(EEPROM_SIZE)
-        )
-        self.eeprom_hash = self._eeprom_hash(self.eeprom)
-        return self.eeprom
-
-    def _eeprom_hash(self, data: bytes) -> int:
-        """Match Linux's AF9015 golden-ratio EEPROM hash."""
-        if len(data) != EEPROM_SIZE:
-            raise ValueError("AF9015 EEPROM must contain 256 bytes")
-
-        GOLDEN_RATIO_PRIME = 0x9E370001 # 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1
-        result = 0
-        for offset in range(0, EEPROM_SIZE, 4):
-            result = ((result * GOLDEN_RATIO_PRIME) + int.from_bytes(data[offset : offset + 4], "little")) & 0xFFFFFFFF
-        return result
-
     def _create_adapters(self) -> None:
         """Read EEPROM configuration and create the device's adapter chains."""
         eeprom = self.eeprom if self.eeprom is not None else self._read_eeprom()
@@ -269,10 +207,74 @@ class AF9015Device:
             )
             self.adapters.append(AF9015Adapter(frontend, demuxer))
 
+    def _read_eeprom(self) -> bytes:
+        """Read and cache the complete 256-byte AF9015 EEPROM."""
+        self.eeprom = bytes(
+            self.bridge.read_i2c(EEPROM_ADDRESS, offset, 1)[0]
+            for offset in range(EEPROM_SIZE)
+        )
+        self.eeprom_hash = self._eeprom_hash(self.eeprom)
+        return self.eeprom
+
+    def _eeprom_hash(self, data: bytes) -> int:
+        """Match Linux's AF9015 golden-ratio EEPROM hash."""
+        if len(data) != EEPROM_SIZE:
+            raise ValueError("AF9015 EEPROM must contain 256 bytes")
+
+        GOLDEN_RATIO_PRIME = 0x9E370001 # 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1
+        result = 0
+        for offset in range(0, EEPROM_SIZE, 4):
+            result = ((result * GOLDEN_RATIO_PRIME) + int.from_bytes(data[offset : offset + 4], "little")) & 0xFFFFFFFF
+        return result
+
+    def _start_secondary_demodulator(self, address: int) -> None:
+        status = self.bridge.read_i2c_byte(address, 0x98BE, address_length=3)
+        if status == 0x0C:
+            return
+        self.bridge.write_memory(0xD416, b"\x04")
+        self.bridge.copy_firmware(self.firmware_size, self.firmware_checksum)
+        self.bridge.write_memory(0xD416, b"\x14")
+        self.bridge.write_i2c_byte(address, 0xE205, 0x01, address_length=3)
+
+        deadline = monotonic() + 1.0
+        while monotonic() < deadline:
+            status = self.bridge.read_i2c_byte(address, 0x98BE, address_length=3)
+            if status == 0x0C:
+                return
+            if status == 0x04:
+                raise IOError("secondary AF9013 demodulator firmware failed")
+            sleep(0.02)
+        raise TimeoutError("secondary AF9013 demodulator firmware timed out")
+
+    def sleep(self) -> None:
+        """Put all configured frontends into their low-power state."""
+        for adapter in self.adapters:
+            adapter.sleep()
+
     def tune(self, tuning: Tuning, adapter_index: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
         adapter = self._get_adapter(adapter_index)
         if adapter.tuner is None:
             raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
         return adapter.tune(tuning, wait_for_lock)
+
+    def read_status(self, adapter_index: int = 0) -> FrontendStatus:
+        return self._get_adapter(adapter_index).read_status()
+
+    def start(self, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).start()
+
+    def stop(self, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).stop()
+
+    def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
+        return self._get_adapter(adapter_index).read_ts(timeout_ms)
+
+    def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
+
+    def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).enable_pid_filter(enabled)
+
+
 

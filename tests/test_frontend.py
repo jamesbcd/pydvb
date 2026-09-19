@@ -75,7 +75,7 @@ def test_frontend_uses_tuner_selected_if_frequency():
     tuner.get_if_frequency_hz = lambda: 3_500_000
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_300_000, False)
 
-    frontend.tune(Tuning(177_500_000, 7_000_000))
+    frontend.tune(Tuning(177_500_000, 7_000_000), wait_for_lock=False)
 
     frequency_data = next(data for _, register, data, _, _ in bus.writes if register == frontend.REG_FREQUENCY_CONTROL)
     expected_word = 0x800000 - round(3_500_000 * 0x800000 / 28_800_000)
