@@ -43,7 +43,7 @@ def test_read_configuration_creates_adapters_from_dual_eeprom():
     eeprom[0x4C] = 0x0B
 
     device = AF9015Device(FakeTransport(bytes(eeprom)))
-    device.create_adapters()
+    device._create_adapters()
     adapters = tuple(device.adapters)
 
     assert len(adapters) == 2
@@ -62,7 +62,7 @@ def test_tda18271_configuration_creates_coordinated_frontend():
     eeprom[0x3C] = 0x9C
 
     device = AF9015Device(FakeTransport(bytes(eeprom)))
-    device.create_adapters()
+    device._create_adapters()
     adapter = device.adapters[0]
 
     assert adapter.tuner is not None

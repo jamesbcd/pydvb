@@ -49,9 +49,10 @@ def test_frontend_tunes_tuner_and_programs_frequency_and_bandwidth():
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
     tuning = Tuning(650_000_000, 8_000_000)
 
-    frontend.tune(tuning)
+    status = frontend.tune(tuning)
 
     assert tuner.tunings == [tuning]
+    assert status.lock
     assert any(register == frontend.REG_FREQUENCY_CONTROL for _, register, _, _, _ in bus.writes)
     assert any(register == frontend.REG_FREQUENCY_CONTROL_EXT for _, register, data, _, _ in bus.writes if len(data) == 6)
     bus.registers[frontend.REG_MPEG_STATUS] = b"\x40"

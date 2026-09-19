@@ -65,8 +65,8 @@ def test_adapter_exposes_components_and_delegates_operations():
 
     adapter.init_hardware()
     tuning = Tuning(650_000_000)
-    adapter.tune(tuning)
-    assert adapter.wait_for_lock(timeout=1, poll_interval=0.1).lock
+    assert adapter.tune(tuning).lock
+    assert adapter.tune(tuning, wait_for_lock=False).lock is False
     adapter.start()
     adapter.set_pid_filter(100)
     adapter.enable_pid_filter()
@@ -79,7 +79,9 @@ def test_adapter_exposes_components_and_delegates_operations():
     assert frontend.calls == [
         ("init_hardware",),
         ("tune", tuning),
-        ("wait_for_lock", 1, 0.1),
+        ("wait_for_lock", None, 0.05),
+        ("tune", tuning),
+        ("read_status",),
         ("sleep",),
     ]
     assert demuxer.calls == [

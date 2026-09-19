@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .demux import TSDemuxer
-from .frontend import AF9013Frontend, DEFAULT_LOCK_TIMEOUT, FrontendStatus
+from .frontend import AF9013Frontend, FrontendStatus
 from .tuner import Tuner, Tuning
 
 
@@ -34,15 +34,8 @@ class AF9015Adapter:
     def sleep(self) -> None:
         self.frontend.sleep()
 
-    def tune(self, tuning: Tuning) -> None:
-        self.frontend.tune(tuning)
-
-    def wait_for_lock(
-        self,
-        timeout: float | None = DEFAULT_LOCK_TIMEOUT,
-        poll_interval: float = 0.05,
-    ) -> FrontendStatus:
-        return self.frontend.wait_for_lock(timeout, poll_interval)
+    def tune(self, tuning: Tuning, wait_for_lock: bool = True) -> FrontendStatus:
+        return self.frontend.tune(tuning, wait_for_lock)
 
     def read_status(self) -> FrontendStatus:
         return self.frontend.read_status()

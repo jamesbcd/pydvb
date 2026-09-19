@@ -92,6 +92,29 @@ class AF9015Device:
         for adapter in self.adapters:
             adapter.sleep()
 
+    def _get_adapter(self, adapter_index: int) -> AF9015Adapter:
+        if not 0 <= adapter_index < len(self.adapters):
+            raise ValueError(f"adapter_index {adapter_index} is not configured")
+        return self.adapters[adapter_index]
+
+    def read_status(self, adapter_index: int = 0) -> FrontendStatus:
+        return self._get_adapter(adapter_index).read_status()
+
+    def start(self, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).start()
+
+    def stop(self, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).stop()
+
+    def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
+        return self._get_adapter(adapter_index).read_ts(timeout_ms)
+
+    def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
+
+    def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
+        self._get_adapter(adapter_index).enable_pid_filter(enabled)
+
     def __enter__(self) -> "AF9015Device":
         return self
 
@@ -120,7 +143,7 @@ class AF9015Device:
                     "to download it explicitly"
                 )
             self.download_firmware(firmware, firmware_path)
-        self.create_adapters()
+        self._create_adapters()
         if len(self.adapters) > 1:
             self._start_secondary_demodulator(self.adapters[1].frontend.demodulator_address)
         for adapter in self.adapters:
@@ -140,9 +163,9 @@ class AF9015Device:
         self.bridge.download_firmware(firmware)
         self.firmware_size = len(firmware)
         self.firmware_checksum = sum(firmware) & 0xFFFF
-        self.reconnect()
+        self._reconnect()
 
-    def reconnect(
+    def _reconnect(
         self,
         timeout: float = 5.0,
         poll_interval: float = 0.1,
@@ -182,7 +205,7 @@ class AF9015Device:
             sleep(0.02)
         raise TimeoutError("secondary AF9013 demodulator firmware timed out")
 
-    def read_eeprom(self) -> bytes:
+    def _read_eeprom(self) -> bytes:
         """Read and cache the complete 256-byte AF9015 EEPROM."""
         self.eeprom = bytes(
             self.bridge.read_i2c(EEPROM_ADDRESS, offset, 1)[0]
@@ -202,9 +225,9 @@ class AF9015Device:
             result = ((result * GOLDEN_RATIO_PRIME) + int.from_bytes(data[offset : offset + 4], "little")) & 0xFFFFFFFF
         return result
 
-    def create_adapters(self) -> None:
+    def _create_adapters(self) -> None:
         """Read EEPROM configuration and create the device's adapter chains."""
-        eeprom = self.eeprom if self.eeprom is not None else self.read_eeprom()
+        eeprom = self.eeprom if self.eeprom is not None else self._read_eeprom()
         adapter_count = 2 if eeprom[EEPROM_TS_MODE] else 1
         demod_addresses = [DEMODULATOR_ADDRESS]
         if adapter_count == 2:
@@ -248,9 +271,8 @@ class AF9015Device:
 
     def tune(self, tuning: Tuning, adapter_index: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
-        if not 0 <= adapter_index < len(self.adapters) or self.adapters[adapter_index].tuner is None:
+        adapter = self._get_adapter(adapter_index)
+        if adapter.tuner is None:
             raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
-        selected_adapter = self.adapters[adapter_index]
-        selected_adapter.tune(tuning)
-        return selected_adapter.wait_for_lock() if wait_for_lock else selected_adapter.read_status()
+        return adapter.tune(tuning, wait_for_lock)
 

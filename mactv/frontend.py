@@ -394,7 +394,7 @@ class AF9013Frontend:
             )
         ), auto_mode
 
-    def tune(self, tuning: Tuning) -> None:
+    def tune(self, tuning: Tuning, wait_for_lock: bool = True) -> FrontendStatus:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
         if not self._initialized:
@@ -466,6 +466,7 @@ class AF9013Frontend:
         self._last_bandwidth_hz = tuning.bandwidth_hz
         self.current_tuning = tuning
         self._sleeping = False
+        return self.wait_for_lock() if wait_for_lock else self.read_status()
 
     def read_status(self) -> FrontendStatus:
         mpeg_locked = bool(self._read_register(self.REG_MPEG_STATUS)[0] & 0x40)
