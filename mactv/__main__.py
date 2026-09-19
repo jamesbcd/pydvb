@@ -13,7 +13,8 @@ from .device import AF9015Device
 from . import usb as usb_logging
 from .usb import USBSpeed
 
-MAX_CAPTURE_BYTES = 5 * 1024 * 1024
+TS_PACKET_SIZE = 188
+MAX_CAPTURE_BYTES = ((5 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
 EMPTY_READ_TIMEOUT_SECONDS = 5.0
 
 
