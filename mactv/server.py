@@ -10,6 +10,8 @@ from typing import cast
 
 from .stream import OverflowPolicy, TSStream
 
+BUFFER_LOG_ON_CHANGE = True
+
 
 class LocalTS_HTTPServer:
     """Serve one transport stream to one or more HTTP clients.
@@ -99,13 +101,17 @@ class LocalTS_HTTPServer:
                 pass
 
     def _broadcast(self) -> None:
+        previous_queue_size = None
         try:
             for chunk in self.stream.iter_chunks(timeout=1.0):
                 if self.buffer_log:
-                    print(
-                        f"Buffer queue: {self.stream.queue_size}/{self.stream.queue_capacity}",
-                        flush=True,
-                    )
+                    queue_size = self.stream.queue_size
+                    if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
+                        print(
+                            f"Buffer queue: {queue_size}/{self.stream.queue_capacity}",
+                            flush=True,
+                        )
+                    previous_queue_size = queue_size
                 with self._clients_lock:
                     clients = tuple(self._clients)
                 for client in clients:

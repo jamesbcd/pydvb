@@ -4,6 +4,7 @@ from threading import Event, Thread
 from time import monotonic, sleep
 
 from mactv.server import LocalTS_HTTPServer
+from mactv import server as server_module
 
 
 class FakeAdapter:
@@ -96,3 +97,29 @@ def test_server_logs_stream_queue_size(capsys):
     server._broadcast()
 
     assert "Buffer queue: 3/20" in capsys.readouterr().out
+
+
+def test_server_buffer_log_can_only_report_queue_size_changes(monkeypatch, capsys):
+    monkeypatch.setattr(server_module, "BUFFER_LOG_ON_CHANGE", True)
+    server = LocalTS_HTTPServer(FakeAdapter(), port=0, buffer_log=True)
+
+    class FakeStream:
+        queue_capacity = 20
+        queue_sizes = iter((3, 3, 4))
+
+        @property
+        def queue_size(self):
+            return next(self.queue_sizes)
+
+        def iter_chunks(self, timeout=None):
+            yield b"one"
+            yield b"two"
+            yield b"three"
+
+    server.stream = FakeStream()
+    server._broadcast()
+
+    assert capsys.readouterr().out.splitlines() == [
+        "Buffer queue: 3/20",
+        "Buffer queue: 4/20",
+    ]
