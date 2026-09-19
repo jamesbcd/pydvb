@@ -1,3 +1,5 @@
+from threading import Event, Thread
+
 import pytest
 
 from mactv.bridge import AF9015Bridge
@@ -30,6 +32,20 @@ class StreamTransport(FakeTransport):
         if endpoint == 0x81:
             return bytes(length)
         return next(self.chunks)
+
+
+class BlockingStreamTransport(FakeTransport):
+    def __init__(self):
+        super().__init__()
+        self.read_started = Event()
+        self.release_read = Event()
+
+    def bulk_read(self, endpoint, length, timeout):
+        if endpoint == 0x84:
+            self.read_started.set()
+            self.release_read.wait(timeout=1)
+            return b""
+        return super().bulk_read(endpoint, length, timeout)
 
 
 def test_pid_filter_programs_af9013_slot():
@@ -105,6 +121,36 @@ def test_read_ts_buffers_partial_packets():
     assert demuxer.read_ts() == packet * 4
     assert demuxer.read_ts() == b""
     assert demuxer.read_ts() == packet
+
+
+def test_stop_waits_for_in_flight_read_and_discards_late_data():
+    transport = BlockingStreamTransport()
+    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer.start()
+    read_error = []
+
+    def read_stream():
+        try:
+            demuxer.read_ts()
+        except RuntimeError as error:
+            read_error.append(error)
+
+    reader = Thread(target=read_stream)
+    reader.start()
+    assert transport.read_started.wait(timeout=1)
+
+    stopped = Event()
+    stopper = Thread(target=lambda: (demuxer.stop(), stopped.set()))
+    stopper.start()
+    assert not stopped.wait(timeout=0.05)
+
+    transport.release_read.set()
+    reader.join(timeout=1)
+    stopper.join(timeout=1)
+
+    assert not reader.is_alive()
+    assert not stopper.is_alive()
+    assert read_error and str(read_error[0]) == "demuxer is not started"
 
 
 def test_virtual_whole_stream_pid_is_accepted_without_a_slot():

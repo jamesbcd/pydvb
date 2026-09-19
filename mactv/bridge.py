@@ -51,6 +51,13 @@ class AF9015Bridge:
         self._lock = Lock()
 
     def transact(self, request: ControlRequest) -> bytes:
+        """Execute one serialized AF9015 control transaction.
+
+        Threading:
+            Safe to call concurrently from multiple threads; complete control
+            transactions are serialized, and this method may block on USB
+            I/O until the bridge timeout expires.
+        """
         if not 0 <= request.i2c_address <= 0x7F:
             raise ValueError("I2C address must be a 7-bit value")
         if not 0 <= request.address <= 0xFFFF:

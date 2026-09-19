@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from threading import Lock
+from threading import Condition, Lock
 
 from .bridge import AF9015Bridge
 from .usb import STREAM_ENDPOINTS
@@ -62,7 +62,9 @@ class TSDemuxer(Demuxer):
         self.packet_count = 5 if full_speed else self.TS_PACKET_COUNT
         self._running = False
         self._configured = False
-        self._pid_lock = Lock()
+        self._state_condition = Condition() # Condition variable to protect state changes and coordinate threads
+        self._active_reads = 0 # Number of active read operations in progress
+        self._pid_lock = Lock() # Lock to protect access to PID slots and filter state
         self._pid_slots: dict[int, int] = {}
         self._pid_filter_enabled = False
         self._ts_buffer = bytearray()
@@ -70,92 +72,163 @@ class TSDemuxer(Demuxer):
 
     def get_config_dict(self) -> dict[str, object]:
         """Return demuxer configuration and current state for diagnostics."""
-        return {
-            "adapter_index": self.adapter_index,
-            "dual_mode": self._dual_mode,
-            "demodulator_address": self.demodulator_address,
-            "endpoint": self.endpoint,
-            "buffer_size": self._buffer_size,
-            "packet_count": self.packet_count,
-            "running": self._running,
-            "configured": self._configured,
-            "pid_filter_enabled": self._pid_filter_enabled,
-            "pids": frozenset(self._pid_slots),
-            "pid_slots": dict(self._pid_slots),
-        }
+        """Return demuxer configuration and current state for diagnostics.
+
+        Threading:
+            Safe to call concurrently with lifecycle operations. The returned
+            values are a synchronized snapshot and may change immediately
+            after this method returns.
+        """
+        with self._state_condition:
+            with self._pid_lock:
+                return {
+                    "adapter_index": self.adapter_index,
+                    "dual_mode": self._dual_mode,
+                    "demodulator_address": self.demodulator_address,
+                    "endpoint": self.endpoint,
+                    "buffer_size": self._buffer_size,
+                    "packet_count": self.packet_count,
+                    "running": self._running,
+                    "configured": self._configured,
+                    "pid_filter_enabled": self._pid_filter_enabled,
+                    "pids": frozenset(self._pid_slots),
+                    "pid_slots": dict(self._pid_slots),
+                }
 
     def start(self) -> None:
-        if not self._configured:
-            stream_register = 0xDD88 if self.adapter_index == 0 else 0xDD8A
-            buffer_register = 0xDD0C if self.adapter_index == 0 else 0xDD0D
-            buffer_words = self.packet_count * self.TS_PACKET_SIZE // 4
-            self.bridge.write_memory(stream_register, buffer_words.to_bytes(2, "little"))
-            self.bridge.write_memory(buffer_register, bytes((self._buffer_size // 4,)))
-            self.bridge.update_memory_bits(0xD50B, 0x01, 0x01 if self._dual_mode else 0)
-            self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
-            self._configured = True
+        """Start transport-stream delivery.
 
-        self._ts_buffer.clear()
-        self._ts_synchronized = False
-        if self.adapter_index == 0:
-            self.bridge.update_memory_bits(0xDD13, 0x20, 0)
-            self.bridge.update_memory_bits(0xDD11, 0x20, 0x20)
-            self.bridge.update_memory_bits(0xD507, 0x04, 0)
-        else:
-            self.bridge.update_memory_bits(0xDD13, 0x40, 0)
-            self.bridge.update_memory_bits(0xDD11, 0x40, 0x40)
-            self.bridge.update_memory_bits(0xD50B, 0x02, 0)
-        self._running = True
+        Threading:
+            Safe to call concurrently with another lifecycle call; lifecycle
+            transitions are serialized. This method may block on USB control
+            transactions and waits for an in-flight read to finish.
+        """
+        with self._state_condition:
+            while self._active_reads:
+                self._state_condition.wait()
+            if not self._configured:
+                stream_register = 0xDD88 if self.adapter_index == 0 else 0xDD8A
+                buffer_register = 0xDD0C if self.adapter_index == 0 else 0xDD0D
+                buffer_words = self.packet_count * self.TS_PACKET_SIZE // 4
+                self.bridge.write_memory(stream_register, buffer_words.to_bytes(2, "little"))
+                self.bridge.write_memory(buffer_register, bytes((self._buffer_size // 4,)))
+                self.bridge.update_memory_bits(0xD50B, 0x01, 0x01 if self._dual_mode else 0)
+                self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
+                self._configured = True
+
+            self._ts_buffer.clear()
+            self._ts_synchronized = False
+            if self.adapter_index == 0:
+                self.bridge.update_memory_bits(0xDD13, 0x20, 0)
+                self.bridge.update_memory_bits(0xDD11, 0x20, 0x20)
+                self.bridge.update_memory_bits(0xD507, 0x04, 0)
+            else:
+                self.bridge.update_memory_bits(0xDD13, 0x40, 0)
+                self.bridge.update_memory_bits(0xDD11, 0x40, 0x40)
+                self.bridge.update_memory_bits(0xD50B, 0x02, 0)
+            self._running = True
+
+    @property
+    def running(self) -> bool:
+        """Return whether transport-stream delivery is enabled.
+
+        Threading:
+            Safe to read concurrently with lifecycle operations. The result
+            is a synchronized snapshot and may change immediately after it is
+            returned.
+        """
+        with self._state_condition:
+            return self._running
 
     def stop(self) -> None:
-        if not self._running:
-            return
-        if self.adapter_index == 0:
-            self.bridge.update_memory_bits(0xD507, 0x04, 0x04)
-            self.bridge.update_memory_bits(0xDD11, 0x20, 0)
-            self.bridge.update_memory_bits(0xDD13, 0x20, 0x20)
-        else:
-            self.bridge.update_memory_bits(0xD50B, 0x02, 0x02)
-            self.bridge.update_memory_bits(0xDD11, 0x40, 0)
-            self.bridge.update_memory_bits(0xDD13, 0x40, 0x40)
-        self._running = False
+        """Stop transport-stream delivery.
+
+        Threading:
+            Safe to call concurrently with another lifecycle call. New reads
+            are rejected once shutdown begins; this method waits for an
+            in-flight USB read before issuing the hardware stop sequence.
+            The wait is bounded by the read's USB timeout.
+        """
+        with self._state_condition:
+            if not self._running:
+                return
+            self._running = False
+            while self._active_reads:
+                self._state_condition.wait()
+            if self.adapter_index == 0:
+                self.bridge.update_memory_bits(0xD507, 0x04, 0x04)
+                self.bridge.update_memory_bits(0xDD11, 0x20, 0)
+                self.bridge.update_memory_bits(0xDD13, 0x20, 0x20)
+            else:
+                self.bridge.update_memory_bits(0xD50B, 0x02, 0x02)
+                self.bridge.update_memory_bits(0xDD11, 0x40, 0)
+                self.bridge.update_memory_bits(0xDD13, 0x40, 0x40)
 
     def read_ts(self, timeout_ms: int = 2000) -> bytes:
-        if not self._running:
-            raise RuntimeError("demuxer is not started")
-        self._ts_buffer.extend(self.bridge.transport.bulk_read(
-            self.endpoint, self.packet_count * self.TS_PACKET_SIZE, timeout_ms
-        ))
+        """Read and align one transport-stream chunk.
 
-        if not self._ts_synchronized:
-            sync_run = self.TS_PACKET_SIZE * (self.SYNC_PACKET_COUNT - 1)
-            sync_start = next(
-                (
-                    index
-                    for index, value in enumerate(self._ts_buffer)
-                    if value == self.MPEG_TS_SYNC_BYTE
-                    and index + sync_run < len(self._ts_buffer)
-                    and all(
-                        self._ts_buffer[index + offset] == 0x47
-                        for offset in range(0, sync_run + 1, self.TS_PACKET_SIZE)
-                    )
-                ),
-                None,
+        Threading:
+            Concurrent calls are not supported; at most one call should be
+            active for a demuxer because it owns the parser buffer. The
+            lifecycle lock is released while USB blocks, so ``stop()`` can
+            begin shutdown; a read that overlaps shutdown discards its data
+            and raises ``RuntimeError``. The USB timeout bounds shutdown.
+        """
+        with self._state_condition:
+            if not self._running:
+                raise RuntimeError("demuxer is not started")
+            if self._active_reads:
+                raise RuntimeError("demuxer read is already in progress")
+            self._active_reads = 1
+
+        try:
+            data = self.bridge.transport.bulk_read(
+                self.endpoint, self.packet_count * self.TS_PACKET_SIZE, timeout_ms
             )
-            if sync_start is None:
-                keep = sync_run
-                if len(self._ts_buffer) > keep:
-                    del self._ts_buffer[:-keep]
-                return b""
-            del self._ts_buffer[:sync_start]
-            self._ts_synchronized = True
+            with self._state_condition:
+                if not self._running:
+                    raise RuntimeError("demuxer is not started")
+                self._ts_buffer.extend(data)
 
-        packet_bytes = len(self._ts_buffer) - len(self._ts_buffer) % self.TS_PACKET_SIZE
-        data = bytes(self._ts_buffer[:packet_bytes])
-        del self._ts_buffer[:packet_bytes]
-        return data
+                if not self._ts_synchronized:
+                    sync_run = self.TS_PACKET_SIZE * (self.SYNC_PACKET_COUNT - 1)
+                    sync_start = next(
+                        (
+                            index
+                            for index, value in enumerate(self._ts_buffer)
+                            if value == self.MPEG_TS_SYNC_BYTE
+                            and index + sync_run < len(self._ts_buffer)
+                            and all(
+                                self._ts_buffer[index + offset] == 0x47
+                                for offset in range(0, sync_run + 1, self.TS_PACKET_SIZE)
+                            )
+                        ),
+                        None,
+                    )
+                    if sync_start is None:
+                        keep = sync_run
+                        if len(self._ts_buffer) > keep:
+                            del self._ts_buffer[:-keep]
+                        return b""
+                    del self._ts_buffer[:sync_start]
+                    self._ts_synchronized = True
+
+                packet_bytes = len(self._ts_buffer) - len(self._ts_buffer) % self.TS_PACKET_SIZE
+                result = bytes(self._ts_buffer[:packet_bytes])
+                del self._ts_buffer[:packet_bytes]
+                return result
+        finally:
+            with self._state_condition:
+                self._active_reads = 0
+                self._state_condition.notify_all()
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
+        """Enable or disable one AF9013 hardware PID filter slot.
+
+        Threading:
+            Safe to call concurrently with other PID filter operations; those
+            operations are serialized and may block on USB transactions.
+        """
         if not 0 <= pid <= 0x2000:
             raise ValueError("PID must be between 0 and 0x2000")
         if pid == 0x2000:
@@ -192,7 +265,12 @@ class TSDemuxer(Demuxer):
                     )
 
     def enable_pid_filter(self, enabled: bool = True) -> None:
-        """Enable or disable AF9013 hardware PID filtering."""
+        """Enable or disable AF9013 hardware PID filtering.
+
+        Threading:
+            Safe to call concurrently with other PID filter operations; those
+            operations are serialized and may block on USB transactions.
+        """
         if enabled == self._pid_filter_enabled:
             return
         self.bridge.write_i2c(
@@ -205,8 +283,23 @@ class TSDemuxer(Demuxer):
 
     @property
     def pid_filter_enabled(self) -> bool:
-        return self._pid_filter_enabled
+        """Return whether AF9013 hardware PID filtering is enabled.
+
+        Threading:
+            This property is a snapshot and may change immediately after it
+            is read. Callers needing a coordinated update should use the PID
+            filter methods.
+        """
+        with self._pid_lock:
+            return self._pid_filter_enabled
 
     @property
     def pids(self) -> frozenset[int]:
-        return frozenset(self._pid_slots)
+        """Return the currently configured hardware-filtered PIDs.
+
+        Threading:
+            The returned set is a synchronized snapshot and may change
+            immediately after it is read.
+        """
+        with self._pid_lock:
+            return frozenset(self._pid_slots)
