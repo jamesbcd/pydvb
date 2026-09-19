@@ -27,8 +27,7 @@ class TSDemuxer(Demuxer):
     """Read one AF9015 USB transport stream and control its AF9013 filter.
 
     The AF9015 controls the USB endpoint, while the integrated AF9013
-    demodulator owns the 32 hardware PID slots. This mirrors the Linux
-    driver's split between those two responsibilities.
+    demodulator owns the 32 hardware PID slots.
     """
 
     PID_FILTER_COUNT = 32
