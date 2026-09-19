@@ -100,6 +100,8 @@ class TSDemuxer(Demuxer):
         self._running = True
 
     def stop(self) -> None:
+        if not self._running:
+            return
         if self.adapter == 0:
             self.bridge.update_memory_bits(0xD507, 0x04, 0x04)
             self.bridge.update_memory_bits(0xDD11, 0x20, 0)
