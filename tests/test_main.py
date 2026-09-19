@@ -82,6 +82,14 @@ def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
     assert __main__.usb_logging.LOG is expected
 
 
+def test_buffer_logging_option_is_accepted(monkeypatch):
+    device = FakeDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "--safe", "--buffer-log"])
+
+    assert __main__.main() == 0
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [("177.5", 177_500_000), ("650", 650_000_000)],
@@ -114,6 +122,27 @@ class FakeStreamAdapter:
         self.events.append("sleep")
 
 
+class FakeLoggingStream:
+    def __init__(self, source):
+        self.chunks = iter(source.chunks)
+        self.queue_sizes = iter(source.queue_sizes)
+        self.queue_capacity = 20
+        self.running = False
+
+    @property
+    def queue_size(self):
+        return next(self.queue_sizes)
+
+    def start(self):
+        self.running = True
+
+    def read(self, timeout=None):
+        return next(self.chunks)
+
+    def stop(self):
+        self.running = False
+
+
 def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
     adapter = FakeStreamAdapter([b"abcd", b"efgh", b"ijkl"])
     output_path = tmp_path / "capture.ts"
@@ -126,6 +155,28 @@ def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
     assert adapter.events.count("read") >= 3
+
+
+@pytest.mark.parametrize(
+    ("on_change", "expected_lines"),
+    [(False, ["Buffer queue: 1/20", "Buffer queue: 1/20", "Buffer queue: 2/20"]),
+     (True, ["Buffer queue: 1/20", "Buffer queue: 2/20"])],
+)
+def test_capture_stream_logs_buffer_queue(monkeypatch, capsys, tmp_path, on_change, expected_lines):
+    adapter = FakeStreamAdapter([b"one", b"two", b"three"])
+    adapter.queue_sizes = [1, 1, 2]
+    monkeypatch.setattr(__main__, "TSStream", FakeLoggingStream)
+    monkeypatch.setattr(__main__, "BUFFER_LOG_ON_CHANGE", on_change)
+
+    __main__.capture_stream(
+        adapter,
+        tmp_path / "capture.ts",
+        max_bytes=11,
+        buffer_log=True,
+    )
+
+    output = capsys.readouterr().out.splitlines()
+    assert [line for line in output if line.startswith("Buffer queue:")] == expected_lines
 
 
 def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):

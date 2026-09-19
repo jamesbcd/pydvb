@@ -17,6 +17,7 @@ from .usb import USBSpeed
 TS_PACKET_SIZE = 188
 MAX_CAPTURE_BYTES = ((15 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
 READ_TIMEOUT_SECONDS = 5.0
+BUFFER_LOG_ON_CHANGE = False
 
 
 def parse_frequency(value: str) -> int:
@@ -32,6 +33,7 @@ def capture_stream(
     output_path: Path,
     max_bytes: int = MAX_CAPTURE_BYTES,
     read_timeout: float = READ_TIMEOUT_SECONDS,
+    buffer_log: bool = False,
 ) -> tuple[int, float]:
     """Capture transport-stream data to disk and return bytes and elapsed seconds."""
     if max_bytes <= 0:
@@ -41,6 +43,7 @@ def capture_stream(
 
     stream = TSStream(adapter)
     bytes_written = 0
+    previous_queue_size = None
     start_time = monotonic()
     try:
         print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
@@ -54,6 +57,11 @@ def capture_stream(
                 remaining = max_bytes - bytes_written
                 output.write(chunk[:remaining])
                 bytes_written += min(len(chunk), remaining)
+                if buffer_log:
+                    queue_size = stream.queue_size
+                    if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
+                        print(f"Buffer queue: {queue_size}/{stream.queue_capacity}", flush=True)
+                    previous_queue_size = queue_size
     finally:
         stream.stop()
         if stream.running:
@@ -83,6 +91,11 @@ def main() -> int:
         "--usb-log",
         action="store_true",
         help="Log USB bulk transfers",
+    )
+    parser.add_argument(
+        "--buffer-log",
+        action="store_true",
+        help="Log the transport-stream buffer queue during recording",
     )
     parser.add_argument(
         "--sleep",
@@ -159,7 +172,9 @@ def main() -> int:
         print(f"Frontend lock acquired. Starting capture to {args.record}")
         adapter = device.adapters[args.adapter_index]
         try:
-            bytes_written, elapsed = capture_stream(adapter, args.record)
+            bytes_written, elapsed = capture_stream(
+                adapter, args.record, buffer_log=args.buffer_log
+            )
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1

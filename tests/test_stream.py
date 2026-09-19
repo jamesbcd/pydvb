@@ -66,6 +66,12 @@ def test_stream_validates_configuration():
         TSStream(source, underflow_policy="invalid")
 
 
+def test_queue_capacity_reports_configured_slot_count():
+    stream = TSStream(FakeSource([]), slot_count=3)
+
+    assert stream.queue_capacity == 3
+
+
 def test_return_empty_underflow_policy_polls_without_waiting():
     source = FakeSource([])
     stream = TSStream(source, underflow_policy=UnderflowPolicy.RETURN_EMPTY)

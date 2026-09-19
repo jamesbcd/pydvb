@@ -93,6 +93,7 @@ class TSStream:
         self.read_timeout_ms = read_timeout_ms
         self.overflow_policy = overflow_policy
         self.underflow_policy = underflow_policy
+        self._slot_count = slot_count
         self._queue: Queue[bytes | None] = Queue(maxsize=slot_count)
         self._stop_event = Event()  # Event used to signal the producer thread to stop.
         self._state_lock = Lock()
@@ -111,6 +112,16 @@ class TSStream:
         """
         with self._state_lock:
             return self._dropped_chunks
+
+    @property
+    def queue_size(self) -> int:
+        """Return the current number of queued chunks."""
+        return self._queue.qsize()
+
+    @property
+    def queue_capacity(self) -> int:
+        """Return the maximum number of queued chunks."""
+        return self._slot_count
 
     @property
     def running(self) -> bool:
