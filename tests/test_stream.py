@@ -2,7 +2,7 @@ from threading import Event
 
 import pytest
 
-from mactv.stream import OverflowPolicy, TSStream
+from mactv.stream import OverflowPolicy, UnderflowPolicy, TSStream
 
 
 class FakeSource:
@@ -62,3 +62,21 @@ def test_stream_validates_configuration():
         TSStream(source, slot_count=0)
     with pytest.raises(ValueError):
         TSStream(source, overflow_policy="invalid")
+    with pytest.raises(ValueError):
+        TSStream(source, underflow_policy="invalid")
+
+
+def test_return_empty_underflow_policy_polls_without_waiting():
+    source = FakeSource([])
+    stream = TSStream(source, underflow_policy=UnderflowPolicy.RETURN_EMPTY)
+
+    assert stream.read(timeout=1) == b""
+
+
+def test_return_empty_policy_still_returns_queued_data():
+    source = FakeSource([b"data"])
+    stream = TSStream(source, underflow_policy=UnderflowPolicy.RETURN_EMPTY)
+    stream.start()
+
+    assert stream.read(timeout=1) == b"data"
+    stream.stop()

@@ -24,6 +24,11 @@ class OverflowPolicy(str, Enum):
     DROP_OLDEST = "drop_oldest"
 
 
+class UnderflowPolicy(str, Enum):
+    BLOCK = "block"
+    RETURN_EMPTY = "return_empty"
+
+
 class TSStream:
     """Read one transport stream, using a background producer thread.
 
@@ -50,6 +55,7 @@ class TSStream:
         slot_count: int = 20,
         read_timeout_ms: int = 2000,
         overflow_policy: OverflowPolicy | str = OverflowPolicy.BLOCK,
+        underflow_policy: UnderflowPolicy | str = UnderflowPolicy.BLOCK,
     ) -> None:
         """Create a single-consumer transport-stream session.
 
@@ -61,6 +67,8 @@ class TSStream:
             read_timeout_ms: Timeout passed to each source read.
             overflow_policy: Whether to block the producer or discard the
                 oldest queued chunk when the ring is full.
+            underflow_policy: Whether a consumer waits for data or immediately
+                receives ``b""`` when no chunk is queued.
 
         Raises:
             ValueError: If a configuration value is invalid.
@@ -77,9 +85,14 @@ class TSStream:
             overflow_policy = OverflowPolicy(overflow_policy)
         except ValueError as error:
             raise ValueError("unsupported overflow policy") from error
+        try:
+            underflow_policy = UnderflowPolicy(underflow_policy)
+        except ValueError as error:
+            raise ValueError("unsupported underflow policy") from error
         self.source = source
         self.read_timeout_ms = read_timeout_ms
         self.overflow_policy = overflow_policy
+        self.underflow_policy = underflow_policy
         self._queue: Queue[bytes | None] = Queue(maxsize=slot_count)
         self._stop_event = Event()  # Event used to signal the producer thread to stop.
         self._state_lock = Lock()
@@ -162,8 +175,9 @@ class TSStream:
         """Return the next queued chunk.
 
         Args:
-            timeout: Maximum seconds to wait for a chunk, or ``None`` to wait
-                indefinitely.
+            timeout: Maximum seconds to wait for a chunk in ``BLOCK`` mode,
+                or ``None`` to wait indefinitely. It is ignored in
+                ``RETURN_EMPTY`` mode.
 
         Raises:
             TimeoutError: If no chunk arrives before ``timeout``.
@@ -175,10 +189,16 @@ class TSStream:
             consumer thread only. Call from that consumer thread; do not
             call concurrently with another ``read`` or ``iter_chunks`` call.
         """
-        try:
-            chunk = self._queue.get(timeout=timeout)
-        except Empty:
-            raise TimeoutError("timed out waiting for transport-stream data") from None
+        if self.underflow_policy is UnderflowPolicy.RETURN_EMPTY:
+            try:
+                chunk = self._queue.get_nowait()
+            except Empty:
+                return b""
+        else:
+            try:
+                chunk = self._queue.get(timeout=timeout)
+            except Empty:
+                raise TimeoutError("timed out waiting for transport-stream data") from None
         if chunk is not None:
             return chunk
         if self._error is not None:
