@@ -11,6 +11,7 @@ from mactv.tuner import Tuning
 
 from .device import AF9015Device
 from . import usb as usb_logging
+from .server import LocalTS_HTTPServer
 from .stream import TSStream
 from .usb import USBSpeed
 
@@ -18,6 +19,7 @@ TS_PACKET_SIZE = 188
 MAX_CAPTURE_BYTES = ((15 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
 READ_TIMEOUT_SECONDS = 5.0
 BUFFER_LOG_ON_CHANGE = False
+DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
 
 
 def parse_frequency(value: str) -> int:
@@ -26,6 +28,18 @@ def parse_frequency(value: str) -> int:
     if frequency_mhz <= 0:
         raise argparse.ArgumentTypeError("frequency must be positive")
     return round(frequency_mhz * 1_000_000)
+
+
+def parse_server_address(value: str) -> tuple[str, int]:
+    """Parse a server address in ``HOST:PORT`` form."""
+    try:
+        host, port_text = value.rsplit(":", 1)
+        port = int(port_text)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError("server address must be HOST:PORT") from None
+    if not host or not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError("server address must contain a valid host and port")
+    return host, port
 
 
 def capture_stream(
@@ -95,7 +109,7 @@ def main() -> int:
     parser.add_argument(
         "--buffer-log",
         action="store_true",
-        help="Log the transport-stream buffer queue during recording",
+        help="Log the transport-stream buffer queue during recording or serving",
     )
     parser.add_argument(
         "--sleep",
@@ -106,6 +120,14 @@ def main() -> int:
         "--record",
         type=Path,
         help="Capture up to 5 MiB of transport-stream data to this file",
+    )
+    parser.add_argument(
+        "--serve",
+        nargs="?",
+        type=parse_server_address,
+        metavar="HOST:PORT",
+        const=DEFAULT_SERVER_ADDRESS,
+        help="Serve at http://HOST:PORT/stream.ts (default: http://127.0.0.1:8080/stream.ts)",
     )
     parser.add_argument(
         "--frequency",
@@ -130,8 +152,10 @@ def main() -> int:
         help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
-    if args.sleep and args.record is not None:
-        parser.error("--sleep and --record cannot be used together")
+    if args.sleep and (args.record is not None or args.serve is not None):
+        parser.error("--sleep cannot be used with --record or --serve")
+    if args.record is not None and args.serve is not None:
+        parser.error("--record and --serve cannot be used together")
     usb_logging.LOG = args.usb_log
 
     try:
@@ -180,6 +204,30 @@ def main() -> int:
             return 1
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
 
+    if args.serve is not None:
+        if tuning_status is None or not tuning_status.lock:
+            print("Server failed: frontend did not lock; no transport stream is available")
+            return 2
+        host, port = args.serve
+        adapter = device.adapters[args.adapter_index]
+        server = LocalTS_HTTPServer(
+            adapter, host=host, port=port, buffer_log=args.buffer_log
+        )
+        bound_host, bound_port = server.address
+        print(f"Frontend lock acquired. Serving http://{bound_host}:{bound_port}/stream.ts")
+        try:
+            server.start()
+            server.serve_forever()
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Server failed: {error}")
+            return 1
+        except KeyboardInterrupt:
+            print("Stopping transport-stream server")
+        finally:
+            server.close()
+            if hasattr(adapter, "sleep"):
+                adapter.sleep()
+
     if args.status:
         print(f"USB speed: {device.bridge.transport.get_speed().name}")
         print(f"Adapter count: {device.adapter_count}")
@@ -200,7 +248,7 @@ def main() -> int:
             pprint.pprint(adapter.read_status(), underscore_numbers=True)
             print()
 
-    if args.sleep or args.record is not None:
+    if args.sleep or args.record is not None or args.serve is not None:
         return 0
     status = device.adapters[args.adapter_index].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")

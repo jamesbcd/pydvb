@@ -103,6 +103,23 @@ def test_parse_frequency_rejects_non_positive_values():
         __main__.parse_frequency("0")
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("127.0.0.1:8080", ("127.0.0.1", 8080)), ("localhost:0", ("localhost", 0))],
+)
+def test_parse_server_address(value, expected):
+    assert __main__.parse_server_address(value) == expected
+
+
+def test_parse_server_address_rejects_invalid_values():
+    with pytest.raises(__main__.argparse.ArgumentTypeError):
+        __main__.parse_server_address("localhost:not-a-port")
+
+
+def test_serve_default_address_is_loopback():
+    assert __main__.DEFAULT_SERVER_ADDRESS == ("127.0.0.1", 8080)
+
+
 class FakeStreamAdapter:
     def __init__(self, chunks):
         self.chunks = iter(chunks)

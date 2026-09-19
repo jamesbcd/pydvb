@@ -23,6 +23,17 @@ To capture up to 5 MiB of transport-stream data after tuning:
 python3 -m mactv --frequency 177.5 --bandwidth 7 --record capture.ts
 ```
 
+To serve the live transport stream for VLC or another MPEG-TS client, bind
+the local HTTP server to a host and port:
+
+```sh
+python3 -m mactv --frequency 177.5 --bandwidth 7 --serve
+```
+
+Open `http://127.0.0.1:8080/stream.ts` in VLC. The server binds to loopback
+only when that address is specified, and it stops the adapter when interrupted
+with Ctrl-C. `--record` and `--serve` are mutually exclusive.
+
 The adapter is stopped and put to sleep after capture completes.
 
 The command uploads the bundled firmware when needed, initializes the tuner,

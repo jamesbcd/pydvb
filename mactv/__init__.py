@@ -19,6 +19,7 @@ from .tuner import (
 from .bridge import AF9015Bridge
 from .usb import PyUSBTransport, USBSpeed
 from .stream import OverflowPolicy, StreamSource, TSStream
+from .server import LocalTS_HTTPServer
 
 __all__ = [
     "AF9015Bridge",
@@ -41,4 +42,5 @@ __all__ = [
     "TransmissionMode",
     "OverflowPolicy",
     "StreamSource",
+    "LocalTS_HTTPServer",
 ]
