@@ -4,6 +4,7 @@ import pytest
 
 from mactv.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 from mactv.frontend import FrontendStatus
+from mactv.tuner import Tuning
 
 
 class FakeTransport:
@@ -75,6 +76,7 @@ def test_device_sleep_sleeps_all_frontends():
     device = AF9015Device(FakeTransport())
     frontends = [FakeFrontend(), FakeFrontend()]
     device.adapters = frontends
+    device._hardware_initialized = True
 
     device.sleep()
 
@@ -101,6 +103,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
     first = FakeAdapter()
     second = FakeAdapter()
     device.adapters = [first, second]
+    device._hardware_initialized = True
 
     assert device.read_status() == FrontendStatus(False, False, False, False, False)
     device.start()
@@ -131,6 +134,25 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
         ("read_ts", 2000),
         ("stop",),
     ]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda device: device.adapter_count,
+        lambda device: device.sleep(),
+        lambda device: device.tune(Tuning(650_000_000)),
+        lambda device: device.read_status(),
+        lambda device: device.start(),
+        lambda device: device.stop(),
+        lambda device: device.read_ts(),
+        lambda device: device.set_pid_filter(100),
+        lambda device: device.enable_pid_filter(),
+    ],
+)
+def test_device_rejects_adapter_operations_before_initialization(operation):
+    with pytest.raises(RuntimeError, match="init_hardware"):
+        operation(AF9015Device(FakeTransport()))
 
 
 def test_device_loads_firmware_from_path(tmp_path):
@@ -180,3 +202,4 @@ def test_reconnect_replaces_handle_after_get_config_succeeds():
     assert device._reconnect(timeout=1, poll_interval=0.001) == 0x02
     assert original.closed
     assert device.bridge.transport is candidate
+    assert not device._hardware_initialized

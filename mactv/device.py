@@ -76,6 +76,7 @@ class AF9015Device:
         self.product_id = product_id
         self.firmware_size = 0
         self.firmware_checksum = 0
+        self._hardware_initialized = False
         self._control_lock = RLock() # Lock to protect device control operations
         bridge = AF9015Bridge(transport)
         self._reset_with_bridge(bridge)
@@ -85,6 +86,11 @@ class AF9015Device:
         self.adapters: list[AF9015Adapter] = []
         self.eeprom: bytes | None = None
         self.eeprom_hash: int | None = None
+        self._hardware_initialized = False
+
+    def _require_initialized(self) -> None:
+        if not self._hardware_initialized:
+            raise RuntimeError("call init_hardware() before using configured adapters")
  
     def _get_adapter(self, adapter_index: int) -> AF9015Adapter:
         if not 0 <= adapter_index < len(self.adapters):
@@ -106,6 +112,7 @@ class AF9015Device:
             result is a snapshot and may change during initialization.
         """
         with self._control_lock:
+            self._require_initialized()
             return len(self.adapters) or 1
 
     @property
@@ -150,6 +157,7 @@ class AF9015Device:
             re-enumeration.
         """
         with self._control_lock:
+            self._hardware_initialized = False
             for adapter in self.adapters:
                 adapter.stop()
             if not self.is_warm:
@@ -164,6 +172,7 @@ class AF9015Device:
                 self._start_secondary_demodulator(self.adapters[1].frontend.demodulator_address)
             for adapter in self.adapters:
                 adapter.init_hardware()
+            self._hardware_initialized = True
 
     def download_firmware(
         self,
@@ -304,6 +313,7 @@ class AF9015Device:
             may block on USB I/O.
         """
         with self._control_lock:
+            self._require_initialized()
             for adapter in self.adapters:
                 adapter.sleep()
 
@@ -316,6 +326,7 @@ class AF9015Device:
             rejected while the selected adapter is streaming.
         """
         with self._control_lock:
+            self._require_initialized()
             adapter = self._get_adapter(adapter_index)
             if adapter.tuner is None:
                 raise ValueError("adapter_index has no supported AF9013/TDA18271 frontend")
@@ -330,6 +341,7 @@ class AF9015Device:
             USB I/O.
         """
         with self._control_lock:
+            self._require_initialized()
             return self._get_adapter(adapter_index).read_status()
 
     def start(self, adapter_index: int = 0) -> None:
@@ -341,6 +353,7 @@ class AF9015Device:
             serialized. This may wait for an in-flight read.
         """
         with self._control_lock:
+            self._require_initialized()
             self._get_adapter(adapter_index).start()
 
     def stop(self, adapter_index: int = 0) -> None:
@@ -352,6 +365,7 @@ class AF9015Device:
             serialized. This waits for an in-flight read before returning.
         """
         with self._control_lock:
+            self._require_initialized()
             self._get_adapter(adapter_index).stop()
 
     def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
@@ -363,6 +377,7 @@ class AF9015Device:
             blocks so another device thread can initiate shutdown.
         """
         with self._control_lock:
+            self._require_initialized()
             adapter = self._get_adapter(adapter_index)
         return adapter.read_ts(timeout_ms)
 
@@ -375,6 +390,7 @@ class AF9015Device:
             block on USB I/O.
         """
         with self._control_lock:
+            self._require_initialized()
             self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
 
     def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
@@ -386,6 +402,7 @@ class AF9015Device:
             block on USB I/O.
         """
         with self._control_lock:
+            self._require_initialized()
             self._get_adapter(adapter_index).enable_pid_filter(enabled)
 
 
