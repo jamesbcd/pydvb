@@ -18,6 +18,7 @@ from .tuner import (
 )
 from .bridge import AF9015Bridge
 from .usb import PyUSBTransport, USBSpeed
+from .stream import OverflowPolicy, StreamSource, TSStream
 
 __all__ = [
     "AF9015Bridge",
@@ -35,6 +36,9 @@ __all__ = [
     "Tuner",
     "TDA18271Tuner",
     "TSDemuxer",
+    "TSStream",
     "Tuning",
     "TransmissionMode",
+    "OverflowPolicy",
+    "StreamSource",
 ]

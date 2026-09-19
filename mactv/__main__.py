@@ -11,6 +11,7 @@ from mactv.tuner import Tuning
 
 from .device import AF9015Device
 from . import usb as usb_logging
+from .stream import TSStream
 from .usb import USBSpeed
 
 TS_PACKET_SIZE = 188
@@ -38,17 +39,16 @@ def capture_stream(
     if empty_read_timeout < 0:
         raise ValueError("empty_read_timeout must be non-negative")
 
-    started = False
+    stream = TSStream(adapter)
     bytes_written = 0
     empty_read_deadline = None
     start_time = monotonic()
     try:
         print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
-        adapter.start()
-        started = True
+        stream.start()
         with output_path.open("wb") as output:
             while bytes_written < max_bytes:
-                chunk = adapter.read_ts()
+                chunk = stream.read()
                 if not chunk:
                     if empty_read_deadline is None:
                         empty_read_deadline = monotonic() + empty_read_timeout
@@ -60,8 +60,10 @@ def capture_stream(
                 output.write(chunk[:remaining])
                 bytes_written += min(len(chunk), remaining)
     finally:
-        if started:
-            adapter.stop()
+        stream.stop()
+        if stream.running:
+            raise RuntimeError("transport-stream reader did not stop")
+        if hasattr(adapter, "sleep"):
             adapter.sleep()
     return bytes_written, monotonic() - start_time
 

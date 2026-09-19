@@ -33,13 +33,13 @@ class TSDemuxer(Demuxer):
     """
 
     PID_FILTER_COUNT = 32
-    TS_PACKET_SIZE = 188
-    TS_PACKET_COUNT = 87
-    MPEG_TS_SYNC_BYTE = 0x47
-    SYNC_PACKET_COUNT = 4
-    AF9013_PID_FILTER_CONTROL = 0xD503
-    AF9013_PID_FILTER_SLOT = 0xD504
-    AF9013_PID_FILTER_VALUE = 0xD505
+    TS_PACKET_SIZE = 188        # Size of a single TS packet in bytes
+    TS_PACKET_COUNT = 87        # Number of TS packets in the buffer for full-speed mode
+    MPEG_TS_SYNC_BYTE = 0x47    # Sync byte value for MPEG transport stream packets
+    SYNC_PACKET_COUNT = 4        # Number of consecutive sync packets required for synchronization
+    AF9013_PID_FILTER_CONTROL = 0xD503  # Control register for the AF9013 PID filter
+    AF9013_PID_FILTER_SLOT = 0xD504     # Slot register for the AF9013 PID filter
+    AF9013_PID_FILTER_VALUE = 0xD505    # Value register for the AF9013 PID filter
 
     def __init__(
         self,
