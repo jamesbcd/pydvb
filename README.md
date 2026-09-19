@@ -29,17 +29,16 @@ The Leadtek device's USB IDs can be passed to `Af9015Device.open` after
 checking them with `system_profiler SPUSBHostDataType`:
 
 ```python
-from mactv import Af9015Device
+from mactv import AF9015Device
 
 device = Af9015Device.open(vendor_id=0x0413, product_id=0x6029)
-device.initialize()
+device.init_hardware()
 adapter = device.adapters[0]
-demux = adapter.demuxer
-demux.start()
+adapter.start()
 try:
-    transport_stream_chunk = demux.read_ts()
+    transport_stream_chunk = adapter.read_ts()
 finally:
-    demux.stop()
+    adapter.stop()
 ```
 
 The AF9013 demodulator and individual tuner chips still need chip-specific
@@ -59,9 +58,10 @@ By default, `download_firmware()` loads
 `mactv/firmware/dvb-usb-af9015.fw`. An alternate image can be selected with
 `device.download_firmware(firmware_path="/path/to/image.fw")`.
 
-`initialize()` follows the Linux AF9015 lifecycle: it detects warm firmware,
+`init_hardware()` follows the Linux AF9015 lifecycle: it detects warm firmware,
 reads the EEPROM configuration, and creates a second demuxer when the device
 reports dual-tuner mode. Firmware upload is disabled by default; enable it
-explicitly with `device.initialize(download_firmware=True)`. Adapter
-configuration is available through each `AF9013Frontend` in
-`device.adapters`; its transport-stream demuxer is available as `.demuxer`.
+explicitly with `device.init_hardware(download_firmware=True)`. Each entry in
+`device.adapters` is an `AF9015Adapter` containing a frontend, tuner, and
+demuxer. Use `adapter.frontend` for tuning and status, or the adapter's thin
+stream methods for PID filtering and transport-stream reads.

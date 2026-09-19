@@ -1,6 +1,7 @@
 """Python interfaces for AF9015-based DVB-T USB receivers."""
 
 from .device import AF9015Device
+from .adapter import AF9015Adapter
 from .demux import Demuxer, TSDemuxer
 from .frontend import AF9013Frontend, FrontendStatus
 from .tuner import (
@@ -18,6 +19,7 @@ from .usb import PyUSBTransport, USBSpeed
 
 __all__ = [
     "AF9015Bridge",
+    "AF9015Adapter",
     "AF9013Frontend",
     "AF9015Device",
     "CodeRate",

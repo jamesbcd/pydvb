@@ -102,21 +102,21 @@ def main() -> int:
     if args.status:
         print(f"USB speed: {device.bridge.transport.get_speed().name}")
         print(f"Adapter count: {device.adapter_count}")
-        for index, frontend in enumerate(device.adapters):
+        for index, adapter in enumerate(device.adapters):
             print(f"Adapter {index}:")
             print(f"Frontend index {index} configuration:")
-            pprint.pprint(frontend.get_config_dict(), underscore_numbers=True)
+            pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
             print()
             print(f"Demodulator index {index} configuration:")
-            pprint.pprint(frontend.demuxer.get_config_dict() if frontend.demuxer else None,
+            pprint.pprint(adapter.demuxer.get_config_dict(),
                         underscore_numbers=True)
             print()
             print(f"Tuner index {index} configuration:")
-            pprint.pprint(frontend.tuner.get_config_dict() if frontend.tuner else None,
+            pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
                         underscore_numbers=True)
             print()
             print(f"Frontend index {index} status:")
-            pprint.pprint(frontend.read_status(), underscore_numbers=True)
+            pprint.pprint(adapter.read_status(), underscore_numbers=True)
             print()
 
     if args.sleep:

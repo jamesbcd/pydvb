@@ -5,6 +5,7 @@ from time import monotonic, sleep
 
 from .usb import PyUSBTransport, USBTransport, USBSpeed
 from .bridge import AF9015Bridge
+from .adapter import AF9015Adapter
 from .frontend import AF9013Frontend, FrontendStatus
 from .demux import TSDemuxer
 from .tuner import TDA18271Tuner, Tuning
@@ -75,7 +76,7 @@ class AF9015Device:
 
     def _reset_with_bridge(self, bridge: AF9015Bridge) -> None:
         self.bridge = bridge
-        self.adapters: list[AF9013Frontend] = []
+        self.adapters: list[AF9015Adapter] = []
         self.eeprom: bytes | None = None
         self.eeprom_hash: int | None = None
  
@@ -84,8 +85,8 @@ class AF9015Device:
 
     def sleep(self) -> None:
         """Put all configured frontends into their low-power state."""
-        for frontend in self.adapters:
-            frontend.sleep()
+        for adapter in self.adapters:
+            adapter.sleep()
 
     def __enter__(self) -> "AF9015Device":
         return self
@@ -117,9 +118,9 @@ class AF9015Device:
             self.download_firmware(firmware, firmware_path)
         self.create_adapters()
         if len(self.adapters) > 1:
-            self._start_secondary_demodulator(self.adapters[1].demodulator_address)
-        for frontend in self.adapters:
-            frontend.init_hardware()
+            self._start_secondary_demodulator(self.adapters[1].frontend.demodulator_address)
+        for adapter in self.adapters:
+            adapter.init_hardware()
 
     def download_firmware(
         self,
@@ -239,14 +240,13 @@ class AF9015Device:
                 demodulator_address=demodulator_address,
                 full_speed=self.bridge.transport.get_speed() == USBSpeed.FULL,
             )
-            frontend.demuxer = demuxer
-            self.adapters.append(frontend)
+            self.adapters.append(AF9015Adapter(frontend, demuxer))
 
     def tune(self, tuning: Tuning, adapter: int = 0, wait_for_lock: bool = True) -> FrontendStatus:
         """Tune one adapter's AF9013/TDA18271 frontend as a unit."""
         if not 0 <= adapter < len(self.adapters) or self.adapters[adapter].tuner is None:
             raise ValueError("adapter has no supported AF9013/TDA18271 frontend")
-        frontend = self.adapters[adapter]
-        frontend.tune(tuning)
-        return frontend.wait_for_lock() if wait_for_lock else frontend.read_status()
+        selected_adapter = self.adapters[adapter]
+        selected_adapter.tune(tuning)
+        return selected_adapter.wait_for_lock() if wait_for_lock else selected_adapter.read_status()
 

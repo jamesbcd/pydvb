@@ -50,8 +50,8 @@ def test_read_configuration_creates_adapters_from_dual_eeprom():
     assert device.adapter_count == 2
     assert adapters[0].demuxer.endpoint == 0x84
     assert adapters[1].demuxer.endpoint == 0x85
-    assert adapters[0].demodulator_address == DEMODULATOR_ADDRESS
-    assert adapters[1].demodulator_address == 0x1D
+    assert adapters[0].frontend.demodulator_address == DEMODULATOR_ADDRESS
+    assert adapters[1].frontend.demodulator_address == 0x1D
     assert device.eeprom_hash == device._eeprom_hash(bytes(eeprom))
 
 
@@ -67,4 +67,4 @@ def test_tda18271_configuration_creates_coordinated_frontend():
 
     assert adapter.tuner is not None
     assert adapter.demuxer is not None
-    assert adapter.mt2060_if == 0
+    assert adapter.frontend.mt2060_if == 0
