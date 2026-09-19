@@ -1,4 +1,6 @@
-"""Python interfaces for AF9015-based DVB-T USB receivers."""
+"""Python interfaces for AF9015-based DVB-T USB receivers.
+Currently only implements support for the Leadtek Winfast DTV Dongle Gold.
+"""
 
 from .device import AF9015Device
 from .adapter import AF9015Adapter
