@@ -2,6 +2,8 @@
 
 import argparse
 import pprint
+from pathlib import Path
+from time import monotonic
 
 import usb.core
 
@@ -11,6 +13,8 @@ from .device import AF9015Device
 from . import usb as usb_logging
 from .usb import USBSpeed
 
+MAX_CAPTURE_BYTES = 5 * 1024 * 1024
+
 
 def parse_frequency(value: str) -> int:
     """Parse a frequency in MHz (for example, ``177.5``)."""
@@ -18,6 +22,33 @@ def parse_frequency(value: str) -> int:
     if frequency_mhz <= 0:
         raise argparse.ArgumentTypeError("frequency must be positive")
     return round(frequency_mhz * 1_000_000)
+
+
+def capture_stream(adapter, output_path: Path, max_bytes: int = MAX_CAPTURE_BYTES) -> tuple[int, float]:
+    """Capture transport-stream data to disk and return bytes and elapsed seconds."""
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
+
+    started = False
+    bytes_written = 0
+    start_time = monotonic()
+    try:
+        print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
+        adapter.start()
+        started = True
+        with output_path.open("wb") as output:
+            while bytes_written < max_bytes:
+                chunk = adapter.read_ts()
+                if not chunk:
+                    raise IOError("transport stream read returned no data")
+                remaining = max_bytes - bytes_written
+                output.write(chunk[:remaining])
+                bytes_written += min(len(chunk), remaining)
+    finally:
+        if started:
+            adapter.stop()
+            adapter.sleep()
+    return bytes_written, monotonic() - start_time
 
 
 def main() -> int:
@@ -47,6 +78,11 @@ def main() -> int:
         help="Put the initialized device into its low-power state instead of tuning",
     )
     parser.add_argument(
+        "--record",
+        type=Path,
+        help="Capture up to 5 MiB of transport-stream data to this file",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -69,6 +105,8 @@ def main() -> int:
         help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
+    if args.sleep and args.record is not None:
+        parser.error("--sleep and --record cannot be used together")
     usb_logging.LOG = args.usb_log
 
     try:
@@ -101,6 +139,15 @@ def main() -> int:
         print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
         device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
 
+    if args.record is not None:
+        adapter = device.adapters[args.adapter_index]
+        try:
+            bytes_written, elapsed = capture_stream(adapter, args.record)
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Capture failed: {error}")
+            return 1
+        print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
+
     if args.status:
         print(f"USB speed: {device.bridge.transport.get_speed().name}")
         print(f"Adapter count: {device.adapter_count}")
@@ -121,7 +168,7 @@ def main() -> int:
             pprint.pprint(adapter.read_status(), underscore_numbers=True)
             print()
 
-    if args.sleep:
+    if args.sleep or args.record is not None:
         return 0
     status = device.adapters[args.adapter_index].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")

@@ -17,6 +17,14 @@ For a live Brisbane DVB-T lock test, connect an antenna and run:
 python3 -m mactv --frequency 177.5 --bandwidth 7
 ```
 
+To capture up to 5 MiB of transport-stream data after tuning:
+
+```sh
+python3 -m mactv --frequency 177.5 --bandwidth 7 --record capture.ts
+```
+
+The adapter is stopped and put to sleep after capture completes.
+
 The command uploads the bundled firmware when needed, initializes the tuner,
 waits for MPEG lock, and prints frontend reception metrics. It exits with
 status 0 when locked and status 2 when tuning completes without lock. Use
