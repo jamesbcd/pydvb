@@ -7,6 +7,7 @@ from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
 LOG = False
+CADENCE_LOG = False
 
 CONTROL_OUT = 0x02
 CONTROL_IN = 0x81
@@ -34,6 +35,8 @@ class USBTransport(Protocol):
 
     def close(self) -> None: ...
 
+    def log_cadence_summary(self) -> None: ...
+
     def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "USBTransport": ...
 
 class PyUSBTransport:
@@ -50,6 +53,15 @@ class PyUSBTransport:
         self.interface = interface
         self.vendor_id = vendor_id
         self.product_id = product_id
+        self._last_stream_read_end: float | None = None
+        self._cadence_reads = 0
+        self._cadence_errors = 0
+        self._cadence_bytes = 0
+        self._cadence_total_read_seconds = 0.0
+        self._cadence_min_read_seconds: float | None = None
+        self._cadence_max_read_seconds: float | None = None
+        self._cadence_min_gap_seconds: float | None = None
+        self._cadence_max_gap_seconds: float | None = None
 
     def get_speed(self) -> USBSpeed:
         """Return the USB speed reported by PyUSB."""
@@ -84,10 +96,79 @@ class PyUSBTransport:
         self.usb_device.write(endpoint, data, timeout=timeout)
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
-        data = bytes(self.usb_device.read(endpoint, length, timeout=timeout))
+        read_started = monotonic()
+        try:
+            data = bytes(self.usb_device.read(endpoint, length, timeout=timeout))
+        except Exception as error:
+            if CADENCE_LOG and endpoint in STREAM_ENDPOINTS:
+                self._cadence_errors += 1
+            raise
+        read_finished = monotonic()
+        if CADENCE_LOG and endpoint in STREAM_ENDPOINTS:
+            gap = (
+                read_started - self._last_stream_read_end
+                if self._last_stream_read_end is not None
+                else None
+            )
+            read_seconds = read_finished - read_started
+            self._cadence_reads += 1
+            self._cadence_bytes += len(data)
+            self._cadence_total_read_seconds += read_seconds
+            self._cadence_min_read_seconds = (
+                read_seconds
+                if self._cadence_min_read_seconds is None
+                else min(self._cadence_min_read_seconds, read_seconds)
+            )
+            self._cadence_max_read_seconds = (
+                read_seconds
+                if self._cadence_max_read_seconds is None
+                else max(self._cadence_max_read_seconds, read_seconds)
+            )
+            if gap is not None:
+                self._cadence_min_gap_seconds = (
+                    gap
+                    if self._cadence_min_gap_seconds is None
+                    else min(self._cadence_min_gap_seconds, gap)
+                )
+                self._cadence_max_gap_seconds = (
+                    gap
+                    if self._cadence_max_gap_seconds is None
+                    else max(self._cadence_max_gap_seconds, gap)
+                )
+            self._last_stream_read_end = read_finished
         if LOG:
-            print(f"{monotonic():.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
+            print(f"{read_finished:.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
         return data
+
+    def log_cadence_summary(self) -> None:
+        """Print aggregate stream-read timing without logging each transfer."""
+        if not CADENCE_LOG:
+            return
+        if not self._cadence_reads:
+            print(
+                f"USB cadence: reads=0 errors={self._cadence_errors}",
+                flush=True,
+            )
+            return
+        average_read = self._cadence_total_read_seconds / self._cadence_reads
+        min_read = self._cadence_min_read_seconds
+        max_read = self._cadence_max_read_seconds
+        min_gap = self._cadence_min_gap_seconds
+        max_gap = self._cadence_max_gap_seconds
+        assert min_read is not None and max_read is not None
+        gap_text = (
+            "n/a"
+            if min_gap is None or max_gap is None
+            else f"{min_gap * 1000:.3f}/{max_gap * 1000:.3f}"
+        )
+        print(
+            f"USB cadence: reads={self._cadence_reads} errors={self._cadence_errors} "
+            f"bytes={self._cadence_bytes} "
+            f"read_ms(avg/min/max)={average_read * 1000:.3f}/"
+            f"{min_read * 1000:.3f}/{max_read * 1000:.3f} "
+            f"gap_ms(min/max)={gap_text}",
+            flush=True,
+        )
 
     def close(self) -> None:
         """Release the libusb handle before a device reset or re-enumeration."""

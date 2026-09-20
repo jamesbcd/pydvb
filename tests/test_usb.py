@@ -1,4 +1,5 @@
 from mactv.bridge import AF9015Bridge, Command, ControlRequest
+from mactv import usb as usb_module
 from mactv.usb import PyUSBTransport, USBSpeed
 
 
@@ -30,6 +31,28 @@ def test_get_speed_maps_pyusb_speed_value_to_enum():
 def test_get_speed_returns_unknown_for_missing_or_invalid_value():
     assert PyUSBTransport(type("Device", (), {})()).get_speed() is USBSpeed.UNKNOWN
     assert PyUSBTransport(type("Device", (), {"speed": 99})()).get_speed() is USBSpeed.UNKNOWN
+
+
+def test_stream_read_cadence_logging_reports_aggregate_timing(capsys, monkeypatch):
+    class Device:
+        speed = 3
+
+        def read(self, endpoint, length, timeout):
+            return bytes(length)
+
+    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    transport = PyUSBTransport(Device())
+
+    transport.bulk_read(0x84, 188, 1000)
+    transport.bulk_read(0x84, 188, 1000)
+    transport.bulk_read(0x81, 2, 1000)
+    transport.log_cadence_summary()
+
+    output = capsys.readouterr().out.splitlines()
+    assert len(output) == 1
+    assert output[0].startswith("USB cadence: reads=2 errors=0 bytes=376")
+    assert "read_ms(avg/min/max)=" in output[0]
+    assert "gap_ms(min/max)=" in output[0]
 
 
 def test_read_i2c_uses_linux_af9015_frame():

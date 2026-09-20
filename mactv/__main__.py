@@ -107,6 +107,11 @@ def main() -> int:
         help="Log USB bulk transfers",
     )
     parser.add_argument(
+        "--usb-cadence-log",
+        action="store_true",
+        help="Log stream USB read timing and returned byte counts",
+    )
+    parser.add_argument(
         "--buffer-log",
         action="store_true",
         help="Log the transport-stream buffer queue during recording or serving",
@@ -157,6 +162,7 @@ def main() -> int:
     if args.record is not None and args.serve is not None:
         parser.error("--record and --serve cannot be used together")
     usb_logging.LOG = args.usb_log
+    usb_logging.CADENCE_LOG = args.usb_cadence_log
 
     try:
         device = AF9015Device.open(args.vendor_id, args.product_id)
@@ -202,6 +208,7 @@ def main() -> int:
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1
+        device.bridge.transport.log_cadence_summary()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
 
     if args.serve is not None:
@@ -225,6 +232,7 @@ def main() -> int:
             print("Stopping transport-stream server")
         finally:
             server.close()
+            device.bridge.transport.log_cadence_summary()
             if hasattr(adapter, "sleep"):
                 adapter.sleep()
 
