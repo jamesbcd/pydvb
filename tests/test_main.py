@@ -118,7 +118,7 @@ def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
     monkeypatch.setattr(sys, "argv", ["mactv", "--safe", *arguments])
 
     assert __main__.main() == 0
-    assert __main__.usb_logging.LOG is expected
+    assert __main__.usb.LOG is expected
 
 
 def test_buffer_logging_option_is_accepted(monkeypatch):

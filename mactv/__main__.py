@@ -10,7 +10,7 @@ import usb.core
 from mactv.tuner import Tuning
 
 from .device import AF9015Device
-from . import usb as usb_logging
+from . import usb
 from .server import LocalTS_HTTPServer
 from .stream import TSStream
 from .usb import USBSpeed
@@ -201,7 +201,7 @@ def main() -> int:
         help="Log USB bulk transfers",
     )
     parser.add_argument(
-        "--usb-cadence-log",
+        "--usb-stats",
         action="store_true",
         help="Log stream USB read timing and returned byte counts",
     )
@@ -255,13 +255,13 @@ def main() -> int:
         parser.error("--sleep cannot be used with --record or --serve")
     if args.record is not None and args.serve is not None:
         parser.error("--record and --serve cannot be used together")
-    usb_logging.LOG = args.usb_log
-    usb_logging.CADENCE_LOG = args.usb_cadence_log
+    usb.LOG = args.usb_log
+    usb.RECORD_STATS = args.usb_stats
 
     try:
         with AF9015Device.open(args.vendor_id, args.product_id) as device:
             return _run_device(device, args)
-    except (ValueError, usb.core.USBError) as error:
+    except (ValueError) as error:
         print(f"Error: {error}")
         return 1
 

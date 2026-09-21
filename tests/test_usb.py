@@ -220,7 +220,7 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits():
 
 
 def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkeypatch):
-    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     transport = LibUSB1Transport(context, handle)
@@ -233,7 +233,7 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     transfer.callback(transfer)
     assert transport.bulk_read(0x84, 4, 100) == b"data"
     transfer.callback(transfer)
-    transport.log_cadence_summary()
+    transport.log_stats()
 
     output = capsys.readouterr().out.splitlines()
     assert len(output) == 1
@@ -263,7 +263,7 @@ def test_libusb_stream_endpoint_length_is_stable():
 
 
 def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
-    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     transport = LibUSB1Transport(context, handle)
@@ -280,7 +280,7 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
     assert all(transfer.cancel_count == 1 for transfer in handle.transfers)
     with pytest.raises(RuntimeError, match="status 99"):
         transport.bulk_read(0x84, 4, 100)
-    transport.log_cadence_summary()
+    transport.log_stats()
 
     output = capsys.readouterr().out
     assert "completions=0" in output
@@ -291,7 +291,7 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
 
 
 def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monkeypatch):
-    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     transport = LibUSB1Transport(context, handle)
@@ -312,7 +312,7 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     transfer.buffer[:] = b"data"
     transfer.callback(transfer)
     assert transport.bulk_read(0x84, 4, 100) == b"data"
-    transport.log_cadence_summary()
+    transport.log_stats()
     output = capsys.readouterr().out
     assert "transfer_errors=1" in output
     assert "transfer_error_statuses=0x84:3=1" in output
@@ -326,13 +326,13 @@ def test_stream_read_cadence_logging_reports_aggregate_timing(capsys, monkeypatc
         def read(self, endpoint, length, timeout):
             return bytes(length)
 
-    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     transport = PyUSBTransport(Device())
 
     transport.bulk_read(0x84, 188, 1000)
     transport.bulk_read(0x84, 188, 1000)
     transport.bulk_read(0x81, 2, 1000)
-    transport.log_cadence_summary()
+    transport.log_stats()
 
     output = capsys.readouterr().out.splitlines()
     assert len(output) == 1
