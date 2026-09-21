@@ -160,16 +160,16 @@ class _AsynchronousReadCadence:
     """Collect timing and queue statistics from asynchronous stream callbacks."""
 
     def __init__(self) -> None:
-        self._last_completion: float | None = None
-        self._completions = 0
-        self._bytes = 0
-        self._total_interval_seconds = 0.0
-        self._min_interval_seconds: float | None = None
-        self._max_interval_seconds: float | None = None
-        self._min_queue_depth: int | None = None
-        self._max_queue_depth: int | None = None
-        self._transfer_errors = 0
-        self._resubmit_errors = 0
+        self._last_completion: float | None = None # Time of the last completed asynchronous transfer
+        self._completions = 0 # Number of completed asynchronous transfers
+        self._bytes = 0 # Total bytes transferred in completed asynchronous transfers
+        self._total_interval_seconds = 0.0 # Cumulative time between consecutive completions
+        self._min_interval_seconds: float | None = None # Minimum interval between consecutive completions
+        self._max_interval_seconds: float | None = None # Maximum interval between consecutive completions
+        self._min_queue_depth: int | None = None # Minimum queue depth observed at completion
+        self._max_queue_depth: int | None = None # Maximum queue depth observed at completion
+        self._transfer_errors = 0 # Count of non-cancelled asynchronous transfer errors
+        self._resubmit_errors = 0 # Count of failed transfer resubmissions
 
     def record_completion(self, byte_count: int, queue_depth: int) -> None:
         """Record one completed transfer after its data enters the queue."""
