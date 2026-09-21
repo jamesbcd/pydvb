@@ -224,11 +224,10 @@ class _AsynchronousReadCadence:
                 flush=True,
             )
             return
-        interval_text = "n/a" # Default text for the interval if no completions have occurred
+        interval_text = "n/a" 
         if self._min_interval_seconds is not None and self._max_interval_seconds is not None:
             average_interval = self._total_interval_seconds / (self._completions - 1)
             interval_text = (
-                # Format the interval text as average/min/max in milliseconds
                 f"{average_interval * 1000:.3f}/"
                 f"{self._min_interval_seconds * 1000:.3f}/"
                 f"{self._max_interval_seconds * 1000:.3f}"
@@ -236,7 +235,7 @@ class _AsynchronousReadCadence:
         assert self._min_queue_depth is not None and self._max_queue_depth is not None
         print(
             f"USB async cadence: completions={self._completions} bytes={self._bytes} "
-            f"callback_intervals_ms(avg/min/max)={interval_text} "
+            f"completion_intervals_ms(avg/min/max)={interval_text} "
             f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
             f"transfer_errors={self._transfer_errors} "
             f"resubmit_errors={self._resubmit_errors}",
