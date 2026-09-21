@@ -126,6 +126,9 @@ def fake_usb1(context):
         SPEED_SUPER_PLUS=5,
         TRANSFER_COMPLETED=0,
         TRANSFER_CANCELLED=1,
+        TRANSFER_ERROR=2,
+        TRANSFER_TIMED_OUT=3,
+        TRANSFER_OVERFLOW=4,
         USBErrorInterrupted=USBErrorInterrupted,
     )
 
@@ -274,6 +277,9 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
 
     with pytest.raises(RuntimeError, match="status 99"):
         transport.bulk_read(0x84, 4, 100)
+    assert all(transfer.cancel_count == 1 for transfer in handle.transfers)
+    with pytest.raises(RuntimeError, match="status 99"):
+        transport.bulk_read(0x84, 4, 100)
     transport.log_cadence_summary()
 
     output = capsys.readouterr().out
@@ -281,6 +287,35 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
     assert "transfer_errors=1" in output
     assert "transfer_error_statuses=0x84:99=1" in output
 
+    transport.close()
+
+
+def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monkeypatch):
+    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    transport = LibUSB1Transport(context, handle)
+    transport._usb1 = fake_usb1(context)
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 0)
+    transfer = handle.transfers[0]
+    transfer.status = transport._usb1.TRANSFER_TIMED_OUT
+    transfer.callback(transfer)
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 100)
+    assert transfer.submit_count == 2
+    assert transport._stream_errors == {}
+
+    transfer.status = transport._usb1.TRANSFER_COMPLETED
+    transfer.buffer[:] = b"data"
+    transfer.callback(transfer)
+    assert transport.bulk_read(0x84, 4, 100) == b"data"
+    transport.log_cadence_summary()
+    output = capsys.readouterr().out
+    assert "transfer_errors=1" in output
+    assert "transfer_error_statuses=0x84:3=1" in output
     transport.close()
 
 

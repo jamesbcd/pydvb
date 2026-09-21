@@ -402,6 +402,7 @@ class LibUSB1Transport:
         self._event_thread: Thread | None = None  # Processes asynchronous transfer events.
         # Completed data or errors by endpoint.
         self._stream_queues: dict[int, Queue[bytes | BaseException | None]] = {}
+        self._stream_errors: dict[int, BaseException] = {}
         self._stream_lengths: dict[int, int] = {}  # Fixed transfer length by initialized endpoint.
         self._stream_transfers: dict[int, list[Any]] = {}  # Pending asynchronous transfers by endpoint.
         self._cadence = _AsynchronousReadCadence()
@@ -510,6 +511,9 @@ class LibUSB1Transport:
             elif self._stream_lengths[endpoint] != length:
                 raise ValueError("stream endpoint read length cannot change after initialization")
             queue = self._stream_queues[endpoint]
+            stream_error = self._stream_errors.get(endpoint)
+        if stream_error is not None:
+            raise stream_error
         try:
             item = queue.get(timeout=timeout / 1000 if timeout else 0)
         except Empty:
@@ -547,6 +551,11 @@ class LibUSB1Transport:
             usb1 = self._get_usb1()
             completed = usb1.TRANSFER_COMPLETED
             cancelled = usb1.TRANSFER_CANCELLED
+            recoverable = {
+                candidate_status
+                for name in ("TRANSFER_ERROR", "TRANSFER_TIMED_OUT", "TRANSFER_OVERFLOW")
+                if (candidate_status := getattr(usb1, name, None)) is not None
+            }
             queue = self._stream_queues.get(endpoint)
             if queue is None:
                 return
@@ -561,14 +570,37 @@ class LibUSB1Transport:
                         transfer.submit()
                     except Exception as error:
                         self._cadence.record_resubmit_error()
-                        queue.put(error)
+                        self._fail_stream_endpoint(endpoint, error)
             elif status != cancelled:
                 self._cadence.record_transfer_error(endpoint, status)
-                queue.put(RuntimeError(f"asynchronous USB transfer failed with status {status}"))
+                error = RuntimeError(f"asynchronous USB transfer failed with status {status}")
+                if status in recoverable and not self._closed:
+                    try:
+                        transfer.submit()
+                    except Exception as resubmit_error:
+                        self._cadence.record_resubmit_error()
+                        self._fail_stream_endpoint(endpoint, resubmit_error)
+                else:
+                    self._fail_stream_endpoint(endpoint, error)
             else:
                 self._cadence.record_cancelled_transfer()
 
         return callback
+
+    def _fail_stream_endpoint(self, endpoint: int, error: BaseException) -> None:
+        """Stop an endpoint after a fatal transfer or resubmission failure."""
+        if endpoint in self._stream_errors:
+            return
+        self._stream_errors[endpoint] = error
+        queue = self._stream_queues.get(endpoint)
+        if queue is not None:
+            queue.put(error)
+        for transfer in self._stream_transfers.get(endpoint, []):
+            if transfer.isSubmitted():
+                try:
+                    transfer.cancel()
+                except Exception:
+                    pass
 
     def _run_events(self) -> None:
         """Process libusb events until the transport is closed."""
