@@ -334,7 +334,7 @@ class LibUSB1Transport:
     def get_speed(self) -> USBSpeed:
         """Return the USB speed reported by libusb."""
         try:
-            speed = self.usb_handle.getDevice().getSpeed()
+            speed = self.usb_handle.getDevice().getDeviceSpeed()
             usb1 = self._get_usb1()
             speed_map = {
                 usb1.SPEED_LOW: USBSpeed.LOW,

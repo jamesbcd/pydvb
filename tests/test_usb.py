@@ -73,7 +73,7 @@ class FakeLibUSBHandle:
         return b"reply"
 
     def getDevice(self):
-        return SimpleNamespace(getSpeed=lambda: self.speed)
+        return SimpleNamespace(getDeviceSpeed=lambda: self.speed)
 
     def close(self):
         self.closed = True
