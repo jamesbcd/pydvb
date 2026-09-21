@@ -124,7 +124,7 @@ def _run_device(device, args) -> int:
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1
-        device.bridge.transport.log_cadence_summary()
+        device.bridge.transport.log_stats()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
 
     if args.serve is not None:
@@ -148,7 +148,7 @@ def _run_device(device, args) -> int:
             print("Stopping transport-stream server")
         finally:
             server.close()
-            device.bridge.transport.log_cadence_summary()
+            device.bridge.transport.log_stats()
             if hasattr(adapter, "sleep"):
                 adapter.sleep()
 
