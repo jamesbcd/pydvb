@@ -413,7 +413,7 @@ class LibUSB1Transport:
         vendor_id: int,
         product_id: int,
         interface: int = 0,
-        async_transfer_count: int = 6,
+        async_transfer_count: int = 8,
     ) -> "LibUSB1Transport":
         """Find, open, and claim a device by vendor/product ID."""
         try:
