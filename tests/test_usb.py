@@ -216,6 +216,31 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits():
     assert all(transfer.close_count == 1 for transfer in handle.transfers)
 
 
+def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkeypatch):
+    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    transport = LibUSB1Transport(context, handle)
+    transport._usb1 = fake_usb1(context)
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 0)
+    transfer = handle.transfers[0]
+    transfer.buffer[:] = b"data"
+    transfer.callback(transfer)
+    assert transport.bulk_read(0x84, 4, 100) == b"data"
+    transfer.callback(transfer)
+    transport.log_cadence_summary()
+
+    output = capsys.readouterr().out.splitlines()
+    assert len(output) == 1
+    assert output[0].startswith("USB async cadence: completions=2 bytes=8")
+    assert "callback_ms(avg/min/max)=" in output[0]
+    assert "queue_depth(min/max)=1/1" in output[0]
+    assert "transfer_errors=0 resubmit_errors=0" in output[0]
+    transport.close()
+
+
 def test_libusb_stream_endpoint_length_is_stable():
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)

@@ -58,7 +58,7 @@ class USBTransport(Protocol):
         ...
 
 
-class _ReadCadence:
+class _SynchronousReadCadence:
     """Collect and report timing statistics for stream endpoint reads."""
 
     def __init__(self) -> None:
@@ -156,6 +156,93 @@ class _ReadCadence:
         )
 
 
+class _AsynchronousReadCadence:
+    """Collect timing and queue statistics from asynchronous stream callbacks."""
+
+    def __init__(self) -> None:
+        self._last_completion: float | None = None
+        self._completions = 0
+        self._bytes = 0
+        self._total_interval_seconds = 0.0
+        self._min_interval_seconds: float | None = None
+        self._max_interval_seconds: float | None = None
+        self._min_queue_depth: int | None = None
+        self._max_queue_depth: int | None = None
+        self._transfer_errors = 0
+        self._resubmit_errors = 0
+
+    def record_completion(self, byte_count: int, queue_depth: int) -> None:
+        """Record one completed transfer after its data enters the queue."""
+        if not CADENCE_LOG:
+            return
+        now = monotonic()
+        if self._last_completion is not None:
+            interval = now - self._last_completion
+            self._total_interval_seconds += interval
+            self._min_interval_seconds = (
+                interval
+                if self._min_interval_seconds is None
+                else min(self._min_interval_seconds, interval)
+            )
+            self._max_interval_seconds = (
+                interval
+                if self._max_interval_seconds is None
+                else max(self._max_interval_seconds, interval)
+            )
+        self._last_completion = now
+        self._completions += 1
+        self._bytes += byte_count
+        self._min_queue_depth = (
+            queue_depth
+            if self._min_queue_depth is None
+            else min(self._min_queue_depth, queue_depth)
+        )
+        self._max_queue_depth = (
+            queue_depth
+            if self._max_queue_depth is None
+            else max(self._max_queue_depth, queue_depth)
+        )
+
+    def record_transfer_error(self) -> None:
+        """Record a non-cancelled asynchronous transfer error."""
+        if CADENCE_LOG:
+            self._transfer_errors += 1
+
+    def record_resubmit_error(self) -> None:
+        """Record a failed transfer resubmission."""
+        if CADENCE_LOG:
+            self._resubmit_errors += 1
+
+    def log_summary(self) -> None:
+        """Print aggregate asynchronous transfer statistics."""
+        if not CADENCE_LOG:
+            return
+        if not self._completions:
+            print(
+                "USB async cadence: completions=0 transfer_errors="
+                f"{self._transfer_errors} resubmit_errors={self._resubmit_errors}",
+                flush=True,
+            )
+            return
+        interval_text = "n/a"
+        if self._min_interval_seconds is not None and self._max_interval_seconds is not None:
+            average_interval = self._total_interval_seconds / (self._completions - 1)
+            interval_text = (
+                f"{average_interval * 1000:.3f}/"
+                f"{self._min_interval_seconds * 1000:.3f}/"
+                f"{self._max_interval_seconds * 1000:.3f}"
+            )
+        assert self._min_queue_depth is not None and self._max_queue_depth is not None
+        print(
+            f"USB async cadence: completions={self._completions} bytes={self._bytes} "
+            f"callback_ms(avg/min/max)={interval_text} "
+            f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
+            f"transfer_errors={self._transfer_errors} "
+            f"resubmit_errors={self._resubmit_errors}",
+            flush=True,
+        )
+
+
 class PyUSBTransport:
     """Implement the AF9015 USB transport using a configured PyUSB device."""
 
@@ -171,7 +258,7 @@ class PyUSBTransport:
         self.interface = interface
         self.vendor_id = vendor_id
         self.product_id = product_id
-        self._cadence = _ReadCadence()
+        self._cadence = _SynchronousReadCadence()
 
     def get_speed(self) -> USBSpeed:
         """Return the USB speed reported by PyUSB."""
@@ -285,7 +372,7 @@ class LibUSB1Transport:
         self._stream_queues: dict[int, Queue[bytes | BaseException | None]] = {}
         self._stream_lengths: dict[int, int] = {}  # Fixed transfer length by initialized endpoint.
         self._stream_transfers: dict[int, list[Any]] = {}  # Pending asynchronous transfers by endpoint.
-        self._cadence = _ReadCadence()  # Optional timing statistics for stream reads.
+        self._cadence = _AsynchronousReadCadence()
 
     @classmethod
     def find(
@@ -357,13 +444,10 @@ class LibUSB1Transport:
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
         """Read a bulk packet, using queued async transfers for stream endpoints."""
         self._require_open()
-        data = self._cadence.measure(
-            endpoint,
-            lambda: (
-                self._stream_read(endpoint, length, timeout)
-                if endpoint in STREAM_ENDPOINTS
-                else bytes(self.usb_handle.bulkRead(endpoint, length, timeout=timeout))
-            ),
+        data = (
+            self._stream_read(endpoint, length, timeout)
+            if endpoint in STREAM_ENDPOINTS
+            else bytes(self.usb_handle.bulkRead(endpoint, length, timeout=timeout))
         )
         if LOG:
             print(f"{monotonic():.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
@@ -436,14 +520,18 @@ class LibUSB1Transport:
                 return
             if status == completed:
                 # Transfer completed successfully; queue the data for consumption.
-                queue.put(bytes(transfer.getBuffer()[: transfer.getActualLength()]))
+                data = bytes(transfer.getBuffer()[: transfer.getActualLength()])
+                queue.put(data)
+                self._cadence.record_completion(len(data), queue.qsize())
                 if not self._closed:
                     # Resubmit the transfer if the transport is not closed.
                     try:
                         transfer.submit()
                     except Exception as error:
+                        self._cadence.record_resubmit_error()
                         queue.put(error)
             elif status != cancelled:
+                self._cadence.record_transfer_error()
                 queue.put(RuntimeError(f"asynchronous USB transfer failed with status {status}"))
 
         return callback
@@ -466,7 +554,7 @@ class LibUSB1Transport:
                 return
 
     def log_cadence_summary(self) -> None:
-        """Print aggregate stream-read timing without logging each transfer."""
+        """Print aggregate asynchronous transfer statistics."""
         self._cadence.log_summary()
 
     def close(self) -> None:
