@@ -450,9 +450,15 @@ class LibUSB1Transport:
 
     def _run_events(self) -> None:
         """Process libusb events until the transport is closed."""
-        while not self._event_stop.is_set():
+        while not self._event_stop.is_set() or any(
+            transfer.isSubmitted()
+            for transfers in self._stream_transfers.values()
+            for transfer in transfers
+        ):
             try:
                 self.context.handleEvents()
+            except self._get_usb1().USBErrorInterrupted:
+                pass
             except Exception as error:
                 if not self._event_stop.is_set():
                     for queue in self._stream_queues.values():
@@ -480,6 +486,10 @@ class LibUSB1Transport:
             queue.put(None) # Signal that the transport has been closed.
         if self._event_thread is not None and self._event_thread is not current_thread():
             self._event_thread.join(timeout=2)
+        for transfers in self._stream_transfers.values():
+            for transfer in transfers:
+                if not transfer.isSubmitted():
+                    transfer.close()
         if self._is_interface_claimed:
             if self._claimed_interface is not None and hasattr(self._claimed_interface, "__exit__"):
                 self._claimed_interface.__exit__(None, None, None)

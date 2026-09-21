@@ -17,6 +17,7 @@ class FakeAsyncTransfer:
         self.submitted = False
         self.submit_count = 0
         self.cancel_count = 0
+        self.close_count = 0
         self.buffer = bytearray()
         self.status = 0
 
@@ -33,6 +34,10 @@ class FakeAsyncTransfer:
     def cancel(self):
         self.submitted = False
         self.cancel_count += 1
+
+    def close(self):
+        assert not self.submitted
+        self.close_count += 1
 
     def isSubmitted(self):
         return self.submitted
@@ -109,6 +114,9 @@ class FakeUSBContext:
 
 
 def fake_usb1(context):
+    class USBErrorInterrupted(Exception):
+        pass
+
     return SimpleNamespace(
         USBContext=lambda: context,
         SPEED_LOW=1,
@@ -118,6 +126,7 @@ def fake_usb1(context):
         SPEED_SUPER_PLUS=5,
         TRANSFER_COMPLETED=0,
         TRANSFER_CANCELLED=1,
+        USBErrorInterrupted=USBErrorInterrupted,
     )
 
 
@@ -201,8 +210,10 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits():
 
     transport.close()
     assert all(transfer.cancel_count == 1 for transfer in handle.transfers)
+    assert all(transfer.close_count == 1 for transfer in handle.transfers)
     transport.close()
     assert all(transfer.cancel_count == 1 for transfer in handle.transfers)
+    assert all(transfer.close_count == 1 for transfer in handle.transfers)
 
 
 def test_libusb_stream_endpoint_length_is_stable():
