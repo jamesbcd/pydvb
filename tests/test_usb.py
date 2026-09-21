@@ -235,9 +235,13 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     output = capsys.readouterr().out.splitlines()
     assert len(output) == 1
     assert output[0].startswith("USB async cadence: completions=2 bytes=8")
-    assert "callback_ms(avg/min/max)=" in output[0]
+    assert "completion_intervals_ms(avg/min/max)=" in output[0]
     assert "queue_depth(min/max)=1/1" in output[0]
-    assert "transfer_errors=0 resubmit_errors=0" in output[0]
+    assert "completed_by_endpoint=0x84=2" in output[0]
+    assert "zero_length=0 cancelled=0" in output[0]
+    assert "transfer_error_statuses=none" in output[0]
+    assert "transfer_errors=0" in output[0]
+    assert "resubmit_errors=0" in output[0]
     transport.close()
 
 
@@ -255,7 +259,8 @@ def test_libusb_stream_endpoint_length_is_stable():
     transport.close()
 
 
-def test_libusb_async_transfer_error_is_returned_to_reader():
+def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
+    monkeypatch.setattr(usb_module, "CADENCE_LOG", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     transport = LibUSB1Transport(context, handle)
@@ -269,6 +274,12 @@ def test_libusb_async_transfer_error_is_returned_to_reader():
 
     with pytest.raises(RuntimeError, match="status 99"):
         transport.bulk_read(0x84, 4, 100)
+    transport.log_cadence_summary()
+
+    output = capsys.readouterr().out
+    assert "completions=0" in output
+    assert "transfer_errors=1" in output
+    assert "transfer_error_statuses=0x84:99=1" in output
 
     transport.close()
 

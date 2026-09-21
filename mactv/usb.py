@@ -162,6 +162,8 @@ class _AsynchronousReadCadence:
     def __init__(self) -> None:
         self._last_completion: float | None = None # Time of the last completed asynchronous transfer
         self._completions = 0 # Number of completed asynchronous transfers
+        self._completion_counts: dict[int, int] = {}
+        self._zero_length_completions = 0
         self._bytes = 0 # Total bytes transferred in completed asynchronous transfers
         self._total_interval_seconds = 0.0 # Cumulative time between consecutive completions
         self._min_interval_seconds: float | None = None # Minimum interval between consecutive completions
@@ -169,9 +171,11 @@ class _AsynchronousReadCadence:
         self._min_queue_depth: int | None = None # Minimum queue depth observed at completion
         self._max_queue_depth: int | None = None # Maximum queue depth observed at completion
         self._transfer_errors = 0 # Count of non-cancelled asynchronous transfer errors
+        self._transfer_error_statuses: dict[tuple[int, int], int] = {}
+        self._cancelled_transfers = 0
         self._resubmit_errors = 0 # Count of failed transfer resubmissions
 
-    def record_completion(self, byte_count: int, queue_depth: int) -> None:
+    def record_completion(self, endpoint: int, byte_count: int, queue_depth: int) -> None:
         """Record one completed transfer after its data enters the queue."""
         if not CADENCE_LOG:
             return
@@ -191,6 +195,9 @@ class _AsynchronousReadCadence:
             )
         self._last_completion = now
         self._completions += 1
+        self._completion_counts[endpoint] = self._completion_counts.get(endpoint, 0) + 1
+        if byte_count == 0:
+            self._zero_length_completions += 1
         self._bytes += byte_count
         self._min_queue_depth = (
             queue_depth
@@ -203,10 +210,17 @@ class _AsynchronousReadCadence:
             else max(self._max_queue_depth, queue_depth)
         )
 
-    def record_transfer_error(self) -> None:
-        """Record a non-cancelled asynchronous transfer error."""
+    def record_transfer_error(self, endpoint: int, status: int) -> None:
+        """Record a non-cancelled asynchronous transfer error and status."""
         if CADENCE_LOG:
             self._transfer_errors += 1
+            key = (endpoint, status)
+            self._transfer_error_statuses[key] = self._transfer_error_statuses.get(key, 0) + 1
+
+    def record_cancelled_transfer(self) -> None:
+        """Record a transfer cancelled during transport shutdown."""
+        if CADENCE_LOG:
+            self._cancelled_transfers += 1
 
     def record_resubmit_error(self) -> None:
         """Record a failed transfer resubmission."""
@@ -218,9 +232,15 @@ class _AsynchronousReadCadence:
         if not CADENCE_LOG:
             return
         if not self._completions:
+            error_statuses = ",".join(
+                f"0x{endpoint:02x}:{status}={count}"
+                for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
+            ) or "none"
             print(
                 "USB async cadence: completions=0 transfer_errors="
-                f"{self._transfer_errors} resubmit_errors={self._resubmit_errors}",
+                f"{self._transfer_errors} cancelled={self._cancelled_transfers} "
+                f"transfer_error_statuses={error_statuses} "
+                f"resubmit_errors={self._resubmit_errors}",
                 flush=True,
             )
             return
@@ -233,11 +253,23 @@ class _AsynchronousReadCadence:
                 f"{self._max_interval_seconds * 1000:.3f}"
             )
         assert self._min_queue_depth is not None and self._max_queue_depth is not None
+        completion_counts = ",".join(
+            f"0x{endpoint:02x}={count}"
+            for endpoint, count in sorted(self._completion_counts.items())
+        )
+        error_statuses = ",".join(
+            f"0x{endpoint:02x}:{status}={count}"
+            for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
+        ) or "none"
         print(
             f"USB async cadence: completions={self._completions} bytes={self._bytes} "
             f"completion_intervals_ms(avg/min/max)={interval_text} "
             f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
+            f"completed_by_endpoint={completion_counts} "
+            f"zero_length={self._zero_length_completions} "
+            f"cancelled={self._cancelled_transfers} "
             f"transfer_errors={self._transfer_errors} "
+            f"transfer_error_statuses={error_statuses} "
             f"resubmit_errors={self._resubmit_errors}",
             flush=True,
         )
@@ -522,7 +554,7 @@ class LibUSB1Transport:
                 # Transfer completed successfully; queue the data for consumption.
                 data = bytes(transfer.getBuffer()[: transfer.getActualLength()])
                 queue.put(data)
-                self._cadence.record_completion(len(data), queue.qsize())
+                self._cadence.record_completion(endpoint, len(data), queue.qsize())
                 if not self._closed:
                     # Resubmit the transfer if the transport is not closed.
                     try:
@@ -531,8 +563,10 @@ class LibUSB1Transport:
                         self._cadence.record_resubmit_error()
                         queue.put(error)
             elif status != cancelled:
-                self._cadence.record_transfer_error()
+                self._cadence.record_transfer_error(endpoint, status)
                 queue.put(RuntimeError(f"asynchronous USB transfer failed with status {status}"))
+            else:
+                self._cadence.record_cancelled_transfer()
 
         return callback
 
