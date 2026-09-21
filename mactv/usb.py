@@ -402,7 +402,7 @@ class LibUSB1Transport:
         self._event_thread: Thread | None = None  # Processes asynchronous transfer events.
         # Completed data or errors by endpoint.
         self._stream_queues: dict[int, Queue[bytes | BaseException | None]] = {}
-        self._stream_errors: dict[int, BaseException] = {}
+        self._stream_errors: dict[int, BaseException] = {} # Stores the last error encountered for each endpoint.
         self._stream_lengths: dict[int, int] = {}  # Fixed transfer length by initialized endpoint.
         self._stream_transfers: dict[int, list[Any]] = {}  # Pending asynchronous transfers by endpoint.
         self._cadence = _AsynchronousReadCadence()
@@ -512,6 +512,7 @@ class LibUSB1Transport:
                 raise ValueError("stream endpoint read length cannot change after initialization")
             queue = self._stream_queues[endpoint]
             stream_error = self._stream_errors.get(endpoint)
+
         if stream_error is not None:
             raise stream_error
         try:
@@ -590,6 +591,7 @@ class LibUSB1Transport:
     def _fail_stream_endpoint(self, endpoint: int, error: BaseException) -> None:
         """Stop an endpoint after a fatal transfer or resubmission failure."""
         if endpoint in self._stream_errors:
+            # If the endpoint has already failed, do not attempt to fail it again.
             return
         self._stream_errors[endpoint] = error
         queue = self._stream_queues.get(endpoint)
