@@ -64,6 +64,20 @@ The AF9013 demodulator and individual tuner chips still need chip-specific
 drivers. The public `Tuner` interface is intentionally ready for those drivers
 without coupling them to PyUSB.
 
+For smoother stream buffering, an alternate transport uses python-libusb1 and
+queues asynchronous transfers. Pass it explicitly to `AF9015Device`; the
+default `Af9015Device.open` path continues to use PyUSB:
+
+```python
+from mactv import AF9015Device, LibUSB1Transport
+
+transport = LibUSB1Transport.find(0x0413, 0x6029, async_transfer_count=8)
+device = AF9015Device(transport, vendor_id=0x0413, product_id=0x6029)
+```
+
+python-libusb1 requires a native libusb-1.0 library. On macOS, install one
+through Homebrew, MacPorts, or Fink as appropriate for your environment.
+
 The bundled `TDA18271Tuner` implements the AF9015 digital DVB-T path: 6, 7,
 and 8 MHz channel bandwidths for the supported HDC1 and HDC2 tuner variants,
 including Linux-compatible PLL, image-rejection, RF tracking-filter, and

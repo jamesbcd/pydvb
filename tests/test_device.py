@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from mactv import device as device_module
 from mactv.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 from mactv.frontend import FrontendStatus
 from mactv.tuner import Tuning
@@ -70,6 +71,22 @@ class FakeAdapter:
 def test_default_firmware_path_exists():
     assert DEFAULT_FIRMWARE_PATH == Path(__file__).parents[1] / "mactv" / "firmware" / "dvb-usb-af9015.fw"
     assert DEFAULT_FIRMWARE_PATH.is_file()
+
+
+def test_open_uses_libusb1_transport_by_default(monkeypatch):
+    transport = FakeTransport()
+    calls = []
+
+    def find(vendor_id, product_id):
+        calls.append((vendor_id, product_id))
+        return transport
+
+    monkeypatch.setattr(device_module.LibUSB1Transport, "find", find)
+
+    device = AF9015Device.open(0x0413, 0x6029)
+
+    assert calls == [(0x0413, 0x6029)]
+    assert device.bridge.transport is transport
 
 
 def test_device_sleep_sleeps_all_frontends():
