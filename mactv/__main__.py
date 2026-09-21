@@ -85,6 +85,100 @@ def capture_stream(
     return bytes_written, monotonic() - start_time
 
 
+def _run_device(device, args) -> int:
+    print(f"Device state: {'warm' if device.is_warm else 'cold'}")
+    if not device.is_warm:
+        if args.safe:
+            return 0
+        print("Device is cold; initializing and downloading firmware to device...")
+        device.init_hardware()
+        print(f"Device state: {'warm' if device.is_warm else 'cold'}")
+    else:
+        print("Device is warm; reinitializing hardware...")
+        device.init_hardware()
+
+    tuning_status = None
+    if args.sleep:
+        print("Putting device to sleep...")
+        device.sleep()
+        print("Device is sleeping")
+    else:
+        # Brisbane DVB-T transmitters use 7 MHz channels.
+        tuning = Tuning(
+            frequency_hz=args.frequency,
+            bandwidth_hz=args.bandwidth * 1_000_000,
+        )
+        print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
+        tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+
+    if args.record is not None:
+        if tuning_status is None or not tuning_status.lock:
+            print("Capture failed: frontend did not lock; no transport stream is available")
+            return 2
+        print(f"Frontend lock acquired. Starting capture to {args.record}")
+        adapter = device.adapters[args.adapter_index]
+        try:
+            bytes_written, elapsed = capture_stream(
+                adapter, args.record, buffer_log=args.buffer_log
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Capture failed: {error}")
+            return 1
+        device.bridge.transport.log_cadence_summary()
+        print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
+
+    if args.serve is not None:
+        if tuning_status is None or not tuning_status.lock:
+            print("Server failed: frontend did not lock; no transport stream is available")
+            return 2
+        host, port = args.serve
+        adapter = device.adapters[args.adapter_index]
+        server = LocalTS_HTTPServer(
+            adapter, host=host, port=port, buffer_log=args.buffer_log
+        )
+        bound_host, bound_port = server.address
+        print(f"Frontend lock acquired. Serving http://{bound_host}:{bound_port}/stream.ts")
+        try:
+            server.start()
+            server.serve_forever()
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Server failed: {error}")
+            return 1
+        except KeyboardInterrupt:
+            print("Stopping transport-stream server")
+        finally:
+            server.close()
+            device.bridge.transport.log_cadence_summary()
+            if hasattr(adapter, "sleep"):
+                adapter.sleep()
+
+    if args.status:
+        print(f"USB speed: {device.bridge.transport.get_speed().name}")
+        print(f"Adapter count: {device.adapter_count}")
+        for adapter_index, adapter in enumerate(device.adapters):
+            print(f"Adapter {adapter_index}:")
+            print(f"Frontend index {adapter_index} configuration:")
+            pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
+            print()
+            print(f"Demodulator index {adapter_index} configuration:")
+            pprint.pprint(adapter.demuxer.get_config_dict(),
+                          underscore_numbers=True)
+            print()
+            print(f"Tuner index {adapter_index} configuration:")
+            pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
+                          underscore_numbers=True)
+            print()
+            print(f"Frontend index {adapter_index} status:")
+            pprint.pprint(adapter.read_status(), underscore_numbers=True)
+            print()
+
+    if args.sleep or args.record is not None or args.serve is not None:
+        return 0
+    status = device.adapters[args.adapter_index].read_status()
+    print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
+    return 0 if status.lock else 2
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Test an AF9015 device"
@@ -165,102 +259,11 @@ def main() -> int:
     usb_logging.CADENCE_LOG = args.usb_cadence_log
 
     try:
-        device = AF9015Device.open(args.vendor_id, args.product_id)
+        with AF9015Device.open(args.vendor_id, args.product_id) as device:
+            return _run_device(device, args)
     except (ValueError, usb.core.USBError) as error:
         print(f"Error: {error}")
         return 1
-
-    print(f"Device state: {'warm' if device.is_warm else 'cold'}")
-    if not device.is_warm:
-        if args.safe:
-            return 0
-        print("Device is cold; initializing and downloading firmware to device...")
-        device.init_hardware()
-        print(f"Device state: {'warm' if device.is_warm else 'cold'}")
-    else:
-        print("Device is warm; reinitializing hardware...")
-        device.init_hardware()
-
-    tuning_status = None
-    if args.sleep:
-        print("Putting device to sleep...")
-        device.sleep()
-        print("Device is sleeping")
-    else:
-        # Brisbane DVB-T transmitters use 7 MHz channels.
-        tuning = Tuning(
-            frequency_hz=args.frequency,
-            bandwidth_hz=args.bandwidth * 1_000_000,
-        )
-        print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
-        tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
-
-    if args.record is not None:
-        if tuning_status is None or not tuning_status.lock:
-            print("Capture failed: frontend did not lock; no transport stream is available")
-            return 2
-        print(f"Frontend lock acquired. Starting capture to {args.record}")
-        adapter = device.adapters[args.adapter_index]
-        try:
-            bytes_written, elapsed = capture_stream(
-                adapter, args.record, buffer_log=args.buffer_log
-            )
-        except (OSError, RuntimeError, ValueError) as error:
-            print(f"Capture failed: {error}")
-            return 1
-        device.bridge.transport.log_cadence_summary()
-        print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
-
-    if args.serve is not None:
-        if tuning_status is None or not tuning_status.lock:
-            print("Server failed: frontend did not lock; no transport stream is available")
-            return 2
-        host, port = args.serve
-        adapter = device.adapters[args.adapter_index]
-        server = LocalTS_HTTPServer(
-            adapter, host=host, port=port, buffer_log=args.buffer_log
-        )
-        bound_host, bound_port = server.address
-        print(f"Frontend lock acquired. Serving http://{bound_host}:{bound_port}/stream.ts")
-        try:
-            server.start()
-            server.serve_forever()
-        except (OSError, RuntimeError, ValueError) as error:
-            print(f"Server failed: {error}")
-            return 1
-        except KeyboardInterrupt:
-            print("Stopping transport-stream server")
-        finally:
-            server.close()
-            device.bridge.transport.log_cadence_summary()
-            if hasattr(adapter, "sleep"):
-                adapter.sleep()
-
-    if args.status:
-        print(f"USB speed: {device.bridge.transport.get_speed().name}")
-        print(f"Adapter count: {device.adapter_count}")
-        for adapter_index, adapter in enumerate(device.adapters):
-            print(f"Adapter {adapter_index}:")
-            print(f"Frontend index {adapter_index} configuration:")
-            pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
-            print()
-            print(f"Demodulator index {adapter_index} configuration:")
-            pprint.pprint(adapter.demuxer.get_config_dict(),
-                        underscore_numbers=True)
-            print()
-            print(f"Tuner index {adapter_index} configuration:")
-            pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
-                        underscore_numbers=True)
-            print()
-            print(f"Frontend index {adapter_index} status:")
-            pprint.pprint(adapter.read_status(), underscore_numbers=True)
-            print()
-
-    if args.sleep or args.record is not None or args.serve is not None:
-        return 0
-    status = device.adapters[args.adapter_index].read_status()
-    print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
-    return 0 if status.lock else 2
 
 
 if __name__ == "__main__":

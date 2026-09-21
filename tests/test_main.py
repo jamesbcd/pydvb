@@ -12,6 +12,7 @@ class FakeDevice:
         self.initialize_called = False
         self.sleep_called = False
         self.tune_called = False
+        self.close_called = False
 
     @property
     def is_warm(self):
@@ -29,11 +30,35 @@ class FakeDevice:
     def tune(self, tuning, adapter_index, wait_for_lock):
         self.tune_called = True
 
+    def close(self):
+        self.close_called = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exception_type, _exception, _traceback):
+        self.close()
+
 
 class FakeUnlockedRecordingDevice(FakeDevice):
     def tune(self, tuning, adapter_index, wait_for_lock):
         self.tune_called = True
         return FrontendStatus(False, False, False, False, False)
+
+
+class FakeLockedRecordingDevice(FakeDevice):
+    def __init__(self):
+        super().__init__()
+        self.adapters = [object()]
+        self.bridge = type("Bridge", (), {
+            "transport": type("Transport", (), {
+                "log_cadence_summary": lambda _self: None,
+            })(),
+        })()
+
+    def tune(self, tuning, adapter_index, wait_for_lock):
+        self.tune_called = True
+        return FrontendStatus(True, True, True, True, True)
 
 
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
@@ -67,6 +92,20 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
     output = capsys.readouterr().out
     assert "frontend did not lock" in output
     assert "transport stream read returned no data" not in output
+
+
+def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
+    device = FakeLockedRecordingDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(
+        __main__,
+        "capture_stream",
+        lambda adapter, output_path, buffer_log=False: (10, 1.0),
+    )
+    monkeypatch.setattr(sys, "argv", ["mactv", "--record", str(tmp_path / "capture.ts")])
+
+    assert __main__.main() == 0
+    assert device.close_called
 
 
 @pytest.mark.parametrize(
