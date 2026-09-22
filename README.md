@@ -3,7 +3,7 @@
 `mactv` is a Python framework for AF9015-based USB DVB-T receivers. Its layers
 follow the Linux driver: `AF9015Bridge` handles the USB command protocol and
 exposes I2C client operations, `Tuner` models tuner callbacks, and
-`Demuxer` reads the transport stream.
+`DVBDemuxer` reads the transport stream.
 
 Install the package with:
 

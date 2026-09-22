@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from typing import cast
 
 from mactv.adapter import AF9015Adapter
-from mactv.demux import TSDemuxer
+from mactv.demux import AF9015Demuxer
+from mactv.driverapi.adapter import DVBAdapter
 from mactv.frontend import FrontendStatus
 from mactv.frontend import AF9013Frontend
 from mactv.tuner import Tuning
@@ -62,8 +63,9 @@ class FakeDemuxer:
 def test_adapter_exposes_components_and_delegates_operations():
     frontend = FakeFrontend()
     demuxer = FakeDemuxer()
-    adapter = AF9015Adapter(cast(AF9013Frontend, frontend), cast(TSDemuxer, demuxer))
+    adapter = AF9015Adapter(cast(AF9013Frontend, frontend), cast(AF9015Demuxer, demuxer))
 
+    assert isinstance(adapter, DVBAdapter)
     adapter.init_hardware()
     tuning = Tuning(650_000_000)
     assert adapter.tune(tuning).lock

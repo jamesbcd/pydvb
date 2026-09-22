@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from threading import RLock
 from typing import Any
 
-from mactv.driverapi import adapter
 from mactv.driverapi.adapter import DVBAdapter
 from mactv.usb import USBTransport
 
 
-class DVBDevice:
+class DVBDevice(ABC):
     """Provide common lifecycle and adapter operations for a DVB device."""
+
+    @abstractmethod
+    def init_hardware(self) -> None:
+        """Initialize device hardware and configure its adapters."""
+        ...
 
     def __init__(
         self,

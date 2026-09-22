@@ -5,7 +5,8 @@ Currently only implements support for the Leadtek Winfast DTV Dongle Gold.
 from .device import AF9015Device
 from .driverapi.device import DVBDevice
 from .adapter import AF9015Adapter
-from .demux import Demuxer, TSDemuxer
+from .demux import AF9015Demuxer
+from .driverapi.demux import DVBDemuxer
 from .frontend import AF9013Frontend, FrontendStatus
 from .tuner import (
     CodeRate,
@@ -29,7 +30,7 @@ __all__ = [
     "AF9015Device",
     "DVBDevice",
     "CodeRate",
-    "Demuxer",
+    "DVBDemuxer",
     "GuardInterval",
     "Hierarchy",
     "FrontendStatus",
@@ -39,7 +40,7 @@ __all__ = [
     "USBSpeed",
     "Tuner",
     "TDA18271Tuner",
-    "TSDemuxer",
+    "AF9015Demuxer",
     "TSStream",
     "Tuning",
     "TransmissionMode",

@@ -3,7 +3,7 @@ from threading import Event, Thread
 import pytest
 
 from mactv.bridge import AF9015Bridge
-from mactv.demux import TSDemuxer
+from mactv.demux import AF9015Demuxer
 
 
 class FakeTransport:
@@ -50,7 +50,7 @@ class BlockingStreamTransport(FakeTransport):
 
 def test_pid_filter_programs_af9013_slot():
     transport = FakeTransport()
-    demuxer = TSDemuxer(AF9015Bridge(transport), demodulator_address=0x1D)
+    demuxer = AF9015Demuxer(AF9015Bridge(transport), demodulator_address=0x1D)
 
     demuxer.set_pid_filter(0x123)
 
@@ -65,7 +65,7 @@ def test_pid_filter_programs_af9013_slot():
 
 def test_pid_filter_reuses_freed_slot_and_controls_filter():
     transport = FakeTransport()
-    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
 
     demuxer.enable_pid_filter()
     demuxer.set_pid_filter(100)
@@ -81,7 +81,7 @@ def test_pid_filter_reuses_freed_slot_and_controls_filter():
 
 
 def test_pid_filter_rejects_more_than_32_slots():
-    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()))
+    demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
 
     for pid in range(32):
         demuxer.set_pid_filter(pid)
@@ -92,7 +92,7 @@ def test_pid_filter_rejects_more_than_32_slots():
 
 def test_full_speed_stream_uses_five_packets():
     transport = FakeTransport()
-    demuxer = TSDemuxer(AF9015Bridge(transport), full_speed=True)
+    demuxer = AF9015Demuxer(AF9015Bridge(transport), full_speed=True)
 
     assert demuxer.packet_count == 5
 
@@ -106,7 +106,7 @@ def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():
     packet = b"\x47" + b"a" * 187
     preamble = b"\x47" + b"noise" * 60
     transport = StreamTransport([preamble + packet * 4])
-    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
     demuxer.start()
 
     assert demuxer.read_ts() == packet * 4
@@ -115,7 +115,7 @@ def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():
 def test_read_ts_buffers_partial_packets():
     packet = b"\x47" + b"a" * 187
     transport = StreamTransport([packet * 4, packet[:10], packet[10:]])
-    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
     demuxer.start()
 
     assert demuxer.read_ts() == packet * 4
@@ -125,7 +125,7 @@ def test_read_ts_buffers_partial_packets():
 
 def test_stop_waits_for_in_flight_read_and_discards_late_data():
     transport = BlockingStreamTransport()
-    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
     demuxer.start()
     read_error = []
 
@@ -155,7 +155,7 @@ def test_stop_waits_for_in_flight_read_and_discards_late_data():
 
 def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
     transport = FakeTransport()
-    demuxer = TSDemuxer(AF9015Bridge(transport))
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
 
     demuxer.set_pid_filter(0x2000)
 
@@ -164,7 +164,7 @@ def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
 
 
 def test_demuxer_get_config_dict_contains_configuration_and_is_a_snapshot():
-    demuxer = TSDemuxer(AF9015Bridge(FakeTransport()), full_speed=True)
+    demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()), full_speed=True)
 
     config = demuxer.get_config_dict()
 

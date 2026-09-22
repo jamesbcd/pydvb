@@ -6,7 +6,7 @@ from typing import Callable
 
 from .adapter import AF9015Adapter
 from .bridge import AF9015Bridge
-from .demux import TSDemuxer
+from .demux import AF9015Demuxer
 from .driverapi.device import DVBDevice
 from .frontend import AF9013Frontend
 from .tuner import TDA18271Tuner
@@ -186,7 +186,7 @@ class AF9015Device(DVBDevice):
             # TDA18271 sits behind the AF9013's I2C gate, so the frontend is its own bus.
             tuner = TDA18271Tuner(frontend) if tuner_id == TDA18271_TUNER_ID else None
             frontend.tuner = tuner
-            demuxer = TSDemuxer(
+            demuxer = AF9015Demuxer(
                 self.bridge,
                 adapter_index=adapter_index,
                 dual_mode=adapter_count == 2,
