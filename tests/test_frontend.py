@@ -2,7 +2,7 @@ from math import log10
 
 import pytest
 
-from mactv.frontend import AF9013Frontend, DVBFrontendStatus
+from mactv.drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
 from mactv.driverapi.tuner import DVBTuning
 
 

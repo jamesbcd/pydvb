@@ -1,4 +1,4 @@
-from mactv.device import (
+from mactv.drivers.af9015.device import (
     DEMODULATOR_ADDRESS,
     EEPROM_ADDRESS,
     AF9015Device,

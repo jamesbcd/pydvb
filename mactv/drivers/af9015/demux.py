@@ -5,8 +5,8 @@ from __future__ import annotations
 from threading import Lock
 
 from .bridge import AF9015Bridge
-from .driverapi.demux import DVBDemuxer
-from .usb import STREAM_ENDPOINTS
+from ...driverapi.demux import DVBDemuxer
+from ...usb import STREAM_ENDPOINTS
 
 
 class AF9015Demuxer(DVBDemuxer):

@@ -7,11 +7,11 @@ from time import monotonic
 
 from mactv.driverapi.tuner import DVBTuning
 
-from .device import AF9015Device
+from .drivers.af9015.device import AF9015Device
 from . import usb
 from .server import LocalTS_HTTPServer
 from .stream import TSStream
-from .usb import USBSpeed
+
 
 TS_PACKET_SIZE = 188
 MAX_CAPTURE_BYTES = ((35 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE

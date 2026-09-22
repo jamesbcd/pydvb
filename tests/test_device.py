@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from mactv import device as device_module
-from mactv.device import AF9015Device, DEFAULT_FIRMWARE_PATH
-from mactv.frontend import DVBFrontendStatus
+from mactv.drivers.af9015 import device as device_module
+from mactv.drivers.af9015.device import AF9015Device, DEFAULT_FIRMWARE_PATH
+from mactv.drivers.af9015.frontend import DVBFrontendStatus
 from mactv.driverapi.tuner import DVBTuning
 
 
@@ -69,7 +69,14 @@ class FakeAdapter:
 
 
 def test_default_firmware_path_exists():
-    assert DEFAULT_FIRMWARE_PATH == Path(__file__).parents[1] / "mactv" / "firmware" / "dvb-usb-af9015.fw"
+    assert DEFAULT_FIRMWARE_PATH == (
+        Path(__file__).parents[1]
+        / "mactv"
+        / "drivers"
+        / "af9015"
+        / "firmware"
+        / "dvb-usb-af9015.fw"
+    )
     assert DEFAULT_FIRMWARE_PATH.is_file()
 
 

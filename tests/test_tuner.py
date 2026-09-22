@@ -1,7 +1,7 @@
 import pytest
 
 from mactv.driverapi.tuner import DVBTuning, DVBTuner
-from mactv.tuner import TDA18271Tuner
+from mactv.drivers.af9015.tuner import TDA18271Tuner
 
 
 class FakeFrontend:
@@ -195,7 +195,7 @@ def test_tda18271_uses_hdc1_defaults_and_pll_map():
 
 
 def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):
-    monkeypatch.setattr("mactv.tuner.sleep", lambda _: None)
+    monkeypatch.setattr("mactv.drivers.af9015.tuner.sleep", lambda _: None)
     frontend = FakeFrontend(0x84)
     tuner = TDA18271Tuner(frontend)
 
@@ -230,7 +230,7 @@ def test_tda18271_power_scan_keeps_successful_downward_frequency(monkeypatch):
     readings = iter((0, 0, 10))
     tuner._read_extended = lambda: tuner._registers.__setitem__(tuner.REG_EB10, next(readings)) or b""
     tuner._lookup_cid_target = lambda _: (10, 0)
-    monkeypatch.setattr("mactv.tuner.sleep", lambda _: None)
+    monkeypatch.setattr("mactv.drivers.af9015.tuner.sleep", lambda _: None)
 
     calibrated, frequency_hz = tuner._power_scan(100_000_000)
 
@@ -252,7 +252,7 @@ def test_tda18271_thermometer_retries_ambiguous_reading(monkeypatch):
 
     tuner = TDA18271Tuner(ThermometerFrontend())
     tuner._chip_id = 0x84
-    monkeypatch.setattr("mactv.tuner.sleep", lambda _: None)
+    monkeypatch.setattr("mactv.drivers.af9015.tuner.sleep", lambda _: None)
 
     temperature = tuner._read_thermometer()
 

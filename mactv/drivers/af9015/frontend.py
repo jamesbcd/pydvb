@@ -6,8 +6,8 @@ from math import log10
 from time import monotonic, sleep
 
 from .bridge import AF9015Bridge
-from .driverapi.frontend import DVBFrontend, DVBFrontendStatus
-from .driverapi.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
+from ...driverapi.frontend import DVBFrontend, DVBFrontendStatus
+from ...driverapi.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 60.0

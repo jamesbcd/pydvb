@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from enum import IntEnum
 from threading import Lock
 
-from .usb import ACK_LENGTH, BUFFER_LENGTH, CONTROL_IN, CONTROL_OUT, HEADER_LENGTH, USBTransport
+from ...usb import USBTransport
+
+
+CONTROL_OUT = 0x02
+CONTROL_IN = 0x81
+BUFFER_LENGTH = 63
+HEADER_LENGTH = 8
+ACK_LENGTH = 2
 
 
 class Command(IntEnum):

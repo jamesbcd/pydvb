@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv.bridge import AF9015Bridge, Command, ControlRequest
+from mactv.drivers.af9015.bridge import AF9015Bridge, Command, ControlRequest
 from mactv import usb as usb_module
 from mactv.usb import USBSpeed
 from mactv.usb import _LibUSB1Transport as LibUSB1Transport

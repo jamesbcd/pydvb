@@ -15,12 +15,7 @@ usb1: Any = _usb1
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable logging of stream read statistics.
 
-CONTROL_OUT = 0x02
-CONTROL_IN = 0x81
 STREAM_ENDPOINTS = (0x84, 0x85)
-BUFFER_LENGTH = 63
-HEADER_LENGTH = 8
-ACK_LENGTH = 2
 
 
 class USBSpeed(IntEnum):

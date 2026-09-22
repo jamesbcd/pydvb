@@ -7,10 +7,10 @@ from typing import Callable
 from .adapter import AF9015Adapter
 from .bridge import AF9015Bridge
 from .demux import AF9015Demuxer
-from .driverapi.device import DVBDevice
+from ...driverapi.device import DVBDevice
 from .frontend import AF9013Frontend
 from .tuner import TDA18271Tuner
-from .usb import USBTransport, USBSpeed, default_transport_factory
+from ...usb import USBTransport, USBSpeed, default_transport_factory
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
 

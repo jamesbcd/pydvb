@@ -82,7 +82,7 @@ Those features are outside the AF9015 DVB-T integration currently provided by
 this package.
 
 By default, `download_firmware()` loads
-`mactv/firmware/dvb-usb-af9015.fw`. An alternate image can be selected with
+`mactv/drivers/af9015/firmware/dvb-usb-af9015.fw`. An alternate image can be selected with
 `device.download_firmware(firmware_path="/path/to/image.fw")`.
 
 `init_hardware()` follows the Linux AF9015 lifecycle: it detects warm firmware,

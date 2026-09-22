@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from time import sleep
 from typing import TYPE_CHECKING
 
-from .driverapi.tuner import DVBTuning, DVBTuner
+from ...driverapi.tuner import DVBTuning, DVBTuner
 
 if TYPE_CHECKING:
     from .frontend import AF9013Frontend

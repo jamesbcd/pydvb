@@ -1,4 +1,4 @@
-from mactv.device import AF9015Device
+from mactv.drivers.af9015.device import AF9015Device
 from mactv.usb import USBSpeed
 
 

@@ -4,7 +4,7 @@ from itertools import repeat
 import pytest
 
 from mactv import __main__
-from mactv.frontend import DVBFrontendStatus
+from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
 class FakeDevice:

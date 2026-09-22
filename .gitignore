@@ -4,7 +4,7 @@
 /mactv.egg-info
 /docs
 /linux
-/mactv/firmware/*
+/mactv/drivers/af9015/firmware/*
 # Ignore all __pycache__ directories
 **/__pycache__/
 .VSCodeCounter/
