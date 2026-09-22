@@ -3,5 +3,6 @@
 from .adapter import DVBAdapter
 from .demux import DVBDemuxer
 from .device import DVBDevice
+from .frontend import DVBFrontend, DVBFrontendStatus
 
-__all__ = ["DVBAdapter", "DVBDemuxer", "DVBDevice"]
+__all__ = ["DVBAdapter", "DVBDemuxer", "DVBDevice", "DVBFrontend", "DVBFrontendStatus"]

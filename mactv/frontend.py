@@ -2,35 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from math import log10
 from time import monotonic, sleep
 
 from .bridge import AF9015Bridge
-from .tuner import CodeRate, GuardInterval, Hierarchy, Modulation, Tuner, Tuning, TransmissionMode
+from .driverapi.frontend import DVBFrontend, DVBFrontendStatus
+from .driverapi.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 60.0
 
 
-@dataclass(frozen=True)
-class FrontendStatus:
-    """The AF9013 lock state and reception metrics."""
-
-    signal: bool
-    carrier: bool
-    viterbi: bool
-    sync: bool
-    lock: bool
-    signal_strength_dbm: int | None = None
-    snr_db: float | None = None
-    bit_errors: int | None = None
-    block_errors: int | None = None
-    bit_count: int | None = None
-    block_count: int | None = None
-
-
-class AF9013Frontend:
+class AF9013Frontend(DVBFrontend):
     """Control one AF9013 DVB-T demodulator and its attached tuner.
 
     The frontend is the tuner's I2C gate and owns tuner configuration and
@@ -159,7 +142,7 @@ class AF9013Frontend:
         self,
         bridge: AF9015Bridge,
         demodulator_address: int,
-        tuner: Tuner | None,
+        tuner: DVBTuner | None,
         clock_hz: int,
         intermediate_frequency_hz: int,
         spectrum_inverted: bool,
@@ -187,7 +170,7 @@ class AF9013Frontend:
         )
         self._initialized = False
         self._sleeping = True
-        self.current_tuning: Tuning | None = None
+        self.current_tuning: DVBTuning | None = None
         self._last_bandwidth_hz: int | None = None
         self._block_errors = 0
         self._bit_count = 0
@@ -317,7 +300,7 @@ class AF9013Frontend:
         self._initialized = True
         self._sleeping = False
 
-    def _transmission_parameters(self, tuning: Tuning) -> tuple[bytes, bool]:
+    def _transmission_parameters(self, tuning: DVBTuning) -> tuple[bytes, bool]:
         """Pack tuning parameters into AF9013 transmission bytes and report auto mode.
 
         The returned bytes contain the transmission mode, guard interval,
@@ -329,7 +312,7 @@ class AF9013Frontend:
         For example::
 
             frontend._transmission_parameters(
-                  Tuning(650_000_000, transmission_mode=TransmissionMode.K8,
+                  DVBTuning(650_000_000, transmission_mode=TransmissionMode.K8,
                       guard_interval=GuardInterval.GI_1_32, hierarchy=Hierarchy.NONE,
                       modulation=Modulation.QAM64, code_rate_hp=CodeRate.RATE_3_4,
                       code_rate_lp=CodeRate.RATE_3_4)
@@ -394,7 +377,7 @@ class AF9013Frontend:
             )
         ), auto_mode
 
-    def tune(self, tuning: Tuning, wait_for_lock: bool = True) -> FrontendStatus:
+    def tune(self, tuning: DVBTuning, wait_for_lock: bool = True) -> DVBFrontendStatus:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
         if not self._initialized:
@@ -468,7 +451,7 @@ class AF9013Frontend:
         self._sleeping = False
         return self.wait_for_lock() if wait_for_lock else self.read_status()
 
-    def read_status(self) -> FrontendStatus:
+    def read_status(self) -> DVBFrontendStatus:
         mpeg_locked = bool(self._read_register(self.REG_MPEG_STATUS)[0] & 0x40)
         tps_locked = bool(self._read_register(self.REG_TPS_STATUS)[0] & 0x08)
         if mpeg_locked:
@@ -512,7 +495,7 @@ class AF9013Frontend:
             block_count = self._block_count
         else:
             bit_count = block_count = None
-        return FrontendStatus(
+        return DVBFrontendStatus(
             signal,
             carrier,
             viterbi,
@@ -526,7 +509,7 @@ class AF9013Frontend:
             block_count,
         )
 
-    def read_tuning(self) -> Tuning | None:
+    def read_tuning(self) -> DVBTuning | None:
         if self.current_tuning is None:
             return None
         transmission = self._read_register(self.REG_TRANSMISSION, 3)
@@ -564,13 +547,14 @@ class AF9013Frontend:
             3: CodeRate.RATE_5_6,
             4: CodeRate.RATE_7_8,
         }.get((transmission[2] >> 3) & 7, CodeRate.AUTO)
-        return Tuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
+        return DVBTuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
 
     def wait_for_lock(
         self,
         timeout: float | None = DEFAULT_LOCK_TIMEOUT,
         poll_interval: float = 0.05,
-    ) -> FrontendStatus:
+    ) -> DVBFrontendStatus:
+        """Poll AF9013 status until it locks or the timeout expires."""
         if timeout is not None and timeout < 0:
             raise ValueError("timeout must be non-negative")
         if poll_interval <= 0:

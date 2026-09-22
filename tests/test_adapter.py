@@ -4,9 +4,9 @@ from typing import cast
 from mactv.adapter import AF9015Adapter
 from mactv.demux import AF9015Demuxer
 from mactv.driverapi.adapter import DVBAdapter
-from mactv.frontend import FrontendStatus
+from mactv.frontend import DVBFrontendStatus
 from mactv.frontend import AF9013Frontend
-from mactv.tuner import Tuning
+from mactv.driverapi.tuner import DVBTuning
 
 
 @dataclass
@@ -32,11 +32,11 @@ class FakeFrontend:
 
     def wait_for_lock(self, timeout=None, poll_interval=0.05):
         self.calls.append(("wait_for_lock", timeout, poll_interval))
-        return FrontendStatus(True, True, True, True, True)
+        return DVBFrontendStatus(True, True, True, True, True)
 
     def read_status(self):
         self.calls.append(("read_status",))
-        return FrontendStatus(False, False, False, False, False)
+        return DVBFrontendStatus(False, False, False, False, False)
 
 
 class FakeDemuxer:
@@ -67,7 +67,7 @@ def test_adapter_exposes_components_and_delegates_operations():
 
     assert isinstance(adapter, DVBAdapter)
     adapter.init_hardware()
-    tuning = Tuning(650_000_000)
+    tuning = DVBTuning(650_000_000)
     assert adapter.tune(tuning).lock
     assert adapter.tune(tuning, wait_for_lock=False).lock is False
     adapter.start()

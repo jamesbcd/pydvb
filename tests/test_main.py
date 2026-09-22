@@ -4,7 +4,7 @@ from itertools import repeat
 import pytest
 
 from mactv import __main__
-from mactv.frontend import FrontendStatus
+from mactv.frontend import DVBFrontendStatus
 
 
 class FakeDevice:
@@ -43,7 +43,7 @@ class FakeDevice:
 class FakeUnlockedRecordingDevice(FakeDevice):
     def tune(self, tuning, adapter_index, wait_for_lock):
         self.tune_called = True
-        return FrontendStatus(False, False, False, False, False)
+        return DVBFrontendStatus(False, False, False, False, False)
 
 
 class FakeLockedRecordingDevice(FakeDevice):
@@ -58,7 +58,7 @@ class FakeLockedRecordingDevice(FakeDevice):
 
     def tune(self, tuning, adapter_index, wait_for_lock):
         self.tune_called = True
-        return FrontendStatus(True, True, True, True, True)
+        return DVBFrontendStatus(True, True, True, True, True)
 
 
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):

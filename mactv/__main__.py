@@ -5,7 +5,7 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
-from mactv.tuner import Tuning
+from mactv.driverapi.tuner import DVBTuning
 
 from .device import AF9015Device
 from . import usb
@@ -102,7 +102,7 @@ def _run_device(device, args) -> int:
         print("Device is sleeping")
     else:
         # Brisbane DVB-T transmitters use 7 MHz channels.
-        tuning = Tuning(
+        tuning = DVBTuning(
             frequency_hz=args.frequency,
             bandwidth_hz=args.bandwidth * 1_000_000,
         )

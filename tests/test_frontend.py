@@ -2,8 +2,8 @@ from math import log10
 
 import pytest
 
-from mactv.frontend import AF9013Frontend, FrontendStatus
-from mactv.tuner import Tuning
+from mactv.frontend import AF9013Frontend, DVBFrontendStatus
+from mactv.driverapi.tuner import DVBTuning
 
 
 class FakeBus:
@@ -47,7 +47,7 @@ def test_frontend_tunes_tuner_and_programs_frequency_and_bandwidth():
     bus = FakeBus()
     tuner = FakeTuner()
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
-    tuning = Tuning(650_000_000, 8_000_000)
+    tuning = DVBTuning(650_000_000, 8_000_000)
 
     status = frontend.tune(tuning, wait_for_lock=False)
 
@@ -63,10 +63,10 @@ def test_frontend_tune_waits_for_lock_by_default(monkeypatch):
     bus = FakeBus()
     tuner = FakeTuner()
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
-    expected_status = FrontendStatus(True, True, True, True, True)
+    expected_status = DVBFrontendStatus(True, True, True, True, True)
     monkeypatch.setattr(frontend, "wait_for_lock", lambda: expected_status)
 
-    assert frontend.tune(Tuning(650_000_000, 8_000_000)) is expected_status
+    assert frontend.tune(DVBTuning(650_000_000, 8_000_000)) is expected_status
 
 
 def test_frontend_uses_tuner_selected_if_frequency():
@@ -75,7 +75,7 @@ def test_frontend_uses_tuner_selected_if_frequency():
     tuner.get_if_frequency_hz = lambda: 3_500_000
     frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_300_000, False)
 
-    frontend.tune(Tuning(177_500_000, 7_000_000), wait_for_lock=False)
+    frontend.tune(DVBTuning(177_500_000, 7_000_000), wait_for_lock=False)
 
     frequency_data = next(data for _, register, data, _, _ in bus.writes if register == frontend.REG_FREQUENCY_CONTROL)
     expected_word = 0x800000 - round(3_500_000 * 0x800000 / 28_800_000)

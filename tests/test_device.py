@@ -4,8 +4,8 @@ import pytest
 
 from mactv import device as device_module
 from mactv.device import AF9015Device, DEFAULT_FIRMWARE_PATH
-from mactv.frontend import FrontendStatus
-from mactv.tuner import Tuning
+from mactv.frontend import DVBFrontendStatus
+from mactv.driverapi.tuner import DVBTuning
 
 
 class FakeTransport:
@@ -49,7 +49,7 @@ class FakeAdapter:
 
     def read_status(self):
         self.calls.append(("read_status",))
-        return FrontendStatus(False, False, False, False, False)
+        return DVBFrontendStatus(False, False, False, False, False)
 
     def start(self):
         self.calls.append(("start",))
@@ -136,7 +136,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
     device.adapters = [first, second]
     device._hardware_initialized = True
 
-    assert device.read_status() == FrontendStatus(False, False, False, False, False)
+    assert device.read_status() == DVBFrontendStatus(False, False, False, False, False)
     device.start()
     device.set_pid_filter(100)
     device.enable_pid_filter()
@@ -172,7 +172,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
     [
         lambda device: device.adapter_count,
         lambda device: device.sleep(),
-        lambda device: device.tune(Tuning(650_000_000)),
+        lambda device: device.tune(DVBTuning(650_000_000)),
         lambda device: device.read_status(),
         lambda device: device.start(),
         lambda device: device.stop(),

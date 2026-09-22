@@ -1,63 +1,13 @@
-"""Tuner interfaces and the AF9015-supported TDA18271 implementation."""
+"""AF9015-supported TDA18271 tuner implementation."""
 
 from dataclasses import dataclass, field
-from enum import Enum
 from time import sleep
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
+
+from .driverapi.tuner import DVBTuning, DVBTuner
 
 if TYPE_CHECKING:
     from .frontend import AF9013Frontend
-
-
-class TransmissionMode(str, Enum):
-    AUTO = "auto"
-    K2 = "2k"
-    K8 = "8k"
-
-
-class GuardInterval(str, Enum):
-    AUTO = "auto"
-    GI_1_32 = "1/32"
-    GI_1_16 = "1/16"
-    GI_1_8 = "1/8"
-    GI_1_4 = "1/4"
-
-
-class Hierarchy(str, Enum):
-    AUTO = "auto"
-    NONE = "none"
-    LEVEL_1 = "1"
-    LEVEL_2 = "2"
-    LEVEL_4 = "4"
-
-
-class Modulation(str, Enum):
-    AUTO = "auto"
-    QPSK = "qpsk"
-    QAM16 = "qam16"
-    QAM64 = "qam64"
-
-
-class CodeRate(str, Enum):
-    AUTO = "auto"
-    RATE_1_2 = "1/2"
-    RATE_2_3 = "2/3"
-    RATE_3_4 = "3/4"
-    RATE_5_6 = "5/6"
-    RATE_7_8 = "7/8"
-    NONE = "none"
-
-
-@dataclass(frozen=True)
-class Tuning:
-    frequency_hz: int
-    bandwidth_hz: int = 8_000_000
-    transmission_mode: TransmissionMode = TransmissionMode.AUTO
-    guard_interval: GuardInterval = GuardInterval.AUTO
-    hierarchy: Hierarchy = Hierarchy.AUTO
-    modulation: Modulation = Modulation.AUTO
-    code_rate_hp: CodeRate = CodeRate.AUTO
-    code_rate_lp: CodeRate = CodeRate.AUTO
 
 
 @dataclass
@@ -77,19 +27,7 @@ class RFCalibrationBand:
     offset_high: int = 0
 
 
-class Tuner(Protocol):
-    def init_hardware(self) -> None: ...
-
-    def tune(self, tuning: Tuning) -> None: ...
-
-    def get_if_frequency_hz(self) -> int: ...
-
-    def sleep(self) -> None: ...
-
-    def get_config_dict(self) -> dict[str, object]: ...
-
-
-class TDA18271Tuner(Tuner):
+class TDA18271Tuner(DVBTuner):
     """Control an NXP TDA18271 HDC1 or HDC2 tuner attached to an AF9013 frontend.
 
     The implementation supports 6, 7, and 8 MHz channels and follows the
@@ -433,7 +371,7 @@ class TDA18271Tuner(Tuner):
         self._chip_id: int | None = None
         self._initialized = False
         self._sleeping = True
-        self.current_tuning: Tuning | None = None
+        self.current_tuning: DVBTuning | None = None
         self._rf_calibration_bands = [RFCalibrationBand(*band) for band in self.RF_CAL_BANDS]
         self._rf_calibration_initialized = False
         self._rf_calibration_temperature: int | None = None
@@ -877,7 +815,7 @@ class TDA18271Tuner(Tuner):
                 return
         raise ValueError("frequency is outside the TDA18271 calibration PLL range")
 
-    def tune(self, tuning: Tuning) -> None:
+    def tune(self, tuning: DVBTuning) -> None:
         if not self.MIN_FREQUENCY_HZ <= tuning.frequency_hz <= self.MAX_FREQUENCY_HZ:
             raise ValueError("frequency is outside the TDA18271 range")
         if tuning.bandwidth_hz not in (6_000_000, 7_000_000, 8_000_000):

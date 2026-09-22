@@ -1,6 +1,7 @@
 import pytest
 
-from mactv.tuner import TDA18271Tuner, Tuning
+from mactv.driverapi.tuner import DVBTuning, DVBTuner
+from mactv.tuner import TDA18271Tuner
 
 
 class FakeFrontend:
@@ -15,6 +16,10 @@ class FakeFrontend:
 
     def gated_write_register(self, address, register, data):
         self.writes.append((address, register, bytes(data)))
+
+
+def test_tda18271_uses_dvb_tuner_base_class():
+    assert issubclass(TDA18271Tuner, DVBTuner)
 
 
 def test_tda18271_init_uses_linux_16_byte_chunks(monkeypatch):
@@ -89,9 +94,9 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
 
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
 
-    assert tuner.current_tuning == Tuning(650_000_000, 8_000_000)
+    assert tuner.current_tuning == DVBTuning(650_000_000, 8_000_000)
     pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
     assert pll_write[tuner.REG_MPD - tuner.REG_EP1] != 0
     assert any(register == tuner.REG_EB13 for _, register, _ in frontend.writes)
@@ -102,7 +107,7 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
 def test_tda18271_reports_linux_standard_map_if_frequency():
     tuner = TDA18271Tuner(FakeFrontend())
 
-    tuner.tune(Tuning(177_500_000, 7_000_000))
+    tuner.tune(DVBTuning(177_500_000, 7_000_000))
 
     assert tuner.get_if_frequency_hz() == 3_500_000
 
@@ -140,7 +145,7 @@ def test_tda18271_hdc2_calibration_switches_slopes_at_second_point():
 def test_tda18271_rejects_unsupported_bandwidth():
     frontend = FakeFrontend()
     with pytest.raises(ValueError, match="6, 7, or 8 MHz"):
-        TDA18271Tuner(frontend).tune(Tuning(650_000_000, 5_000_000))
+        TDA18271Tuner(frontend).tune(DVBTuning(650_000_000, 5_000_000))
     assert frontend.gated_reads == 0
     assert frontend.writes == []
 
@@ -148,16 +153,16 @@ def test_tda18271_rejects_unsupported_bandwidth():
 def test_tda18271_supports_low_band_frequencies():
     tuner = TDA18271Tuner(FakeFrontend())
 
-    tuner.tune(Tuning(45_000_000, 8_000_000))
+    tuner.tune(DVBTuning(45_000_000, 8_000_000))
 
-    assert tuner.current_tuning == Tuning(45_000_000, 8_000_000)
+    assert tuner.current_tuning == DVBTuning(45_000_000, 8_000_000)
 
 
 def test_tda18271_hdc1_tune_runs_rf_tracking_calibration():
     frontend = FakeFrontend(0x83)
     tuner = TDA18271Tuner(frontend)
 
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
 
     assert any(register == tuner.REG_EB20 and data == b"\xcc" for _, register, data in frontend.writes)
     assert any(register == tuner.REG_EB20 and data == b"\xec" for _, register, data in frontend.writes)
@@ -184,7 +189,7 @@ def test_tda18271_uses_hdc1_defaults_and_pll_map():
 
     assert frontend.writes[0][2][tuner.REG_ID] == 0x83
     assert frontend.writes[1][2][tuner.REG_EB1 - 16] == 0xFF
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
     pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
     assert pll_write[tuner.REG_MPD - tuner.REG_EP1] == 0x1C
 
@@ -200,7 +205,7 @@ def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):
     assert tuner._rf_calibration_temperature is not None
     writes_after_calibration = len(frontend.writes)
     tuner.sleep()
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
 
     assert len(frontend.writes) < writes_after_calibration * 2
 
@@ -208,10 +213,10 @@ def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):
 def test_tda18271_tune_wakes_after_sleep():
     frontend = FakeFrontend()
     tuner = TDA18271Tuner(frontend)
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
     tuner.sleep()
 
-    tuner.tune(Tuning(650_000_000, 8_000_000))
+    tuner.tune(DVBTuning(650_000_000, 8_000_000))
 
     assert tuner._registers[tuner.REG_EP3] & 0x80 == 0
 
