@@ -52,7 +52,7 @@ class FakeLockedRecordingDevice(FakeDevice):
         self.adapters = [object()]
         self.bridge = type("Bridge", (), {
             "transport": type("Transport", (), {
-                "log_cadence_summary": lambda _self: None,
+                "log_stats": lambda _self: None,
             })(),
         })()
 

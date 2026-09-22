@@ -3,6 +3,7 @@ Currently only implements support for the Leadtek Winfast DTV Dongle Gold.
 """
 
 from .device import AF9015Device
+from .driverapi.device import DVBDevice
 from .adapter import AF9015Adapter
 from .demux import Demuxer, TSDemuxer
 from .frontend import AF9013Frontend, FrontendStatus
@@ -26,6 +27,7 @@ __all__ = [
     "AF9015Adapter",
     "AF9013Frontend",
     "AF9015Device",
+    "DVBDevice",
     "CodeRate",
     "Demuxer",
     "GuardInterval",
