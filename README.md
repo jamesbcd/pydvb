@@ -5,7 +5,7 @@ follow the Linux driver: `AF9015Bridge` handles the USB command protocol and
 exposes I2C client operations, `Tuner` models tuner callbacks, and
 `Demuxer` reads the transport stream.
 
-Install the package and PyUSB with:
+Install the package with:
 
 ```sh
 python3 -m pip install -e .[test]
@@ -61,12 +61,10 @@ finally:
 ```
 
 The AF9013 demodulator and individual tuner chips still need chip-specific
-drivers. The public `Tuner` interface is intentionally ready for those drivers
-without coupling them to PyUSB.
+drivers. The public `Tuner` interface is intentionally ready for those drivers.
 
-For smoother stream buffering, an alternate transport uses python-libusb1 and
-queues asynchronous transfers. Pass it explicitly to `AF9015Device`; the
-default `Af9015Device.open` path continues to use PyUSB:
+The transport uses python-libusb1 and queues asynchronous transfers for smooth
+stream buffering:
 
 ```python
 from mactv import AF9015Device, LibUSB1Transport

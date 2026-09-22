@@ -1,4 +1,4 @@
-"""AF9015 USB control protocol and the PyUSB transport."""
+"""AF9015 USB control protocol and the libusb1 transport."""
 
 from __future__ import annotations
 
@@ -6,7 +6,11 @@ from enum import IntEnum
 from queue import Empty, Queue
 from threading import Event, Lock, Thread, current_thread
 from time import monotonic, sleep
-from typing import Any, Callable, Protocol, cast
+from typing import Any, Protocol
+
+import usb1 as _usb1
+
+usb1: Any = _usb1
 
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable logging of stream read statistics.
@@ -56,104 +60,6 @@ class USBTransport(Protocol):
     def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "USBTransport":
         """Reconnect to the same USB device after it re-enumerates."""
         ...
-
-
-class _SynchronousReadStats:
-    """Collect and report timing statistics for stream endpoint reads."""
-
-    def __init__(self) -> None:
-        """Initialize empty stream-read statistics."""
-        self._last_read_end: float | None = None
-        self._reads = 0
-        self._errors = 0
-        self._bytes = 0
-        self._total_read_seconds = 0.0
-        self._min_read_seconds: float | None = None
-        self._max_read_seconds: float | None = None
-        self._min_gap_seconds: float | None = None
-        self._max_gap_seconds: float | None = None
-
-    def measure(self, endpoint: int, read: Callable[[], bytes]) -> bytes:
-        """Run a read and record its timing when cadence logging is enabled.
-
-        Args:
-            endpoint: USB endpoint used for the read. Statistics are collected
-                only for stream endpoints.
-            read: Zero-argument callable that performs one underlying USB read
-                and returns the bytes it received. It is passed in as a
-                callable so this helper can measure different transport APIs
-                without owning their read operations. Exceptions from the
-                callable are counted as read errors and re-raised unchanged.
-        """
-        if not RECORD_STATS or endpoint not in STREAM_ENDPOINTS:
-            return read()
-
-        read_started = monotonic()
-        try:
-            data = read()
-        except Exception:
-            self._errors += 1
-            raise
-        read_finished = monotonic()
-        gap = (
-            read_started - self._last_read_end
-            if self._last_read_end is not None
-            else None
-        )
-        read_seconds = read_finished - read_started
-        self._reads += 1
-        self._bytes += len(data)
-        self._total_read_seconds += read_seconds
-        self._min_read_seconds = (
-            read_seconds
-            if self._min_read_seconds is None
-            else min(self._min_read_seconds, read_seconds)
-        )
-        self._max_read_seconds = (
-            read_seconds
-            if self._max_read_seconds is None
-            else max(self._max_read_seconds, read_seconds)
-        )
-        if gap is not None:
-            self._min_gap_seconds = (
-                gap
-                if self._min_gap_seconds is None
-                else min(self._min_gap_seconds, gap)
-            )
-            self._max_gap_seconds = (
-                gap
-                if self._max_gap_seconds is None
-                else max(self._max_gap_seconds, gap)
-            )
-        self._last_read_end = read_finished
-        return data
-
-    def log_summary(self) -> None:
-        """Print aggregate stream-read timing without logging each transfer."""
-        if not RECORD_STATS:
-            return
-        if not self._reads:
-            print(f"USB cadence: reads=0 errors={self._errors}", flush=True)
-            return
-        average_read = self._total_read_seconds / self._reads
-        min_read = self._min_read_seconds
-        max_read = self._max_read_seconds
-        min_gap = self._min_gap_seconds
-        max_gap = self._max_gap_seconds
-        assert min_read is not None and max_read is not None
-        gap_text = (
-            "n/a"
-            if min_gap is None or max_gap is None
-            else f"{min_gap * 1000:.3f}/{max_gap * 1000:.3f}"
-        )
-        print(
-            f"USB cadence: reads={self._reads} errors={self._errors} "
-            f"bytes={self._bytes} "
-            f"read_ms(avg/min/max)={average_read * 1000:.3f}/"
-            f"{min_read * 1000:.3f}/{max_read * 1000:.3f} "
-            f"gap_ms(min/max)={gap_text}",
-            flush=True,
-        )
 
 
 class _AsynchronousReadStats:
@@ -275,98 +181,6 @@ class _AsynchronousReadStats:
         )
 
 
-class PyUSBTransport:
-    """Implement the AF9015 USB transport using a configured PyUSB device."""
-
-    def __init__(
-        self,
-        usb_device: Any,
-        interface: int = 0,
-        vendor_id: int | None = None,
-        product_id: int | None = None,
-    ) -> None:
-        """Create a transport around an already configured PyUSB device."""
-        self.usb_device = usb_device
-        self.interface = interface
-        self.vendor_id = vendor_id
-        self.product_id = product_id
-        self._stats = _SynchronousReadStats()
-
-    def get_speed(self) -> USBSpeed:
-        """Return the USB speed reported by PyUSB."""
-        try:
-            return USBSpeed(self.usb_device.speed)
-        except (AttributeError, TypeError, ValueError):
-            return USBSpeed.UNKNOWN
-
-    @classmethod
-    def find(
-        cls,
-        vendor_id: int,
-        product_id: int,
-        interface: int = 0,
-        configure: bool = False,
-    ) -> "PyUSBTransport":
-        """Find a device by vendor/product ID and optionally configure it."""
-        try:
-            import usb.core
-        except ImportError as exc:
-            raise RuntimeError("PyUSB is required for hardware access") from exc
-
-        usb_device = cast(Any, usb.core.find(idVendor=vendor_id, idProduct=product_id))
-        if usb_device is None:
-            raise ValueError(f"USB device {vendor_id:04x}:{product_id:04x} was not found")
-        if configure:
-            usb_device.set_configuration()
-        return cls(usb_device, interface, vendor_id, product_id)
-
-    def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None:
-        """Write a bulk packet to an endpoint."""
-        if LOG:
-            print(f"{monotonic():.6f} OUT ep=0x{endpoint:02x} {bytes(data).hex()}", flush=True)
-        self.usb_device.write(endpoint, data, timeout=timeout)
-
-    def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
-        """Read a bulk packet from an endpoint and record stream timing."""
-        data = self._stats.measure(
-            endpoint,
-            lambda: bytes(self.usb_device.read(endpoint, length, timeout=timeout)),
-        )
-        if LOG:
-            print(f"{monotonic():.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
-        return data
-
-    def log_stats(self) -> None:
-        """Print aggregate stream-read timing without logging each transfer."""
-        self._stats.log_summary()
-
-    def close(self) -> None:
-        """Release the libusb handle before a device reset or re-enumeration."""
-        try:
-            import usb.util
-        except ImportError as exc:
-            raise RuntimeError("PyUSB is required for USB resource cleanup") from exc
-        usb.util.dispose_resources(self.usb_device)
-
-    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "PyUSBTransport":
-        """Release this handle and wait for the same USB device to reappear."""
-        if self.vendor_id is None or self.product_id is None:
-            raise RuntimeError("reconnect requires a transport created by PyUsbTransport.find()")
-        if timeout <= 0 or poll_interval <= 0:
-            raise ValueError("timeout and poll_interval must be positive")
-
-        self.close()
-        deadline = monotonic() + timeout
-        last_error: Exception | None = None
-        while monotonic() < deadline:
-            try:
-                return type(self).find(self.vendor_id, self.product_id, self.interface)
-            except (OSError, ValueError, RuntimeError) as error:
-                last_error = error
-                sleep(poll_interval)
-        raise TimeoutError("USB device did not re-enumerate") from last_error
-
-
 class LibUSB1Transport:
     """Implement the AF9015 transport with python-libusb1.
 
@@ -393,7 +207,6 @@ class LibUSB1Transport:
         self.vendor_id = vendor_id      # Device vendor ID used for reconnecting.
         self.product_id = product_id    # Device product ID used for reconnecting.
         self.async_transfer_count = async_transfer_count  # Transfers kept pending per stream endpoint.
-        self._usb1: Any | None = None   # Lazily cached python-libusb1 module.
         self._claimed_interface: Any | None = None  # Optional interface context manager.
         self._is_interface_claimed = False  # Whether the interface must be released on close.
         self._stream_lock = Lock()      # Protects stream endpoint initialization.
@@ -416,11 +229,6 @@ class LibUSB1Transport:
         async_transfer_count: int = 8,
     ) -> "LibUSB1Transport":
         """Find, open, and claim a device by vendor/product ID."""
-        try:
-            import usb1
-        except ImportError as exc:
-            raise RuntimeError("python-libusb1 is required for libusb hardware access") from exc
-
         context = usb1.USBContext()
         try:
             handle = context.openByVendorIDAndProductID(
@@ -436,7 +244,6 @@ class LibUSB1Transport:
                 product_id,
                 async_transfer_count,
             )
-            transport._usb1 = usb1
             transport._claim_interface()
             return transport
         except Exception:
@@ -455,7 +262,6 @@ class LibUSB1Transport:
         """Return the USB speed reported by libusb."""
         try:
             speed = self.usb_handle.getDevice().getDeviceSpeed()
-            usb1 = self._get_usb1()
             speed_map = {
                 usb1.SPEED_LOW: USBSpeed.LOW,
                 usb1.SPEED_FULL: USBSpeed.FULL,
@@ -491,16 +297,6 @@ class LibUSB1Transport:
         if self._closed:
             raise RuntimeError("USB transport is closed")
 
-    def _get_usb1(self) -> Any:
-        """Return the cached python-libusb1 module, importing it if needed."""
-        usb1 = self._usb1
-        if usb1 is None:
-            import usb1 as usb1_module
-
-            usb1 = usb1_module
-            self._usb1 = usb1
-        return usb1
-
     def _stream_read(self, endpoint: int, length: int, timeout: int) -> bytes:
         """Read the next completed packet from an endpoint's transfer queue."""
         if length <= 0 or timeout < 0:
@@ -527,7 +323,6 @@ class LibUSB1Transport:
 
     def _start_stream_endpoint(self, endpoint: int, length: int) -> None:
         """Start the event thread and prime async transfers for an endpoint."""
-        self._get_usb1()
         queue: Queue[bytes | BaseException | None] = Queue()
         transfers: list[Any] = []
         self._stream_queues[endpoint] = queue
@@ -549,7 +344,6 @@ class LibUSB1Transport:
         def callback(transfer: Any) -> None:
             """Queue a completed transfer and resubmit it when appropriate."""
             status = transfer.getStatus()
-            usb1 = self._get_usb1()
             completed = usb1.TRANSFER_COMPLETED
             cancelled = usb1.TRANSFER_CANCELLED
             recoverable = {
@@ -613,7 +407,7 @@ class LibUSB1Transport:
         ):
             try:
                 self.context.handleEvents()
-            except self._get_usb1().USBErrorInterrupted:
+            except usb1.USBErrorInterrupted:
                 pass
             except Exception as error:
                 if not self._event_stop.is_set():

@@ -5,8 +5,6 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
-import usb.core
-
 from mactv.tuner import Tuning
 
 from .device import AF9015Device

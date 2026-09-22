@@ -1,4 +1,3 @@
-import sys
 from threading import Event
 from types import SimpleNamespace
 
@@ -6,7 +5,7 @@ import pytest
 
 from mactv.bridge import AF9015Bridge, Command, ControlRequest
 from mactv import usb as usb_module
-from mactv.usb import LibUSB1Transport, PyUSBTransport, USBSpeed
+from mactv.usb import LibUSB1Transport, USBSpeed
 
 
 class FakeAsyncTransfer:
@@ -152,21 +151,10 @@ class FakeTransport:
         return self
 
 
-def test_get_speed_maps_pyusb_speed_value_to_enum():
-    assert PyUSBTransport(type("Device", (), {"speed": 2})()).get_speed() is USBSpeed.FULL
-    assert PyUSBTransport(type("Device", (), {"speed": 1})()).get_speed() is USBSpeed.LOW
-    assert PyUSBTransport(type("Device", (), {"speed": 3})()).get_speed() is USBSpeed.HIGH_USB2
-
-
-def test_get_speed_returns_unknown_for_missing_or_invalid_value():
-    assert PyUSBTransport(type("Device", (), {})()).get_speed() is USBSpeed.UNKNOWN
-    assert PyUSBTransport(type("Device", (), {"speed": 99})()).get_speed() is USBSpeed.UNKNOWN
-
-
 def test_libusb_find_claims_interface_and_maps_speed(monkeypatch):
     handle = FakeLibUSBHandle(speed=3)
     context = FakeUSBContext(handle)
-    monkeypatch.setitem(sys.modules, "usb1", fake_usb1(context))
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
 
     transport = LibUSB1Transport.find(0x0413, 0x6029, interface=2, async_transfer_count=3)
 
@@ -178,10 +166,11 @@ def test_libusb_find_claims_interface_and_maps_speed(monkeypatch):
     assert transport._claimed_interface.exited
 
 
-def test_libusb_control_io_uses_synchronous_handle_methods():
+def test_libusb_control_io_uses_synchronous_handle_methods(monkeypatch):
     handle = FakeLibUSBHandle()
-    transport = LibUSB1Transport(FakeUSBContext(handle), handle)
-    transport._usb1 = fake_usb1(transport.context)
+    context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
+    transport = LibUSB1Transport(context, handle)
 
     transport.bulk_write(0x02, b"command", 2000)
     assert transport.bulk_read(0x81, 6, 2000) == b"reply"
@@ -191,11 +180,11 @@ def test_libusb_control_io_uses_synchronous_handle_methods():
     transport.close()
 
 
-def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits():
+def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
     transport = LibUSB1Transport(context, handle, async_transfer_count=3)
-    transport._usb1 = fake_usb1(context)
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -223,8 +212,8 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
     transport = LibUSB1Transport(context, handle)
-    transport._usb1 = fake_usb1(context)
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -248,11 +237,11 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     transport.close()
 
 
-def test_libusb_stream_endpoint_length_is_stable():
+def test_libusb_stream_endpoint_length_is_stable(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
     transport = LibUSB1Transport(context, handle)
-    transport._usb1 = fake_usb1(context)
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -266,8 +255,8 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
     transport = LibUSB1Transport(context, handle)
-    transport._usb1 = fake_usb1(context)
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -294,13 +283,13 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
     transport = LibUSB1Transport(context, handle)
-    transport._usb1 = fake_usb1(context)
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
     transfer = handle.transfers[0]
-    transfer.status = transport._usb1.TRANSFER_TIMED_OUT
+    transfer.status = usb_module.usb1.TRANSFER_TIMED_OUT
     transfer.callback(transfer)
 
     with pytest.raises(TimeoutError):
@@ -308,7 +297,7 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     assert transfer.submit_count == 2
     assert transport._stream_errors == {}
 
-    transfer.status = transport._usb1.TRANSFER_COMPLETED
+    transfer.status = usb_module.usb1.TRANSFER_COMPLETED
     transfer.buffer[:] = b"data"
     transfer.callback(transfer)
     assert transport.bulk_read(0x84, 4, 100) == b"data"
@@ -317,28 +306,6 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     assert "transfer_errors=1" in output
     assert "transfer_error_statuses=0x84:3=1" in output
     transport.close()
-
-
-def test_stream_read_cadence_logging_reports_aggregate_timing(capsys, monkeypatch):
-    class Device:
-        speed = 3
-
-        def read(self, endpoint, length, timeout):
-            return bytes(length)
-
-    monkeypatch.setattr(usb_module, "RECORD_STATS", True)
-    transport = PyUSBTransport(Device())
-
-    transport.bulk_read(0x84, 188, 1000)
-    transport.bulk_read(0x84, 188, 1000)
-    transport.bulk_read(0x81, 2, 1000)
-    transport.log_stats()
-
-    output = capsys.readouterr().out.splitlines()
-    assert len(output) == 1
-    assert output[0].startswith("USB cadence: reads=2 errors=0 bytes=376")
-    assert "read_ms(avg/min/max)=" in output[0]
-    assert "gap_ms(min/max)=" in output[0]
 
 
 def test_read_i2c_uses_linux_af9015_frame():
