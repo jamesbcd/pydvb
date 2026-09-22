@@ -181,7 +181,7 @@ class _AsynchronousReadStats:
         )
 
 
-class LibUSB1Transport:
+class _LibUSB1Transport:
     """Implement the AF9015 transport with python-libusb1.
 
     Control transfers use libusb's synchronous API. Stream endpoints use a
@@ -227,7 +227,7 @@ class LibUSB1Transport:
         product_id: int,
         interface: int = 0,
         async_transfer_count: int = 8,
-    ) -> "LibUSB1Transport":
+    ) -> "_LibUSB1Transport":
         """Find, open, and claim a device by vendor/product ID."""
         context = usb1.USBContext()
         try:
@@ -448,10 +448,10 @@ class LibUSB1Transport:
         self.usb_handle.close()
         self.context.close()
 
-    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "LibUSB1Transport":
+    def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "_LibUSB1Transport":
         """Release this handle and wait for the same USB device to reappear."""
         if self.vendor_id is None or self.product_id is None:
-            raise RuntimeError("reconnect requires a transport created by LibUSB1Transport.find()")
+            raise RuntimeError("reconnect requires a transport created by the default transport factory")
         if timeout <= 0 or poll_interval <= 0:
             raise ValueError("timeout and poll_interval must be positive")
 
@@ -470,3 +470,8 @@ class LibUSB1Transport:
                 last_error = error
                 sleep(poll_interval)
         raise TimeoutError("USB device did not re-enumerate") from last_error
+
+
+def default_transport_factory(vendor_id: int, product_id: int) -> USBTransport:
+    """Create the default libusb transport for a USB device."""
+    return _LibUSB1Transport.find(vendor_id, product_id)

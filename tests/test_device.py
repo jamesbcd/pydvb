@@ -73,7 +73,7 @@ def test_default_firmware_path_exists():
     assert DEFAULT_FIRMWARE_PATH.is_file()
 
 
-def test_open_uses_libusb1_transport_by_default(monkeypatch):
+def test_open_uses_default_transport_factory(monkeypatch):
     transport = FakeTransport()
     calls = []
 
@@ -81,9 +81,23 @@ def test_open_uses_libusb1_transport_by_default(monkeypatch):
         calls.append((vendor_id, product_id))
         return transport
 
-    monkeypatch.setattr(device_module.LibUSB1Transport, "find", find)
+    monkeypatch.setattr(device_module, "default_transport_factory", find)
 
     device = AF9015Device.open(0x0413, 0x6029)
+
+    assert calls == [(0x0413, 0x6029)]
+    assert device.bridge.transport is transport
+
+
+def test_open_accepts_alternative_transport_factory():
+    transport = FakeTransport()
+    calls = []
+
+    def factory(vendor_id, product_id):
+        calls.append((vendor_id, product_id))
+        return transport
+
+    device = AF9015Device.open(0x0413, 0x6029, transport_factory=factory)
 
     assert calls == [(0x0413, 0x6029)]
     assert device.bridge.transport is transport

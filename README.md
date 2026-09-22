@@ -64,14 +64,10 @@ The AF9013 demodulator and individual tuner chips still need chip-specific
 drivers. The public `Tuner` interface is intentionally ready for those drivers.
 
 The transport uses python-libusb1 and queues asynchronous transfers for smooth
-stream buffering:
-
-```python
-from mactv import AF9015Device, LibUSB1Transport
-
-transport = LibUSB1Transport.find(0x0413, 0x6029, async_transfer_count=8)
-device = AF9015Device(transport, vendor_id=0x0413, product_id=0x6029)
-```
+stream buffering. `AF9015Device.open()` uses the bundled libusb transport by
+default; tests or alternative backends can provide a callable via its
+`transport_factory` argument. The callable receives `vendor_id` and
+`product_id` and returns an object implementing `USBTransport`.
 
 python-libusb1 requires a native libusb-1.0 library. On macOS, install one
 through Homebrew, MacPorts, or Fink as appropriate for your environment.

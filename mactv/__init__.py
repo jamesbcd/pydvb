@@ -17,7 +17,7 @@ from .tuner import (
     TransmissionMode,
 )
 from .bridge import AF9015Bridge
-from .usb import LibUSB1Transport, USBSpeed
+from .usb import USBSpeed, USBTransport, default_transport_factory
 from .stream import OverflowPolicy, StreamSource, TSStream
 from .server import LocalTS_HTTPServer
 
@@ -32,7 +32,8 @@ __all__ = [
     "Hierarchy",
     "FrontendStatus",
     "Modulation",
-    "LibUSB1Transport",
+    "USBTransport",
+    "default_transport_factory",
     "USBSpeed",
     "Tuner",
     "TDA18271Tuner",

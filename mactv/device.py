@@ -3,8 +3,9 @@
 from pathlib import Path
 from threading import RLock
 from time import monotonic, sleep
+from typing import Callable
 
-from .usb import LibUSB1Transport, USBTransport, USBSpeed
+from .usb import USBTransport, USBSpeed, default_transport_factory
 from .bridge import AF9015Bridge
 from .adapter import AF9015Adapter
 from .frontend import AF9013Frontend, FrontendStatus
@@ -63,8 +64,15 @@ class AF9015Device:
 	#
 
     @classmethod
-    def open(cls, vendor_id: int, product_id: int) -> "AF9015Device":
-        return cls(LibUSB1Transport.find(vendor_id, product_id), vendor_id, product_id)
+    def open(
+        cls,
+        vendor_id: int,
+        product_id: int,
+        transport_factory: Callable[[int, int], USBTransport] | None = None,
+    ) -> "AF9015Device":
+        if transport_factory is None:
+            transport_factory = default_transport_factory
+        return cls(transport_factory(vendor_id, product_id), vendor_id, product_id)
 
     def __init__(
         self,
