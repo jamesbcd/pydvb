@@ -6,7 +6,6 @@ from threading import Lock
 
 from .bridge import AF9015Bridge
 from ...driverapi.demux import DVBDemuxer
-from ...usb import STREAM_ENDPOINTS
 
 
 class AF9015Demuxer(DVBDemuxer):
@@ -29,6 +28,7 @@ class AF9015Demuxer(DVBDemuxer):
         dual_mode: bool = False,
         demodulator_address: int = 0x1C,
         full_speed: bool = False,
+        endpoint: int = 0x84,
     ) -> None:
         if adapter_index not in (0, 1) or (adapter_index == 1 and not dual_mode):
             raise ValueError("adapter_index must be 0, or 1 for a dual tuner")
@@ -40,7 +40,7 @@ class AF9015Demuxer(DVBDemuxer):
         self.demodulator_address = demodulator_address
         self._buffer_size = 64 if full_speed else 512
         super().__init__(
-            endpoint=STREAM_ENDPOINTS[adapter_index],
+            endpoint=endpoint,
             packet_count=5 if full_speed else self.TS_PACKET_COUNT,
         )
         self._pid_lock = Lock()

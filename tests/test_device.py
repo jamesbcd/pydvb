@@ -84,15 +84,15 @@ def test_open_uses_default_transport_factory(monkeypatch):
     transport = FakeTransport()
     calls = []
 
-    def find(vendor_id, product_id):
-        calls.append((vendor_id, product_id))
+    def find(vendor_id, product_id, **kwargs):
+        calls.append((vendor_id, product_id, kwargs))
         return transport
 
     monkeypatch.setattr(device_module, "default_transport_factory", find)
 
     device = AF9015Device.open(0x0413, 0x6029)
 
-    assert calls == [(0x0413, 0x6029)]
+    assert calls == [(0x0413, 0x6029, {"async_endpoints": AF9015Device.STREAM_ENDPOINTS})]
     assert device.bridge.transport is transport
 
 

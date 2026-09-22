@@ -38,6 +38,8 @@ class AF9015Device(DVBDevice):
     instances from the receiver's EEPROM configuration.
     """
 
+    STREAM_ENDPOINTS = (0x84, 0x85)
+
 	# From Linux driver:
     #
 	# I2C multiplexing:
@@ -71,8 +73,14 @@ class AF9015Device(DVBDevice):
         transport_factory: Callable[[int, int], USBTransport] | None = None,
     ) -> "AF9015Device":
         if transport_factory is None:
-            transport_factory = default_transport_factory
-        return cls(transport_factory(vendor_id, product_id), vendor_id, product_id)
+            transport = default_transport_factory(
+                vendor_id,
+                product_id,
+                async_endpoints=cls.STREAM_ENDPOINTS,
+            )
+        else:
+            transport = transport_factory(vendor_id, product_id)
+        return cls(transport, vendor_id, product_id)
 
     def __init__(
         self,
@@ -188,6 +196,7 @@ class AF9015Device(DVBDevice):
             frontend.tuner = tuner
             demuxer = AF9015Demuxer(
                 self.bridge,
+                endpoint=self.STREAM_ENDPOINTS[adapter_index],
                 adapter_index=adapter_index,
                 dual_mode=adapter_count == 2,
                 demodulator_address=demodulator_address,

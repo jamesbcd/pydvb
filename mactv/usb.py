@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from enum import IntEnum
 from queue import Empty, Queue
 from threading import Event, Lock, Thread, current_thread
@@ -14,9 +15,6 @@ usb1: Any = _usb1
 
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable logging of stream read statistics.
-
-STREAM_ENDPOINTS = (0x84, 0x85)
-
 
 class USBSpeed(IntEnum):
     """USB link-speed values reported by the transport backends."""
@@ -192,6 +190,7 @@ class _LibUSB1Transport:
         vendor_id: int | None = None,
         product_id: int | None = None,
         async_transfer_count: int = 6,
+        async_endpoints: Collection[int] = (),
     ) -> None:
         """Create a transport around an open python-libusb1 handle."""
         if async_transfer_count <= 0:
@@ -202,6 +201,7 @@ class _LibUSB1Transport:
         self.vendor_id = vendor_id      # Device vendor ID used for reconnecting.
         self.product_id = product_id    # Device product ID used for reconnecting.
         self.async_transfer_count = async_transfer_count  # Transfers kept pending per stream endpoint.
+        self.async_endpoints = frozenset(async_endpoints)
         self._claimed_interface: Any | None = None  # Optional interface context manager.
         self._is_interface_claimed = False  # Whether the interface must be released on close.
         self._stream_lock = Lock()      # Protects stream endpoint initialization.
@@ -222,6 +222,7 @@ class _LibUSB1Transport:
         product_id: int,
         interface: int = 0,
         async_transfer_count: int = 8,
+        async_endpoints: Collection[int] = (),
     ) -> "_LibUSB1Transport":
         """Find, open, and claim a device by vendor/product ID."""
         context = usb1.USBContext()
@@ -238,6 +239,7 @@ class _LibUSB1Transport:
                 vendor_id,
                 product_id,
                 async_transfer_count,
+                async_endpoints,
             )
             transport._claim_interface()
             return transport
@@ -280,7 +282,7 @@ class _LibUSB1Transport:
         self._require_open()
         data = (
             self._stream_read(endpoint, length, timeout)
-            if endpoint in STREAM_ENDPOINTS
+            if endpoint in self.async_endpoints
             else bytes(self.usb_handle.bulkRead(endpoint, length, timeout=timeout))
         )
         if LOG:
@@ -460,6 +462,7 @@ class _LibUSB1Transport:
                     self.product_id,
                     self.interface,
                     self.async_transfer_count,
+                    self.async_endpoints,
                 )
             except (OSError, ValueError, RuntimeError) as error:
                 last_error = error
@@ -467,6 +470,10 @@ class _LibUSB1Transport:
         raise TimeoutError("USB device did not re-enumerate") from last_error
 
 
-def default_transport_factory(vendor_id: int, product_id: int) -> USBTransport:
+def default_transport_factory(
+    vendor_id: int,
+    product_id: int,
+    async_endpoints: Collection[int] = (),
+) -> USBTransport:
     """Create the default libusb transport for a USB device."""
-    return _LibUSB1Transport.find(vendor_id, product_id)
+    return _LibUSB1Transport.find(vendor_id, product_id, async_endpoints=async_endpoints)

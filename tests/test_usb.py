@@ -171,7 +171,7 @@ def test_libusb_control_io_uses_synchronous_handle_methods(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle)
+    transport = LibUSB1Transport(context, handle, async_endpoints=(0x84, 0x85))
 
     transport.bulk_write(0x02, b"command", 2000)
     assert transport.bulk_read(0x81, 6, 2000) == b"reply"
@@ -181,11 +181,23 @@ def test_libusb_control_io_uses_synchronous_handle_methods(monkeypatch):
     transport.close()
 
 
+def test_libusb_transport_uses_synchronous_reads_without_async_endpoints(monkeypatch):
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
+    transport = LibUSB1Transport(context, handle)
+
+    assert transport.bulk_read(0x84, 4, 100) == b"reply"
+    assert handle.bulk_reads == [(0x84, 4, 100)]
+    assert handle.transfers == []
+    transport.close()
+
+
 def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle, async_transfer_count=3)
+    transport = LibUSB1Transport(context, handle, async_transfer_count=3, async_endpoints=(0x84, 0x85))
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -214,7 +226,7 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle)
+    transport = LibUSB1Transport(context, handle, async_endpoints=(0x84, 0x85))
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -242,7 +254,7 @@ def test_libusb_stream_endpoint_length_is_stable(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle)
+    transport = LibUSB1Transport(context, handle, async_endpoints=(0x84, 0x85))
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -257,7 +269,7 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle)
+    transport = LibUSB1Transport(context, handle, async_endpoints=(0x84, 0x85))
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -285,7 +297,7 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
-    transport = LibUSB1Transport(context, handle)
+    transport = LibUSB1Transport(context, handle, async_endpoints=(0x84, 0x85))
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
