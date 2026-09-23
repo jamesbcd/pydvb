@@ -23,6 +23,7 @@ from .drivers.af9015.bridge import AF9015Bridge
 from .usb import USBSpeed, USBTransport, default_transport_factory
 from .stream import OverflowPolicy, StreamSource, TSStream
 from .server import LocalTS_HTTPServer
+from .dvb import DVBEvent, DVBScanResult, DVBScanner, DVBService
 
 __all__ = [
     "AF9015Bridge",
@@ -49,4 +50,8 @@ __all__ = [
     "OverflowPolicy",
     "StreamSource",
     "LocalTS_HTTPServer",
+    "DVBEvent",
+    "DVBScanResult",
+    "DVBScanner",
+    "DVBService",
 ]

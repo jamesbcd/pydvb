@@ -5,6 +5,7 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
+from .dvb import DVBScanResult, DVBScanner
 from mactv.driverapi.tuner import DVBTuning
 
 from .drivers.af9015.device import AF9015Device
@@ -83,6 +84,29 @@ def capture_stream(
     return bytes_written, monotonic() - start_time
 
 
+def scan_stream(
+    adapter,
+    read_timeout: float = READ_TIMEOUT_SECONDS,
+) -> DVBScanResult:
+    """Feed a live transport stream to the scanner until its tables are complete."""
+    if read_timeout < 0:
+        raise ValueError("read_timeout must be non-negative")
+
+    stream = TSStream(adapter)
+    scanner = DVBScanner()
+    try:
+        stream.start()
+        while not scanner.complete:
+            scanner.feed(stream.read(timeout=read_timeout))
+        return scanner.result()
+    finally:
+        stream.stop()
+        if stream.running:
+            raise RuntimeError("transport-stream reader did not stop")
+        if hasattr(adapter, "sleep"):
+            adapter.sleep()
+
+
 def _run_device(device, args) -> int:
     print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     if not device.is_warm:
@@ -124,6 +148,19 @@ def _run_device(device, args) -> int:
             return 1
         device.bridge.transport.log_stats()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
+
+    if args.scan_stream:
+        if tuning_status is None or not tuning_status.lock:
+            print("Scan failed: frontend did not lock; no transport stream is available")
+            return 2
+        adapter = device.adapters[args.adapter_index]
+        try:
+            result = scan_stream(adapter)
+        except (OSError, RuntimeError, TimeoutError, ValueError) as error:
+            print(f"Scan failed: {error}")
+            return 1
+        device.bridge.transport.log_stats()
+        pprint.pprint(result, underscore_numbers=True)
 
     if args.serve is not None:
         if tuning_status is None or not tuning_status.lock:
@@ -170,7 +207,7 @@ def _run_device(device, args) -> int:
             pprint.pprint(adapter.read_status(), underscore_numbers=True)
             print()
 
-    if args.sleep or args.record is not None or args.serve is not None:
+    if args.sleep or args.record is not None or args.serve is not None or args.scan_stream:
         return 0
     status = device.adapters[args.adapter_index].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
@@ -227,6 +264,11 @@ def main() -> int:
         help="Serve at http://HOST:PORT/stream.ts (default: http://127.0.0.1:8080/stream.ts)",
     )
     parser.add_argument(
+        "--scan-stream",
+        action="store_true",
+        help="Scan a live transport stream until DVB service tables are complete",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -249,10 +291,17 @@ def main() -> int:
         help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
-    if args.sleep and (args.record is not None or args.serve is not None):
-        parser.error("--sleep cannot be used with --record or --serve")
-    if args.record is not None and args.serve is not None:
-        parser.error("--record and --serve cannot be used together")
+    stream_actions = [
+        name for name, enabled in (
+            ("--record", args.record is not None),
+            ("--serve", args.serve is not None),
+            ("--scan-stream", args.scan_stream),
+        ) if enabled
+    ]
+    if len(stream_actions) > 1:
+        parser.error(f"{', '.join(stream_actions)} cannot be used together")
+    if args.sleep and stream_actions:
+        parser.error(f"--sleep cannot be used with {stream_actions[0]}")
     usb.LOG = args.usb_log
     usb.RECORD_STATS = args.usb_stats
 

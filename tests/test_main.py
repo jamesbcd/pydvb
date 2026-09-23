@@ -4,6 +4,7 @@ from itertools import repeat
 import pytest
 
 from mactv import __main__
+from mactv.dvb import DVBScanResult
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
@@ -108,6 +109,18 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     assert device.close_called
 
 
+def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
+    device = FakeLockedRecordingDevice()
+    result = DVBScanResult(1, 2, "network", (), 3, True)
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
+    monkeypatch.setattr(sys, "argv", ["mactv", "--scan-stream"])
+
+    assert __main__.main() == 0
+    assert "DVBScanResult" in capsys.readouterr().out
+    assert device.close_called
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [([], False), (["--usb-log"], True)],
@@ -199,6 +212,24 @@ class FakeLoggingStream:
         self.running = False
 
 
+class FakeScanningStream:
+    def __init__(self, source):
+        self.source = source
+        self.running = False
+
+    def start(self):
+        self.running = True
+        self.source.events.append("stream-start")
+
+    def read(self, timeout=None):
+        self.source.events.append("stream-read")
+        return next(self.source.chunks)
+
+    def stop(self):
+        self.running = False
+        self.source.events.append("stream-stop")
+
+
 def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
     adapter = FakeStreamAdapter([b"abcd", b"efgh", b"ijkl"])
     output_path = tmp_path / "capture.ts"
@@ -245,6 +276,22 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
     assert adapter.events.count("read") >= 2
+
+
+def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
+    adapter = FakeStreamAdapter([b"first", b"second"])
+    scanner = type("Scanner", (), {
+        "complete": False,
+        "feed": lambda scanner, _chunk: setattr(scanner, "complete", True),
+        "result": lambda _scanner: DVBScanResult(1, 2, "network", (), 1, True),
+    })()
+    monkeypatch.setattr(__main__, "TSStream", FakeScanningStream)
+    monkeypatch.setattr(__main__, "DVBScanner", lambda: scanner)
+
+    result = __main__.scan_stream(adapter)
+
+    assert result.complete
+    assert adapter.events == ["stream-start", "stream-read", "stream-stop", "sleep"]
 
 
 def test_capture_stream_waits_for_data_after_empty_reads(tmp_path):
