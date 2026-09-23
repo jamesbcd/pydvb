@@ -3,10 +3,10 @@ from typing import cast
 
 from mactv.drivers.af9015.adapter import AF9015Adapter
 from mactv.drivers.af9015.demux import AF9015Demuxer
-from mactv.driverapi.adapter import DVBAdapter
+from mactv.driver_api.adapter import DVBAdapter
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 from mactv.drivers.af9015.frontend import AF9013Frontend
-from mactv.driverapi.tuner import DVBTuning
+from mactv.driver_api.tuner import DVBTuning
 
 
 @dataclass

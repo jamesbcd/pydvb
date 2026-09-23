@@ -5,7 +5,7 @@ from __future__ import annotations
 from threading import Lock
 
 from .bridge import AF9015Bridge
-from ...driverapi.demux import DVBDemuxer
+from ...driver_api.demux import DVBDemuxer
 
 
 class AF9015Demuxer(DVBDemuxer):

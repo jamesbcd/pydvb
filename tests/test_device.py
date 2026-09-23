@@ -5,7 +5,7 @@ import pytest
 from mactv.drivers.af9015 import device as device_module
 from mactv.drivers.af9015.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
-from mactv.driverapi.tuner import DVBTuning
+from mactv.driver_api.tuner import DVBTuning
 
 
 class FakeTransport:

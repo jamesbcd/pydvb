@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from threading import RLock
 from typing import Any
 
-from mactv.driverapi.adapter import DVBAdapter
+from mactv.driver_api.adapter import DVBAdapter
 from mactv.usb import USBTransport
 
 

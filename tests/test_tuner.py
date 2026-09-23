@@ -1,6 +1,6 @@
 import pytest
 
-from mactv.driverapi.tuner import DVBTuning, DVBTuner
+from mactv.driver_api.tuner import DVBTuning, DVBTuner
 from mactv.drivers.af9015.tuner import TDA18271Tuner
 
 

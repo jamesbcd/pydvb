@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .demux import AF9015Demuxer
-from ...driverapi.adapter import DVBAdapter
+from ...driver_api.adapter import DVBAdapter
 from .frontend import AF9013Frontend
 
 

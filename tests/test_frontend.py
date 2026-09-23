@@ -3,7 +3,7 @@ from math import log10
 import pytest
 
 from mactv.drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
-from mactv.driverapi.tuner import DVBTuning
+from mactv.driver_api.tuner import DVBTuning
 
 
 class FakeBus:

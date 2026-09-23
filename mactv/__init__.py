@@ -3,9 +3,9 @@ Currently only implements support for the Leadtek Winfast DTV Dongle Gold.
 """
 
 from .drivers.af9015.device import AF9015Device
-from .driverapi.device import DVBDevice
-from .driverapi.frontend import DVBFrontend
-from .driverapi.tuner import (
+from .driver_api.device import DVBDevice
+from .driver_api.frontend import DVBFrontend
+from .driver_api.tuner import (
     CodeRate,
     DVBTuner,
     GuardInterval,
@@ -16,7 +16,7 @@ from .driverapi.tuner import (
 )
 from .drivers.af9015.adapter import AF9015Adapter
 from .drivers.af9015.demux import AF9015Demuxer
-from .driverapi.demux import DVBDemuxer
+from .driver_api.demux import DVBDemuxer
 from .drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
 from .drivers.af9015.tuner import TDA18271Tuner
 from .drivers.af9015.bridge import AF9015Bridge

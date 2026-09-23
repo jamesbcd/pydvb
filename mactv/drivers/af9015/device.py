@@ -7,7 +7,7 @@ from typing import Callable
 from .adapter import AF9015Adapter
 from .bridge import AF9015Bridge
 from .demux import AF9015Demuxer
-from ...driverapi.device import DVBDevice
+from ...driver_api.device import DVBDevice
 from .frontend import AF9013Frontend
 from .tuner import TDA18271Tuner
 from ...usb import USBTransport, USBSpeed, default_transport_factory
