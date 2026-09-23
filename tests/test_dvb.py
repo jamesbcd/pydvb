@@ -126,3 +126,11 @@ def test_scanner_ignores_transport_error_indicator_but_accepts_payload_start():
 
     scanner.feed(table_packet(0, pat))
     assert scanner.result().transport_stream_id == 1
+
+
+def test_scanner_skips_irrelevant_packet_payloads():
+    scanner = DVBScanner()
+    scanner.feed(packet(0x0100, b"not a section"))
+
+    assert scanner.result().packets_seen == 1
+    assert scanner._section_buffers == {}

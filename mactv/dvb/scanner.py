@@ -12,6 +12,11 @@ from construct import Bit, BitStruct, BitsInteger
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
 TS_SYNC_BYTE = 0x47     # Sync byte value for MPEG transport stream packets
 
+# Standard PIDs for DVB tables that are typically scanned.
+# These PIDs correspond to the Program Association Table (PAT), Network Information Table (NIT),
+# Service Description Table (SDT), and Event Information Table (EIT) respectively.
+SCAN_TABLE_PIDS = frozenset((0x0000, 0x0010, 0x0011, 0x0012))
+
 # MPEG transport stream packet header structure for DVB tables.
 TS_PACKET_HEADER: Any = BitStruct(
     "sync_byte" / BitsInteger(8),
@@ -179,10 +184,17 @@ class DVBScanner:
 
     def _feed_packet(self, packet: bytes) -> None:
         """Feed a Transport Stream (TS) packet to the scanner."""
+
+        # Perform quick extraction of the PID from the TS packet header, and confirm
+        # whether this PID is one of the standard table PIDs or a PMT PID that we are tracking.
+        # Otherwise we ignore this packet. Without ignoring irrelevant packets, the scanner
+        # struggles to keep up with the stream.
+        pid = ((packet[1] & 0x1F) << 8) | packet[2]
+        if pid not in SCAN_TABLE_PIDS and pid not in self._pmt_pids.values():
+            return
         header = TS_PACKET_HEADER.parse(packet[:4])
         if header.transport_error_indicator:
             return
-        pid = header.pid
         adaptation_control = header.adaptation_field_control
         # Only process packets with payload (adaptation_field_control 1 or 3)
         if adaptation_control not in (1, 3):
