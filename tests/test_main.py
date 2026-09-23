@@ -113,7 +113,7 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
     result = DVBScanResult(1, 2, "network", (), 3, True)
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
+    monkeypatch.setattr(__main__, "scan_stream", lambda adapter, buffer_log=False: result)
     monkeypatch.setattr(sys, "argv", ["mactv", "--scan-stream"])
 
     assert __main__.main() == 0
