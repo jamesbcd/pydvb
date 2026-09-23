@@ -64,9 +64,12 @@ The AF9013 demodulator and individual tuner chips still need chip-specific
 drivers. The public `DVBTuner` interface is intentionally ready for those drivers.
 
 The transport uses python-libusb1 and queues asynchronous transfers for smooth
-stream buffering. `AF9015Device.open()` uses the bundled libusb transport by
-default; tests or alternative backends can provide a callable via its
-`transport_factory` argument. The callable receives `vendor_id` and
+stream buffering. The queued payload is limited to 16 MiB by default; configure
+that limit with `AF9015Device.open(async_queue_mib=...)`. When the limit is
+reached, completed transfers are retained and resubmission pauses until the
+reader consumes enough data. `AF9015Device.open()` uses the bundled libusb
+transport by default; tests or alternative backends can provide a callable via
+its `transport_factory` argument. The callable receives `vendor_id` and
 `product_id` and returns an object implementing `USBTransport`.
 
 python-libusb1 requires a native libusb-1.0 library. On macOS, install one

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from enum import IntEnum
+from math import isfinite
 from queue import Empty, Queue
-from threading import Event, Lock, Thread, current_thread
+from threading import Event, RLock, Thread, current_thread
 from time import monotonic, sleep
 from typing import Any, Protocol
 
@@ -16,9 +17,10 @@ usb1: Any = _usb1
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable logging of stream read statistics.
 
+DEFAULT_MAX_QUEUE_SIZE = 16 # Default maximum size of the asynchronous transfer queue in MiB.
+
 class USBSpeed(IntEnum):
     """USB link-speed values reported by the transport backends."""
-
     UNKNOWN = 0
     LOW = 1
     FULL = 2
@@ -69,12 +71,16 @@ class _AsynchronousReadStats:
         self._max_interval_seconds: float | None = None # Maximum interval between consecutive completions
         self._min_queue_depth: int | None = None # Minimum queue depth observed at completion
         self._max_queue_depth: int | None = None # Maximum queue depth observed at completion
+        self._min_queue_bytes: int | None = None # Minimum queued bytes observed at completion
+        self._max_queue_bytes: int | None = None # Maximum queued bytes observed at completion
         self._transfer_errors = 0 # Count of non-cancelled asynchronous transfer errors
         self._transfer_error_statuses: dict[tuple[int, int], int] = {}
         self._cancelled_transfers = 0
         self._resubmit_errors = 0 # Count of failed transfer resubmissions
 
-    def record_completion(self, endpoint: int, byte_count: int, queue_depth: int) -> None:
+    def record_completion(
+        self, endpoint: int, byte_count: int, queue_depth: int, queue_bytes: int
+    ) -> None:
         """Record one completed transfer after its data enters the queue."""
         if not RECORD_STATS:
             return
@@ -107,6 +113,16 @@ class _AsynchronousReadStats:
             queue_depth
             if self._max_queue_depth is None
             else max(self._max_queue_depth, queue_depth)
+        )
+        self._min_queue_bytes = (
+            queue_bytes
+            if self._min_queue_bytes is None
+            else min(self._min_queue_bytes, queue_bytes)
+        )
+        self._max_queue_bytes = (
+            queue_bytes
+            if self._max_queue_bytes is None
+            else max(self._max_queue_bytes, queue_bytes)
         )
 
     def record_transfer_error(self, endpoint: int, status: int) -> None:
@@ -151,7 +167,12 @@ class _AsynchronousReadStats:
                 f"{self._min_interval_seconds * 1000:.3f}/"
                 f"{self._max_interval_seconds * 1000:.3f}"
             )
-        assert self._min_queue_depth is not None and self._max_queue_depth is not None
+        assert (
+            self._min_queue_depth is not None
+            and self._max_queue_depth is not None
+            and self._min_queue_bytes is not None
+            and self._max_queue_bytes is not None
+        )
         completion_counts = ",".join(
             f"0x{endpoint:02x}={count}"
             for endpoint, count in sorted(self._completion_counts.items())
@@ -164,6 +185,8 @@ class _AsynchronousReadStats:
             f"USB async cadence: completions={self._completions} bytes={self._bytes} "
             f"completion_intervals_ms(avg/min/max)={interval_text} "
             f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
+            f"queue_size_mib(min/max)={self._min_queue_bytes / 1048576:.3f}/"
+            f"{self._max_queue_bytes / 1048576:.3f} "
             f"completed_by_endpoint={completion_counts} "
             f"zero_length={self._zero_length_completions} "
             f"cancelled={self._cancelled_transfers} "
@@ -191,10 +214,18 @@ class _LibUSB1Transport:
         product_id: int | None = None,
         async_transfer_count: int = 6,
         async_endpoints: Collection[int] = (),
+        async_queue_mib: float | None = None, # Max size in MiB of the asynchronous transfer queue. None = Default
     ) -> None:
         """Create a transport around an open python-libusb1 handle."""
         if async_transfer_count <= 0:
             raise ValueError("async_transfer_count must be positive")
+        if async_queue_mib is None:
+            async_queue_mib = DEFAULT_MAX_QUEUE_SIZE
+        if not isfinite(async_queue_mib) or async_queue_mib <= 0:
+            raise ValueError("async_queue_mib must be positive")
+        async_queue_bytes = int(async_queue_mib * 1024 * 1024)
+        if async_queue_bytes <= 0:
+            raise ValueError("async_queue_mib is too small")
         self.context = context          # libusb context that owns the device handle.
         self.usb_handle = usb_handle    # Open libusb device handle.
         self.interface = interface      # Interface claimed for USB transfers.
@@ -202,14 +233,18 @@ class _LibUSB1Transport:
         self.product_id = product_id    # Device product ID used for reconnecting.
         self.async_transfer_count = async_transfer_count  # Transfers kept pending per stream endpoint.
         self.async_endpoints = frozenset(async_endpoints)
+        self.async_queue_mib = async_queue_mib
+        self.async_queue_bytes = async_queue_bytes
         self._claimed_interface: Any | None = None  # Optional interface context manager.
         self._is_interface_claimed = False  # Whether the interface must be released on close.
-        self._stream_lock = Lock()      # Protects stream endpoint initialization.
+        self._stream_lock = RLock()     # Protects stream endpoint state.
         self._closed = False            # Prevents new I/O and repeated cleanup.
         self._event_stop = Event()      # Signals the libusb event thread to stop.
         self._event_thread: Thread | None = None  # Processes asynchronous transfer events.
         # Completed data or errors by endpoint.
         self._stream_queues: dict[int, Queue[bytes | BaseException | None]] = {}
+        self._stream_queue_bytes: dict[int, int] = {}   # Tracks the number of bytes queued for each endpoint.
+        self._paused_transfers: dict[int, list[Any]] = {} # Paused asynchronous transfers by endpoint.
         self._stream_errors: dict[int, BaseException] = {} # Stores the last error encountered for each endpoint.
         self._stream_lengths: dict[int, int] = {}  # Fixed transfer length by initialized endpoint.
         self._stream_transfers: dict[int, list[Any]] = {}  # Pending asynchronous transfers by endpoint.
@@ -223,6 +258,7 @@ class _LibUSB1Transport:
         interface: int = 0,
         async_transfer_count: int = 8,
         async_endpoints: Collection[int] = (),
+        async_queue_mib: float | None = None,
     ) -> "_LibUSB1Transport":
         """Find, open, and claim a device by vendor/product ID."""
         context = usb1.USBContext()
@@ -240,6 +276,7 @@ class _LibUSB1Transport:
                 product_id,
                 async_transfer_count,
                 async_endpoints,
+                async_queue_mib,
             )
             transport._claim_interface()
             return transport
@@ -316,6 +353,10 @@ class _LibUSB1Transport:
             raise RuntimeError("USB transport is closed")
         if isinstance(item, BaseException):
             raise item
+        with self._stream_lock:
+            # We've consumed some bytes from the stream, queue, so decrement the queued byte count.
+            self._stream_queue_bytes[endpoint] -= len(item)
+            self._resume_paused_transfers(endpoint)
         return item
 
     def _start_stream_endpoint(self, endpoint: int, length: int) -> None:
@@ -323,6 +364,8 @@ class _LibUSB1Transport:
         queue: Queue[bytes | BaseException | None] = Queue()
         transfers: list[Any] = []
         self._stream_queues[endpoint] = queue
+        self._stream_queue_bytes[endpoint] = 0
+        self._paused_transfers[endpoint] = []
         self._stream_lengths[endpoint] = length
         self._stream_transfers[endpoint] = transfers
         if self._event_thread is None:
@@ -355,29 +398,52 @@ class _LibUSB1Transport:
                 # Transfer completed successfully; queue the data for consumption.
                 data = bytes(transfer.getBuffer()[: transfer.getActualLength()])
                 queue.put(data)
-                self._stats.record_completion(endpoint, len(data), queue.qsize())
-                if not self._closed:
-                    # Resubmit the transfer if the transport is not closed.
-                    try:
-                        transfer.submit()
-                    except Exception as error:
-                        self._stats.record_resubmit_error()
-                        self._fail_stream_endpoint(endpoint, error)
+                with self._stream_lock:
+                    # We've added data to the stream queue, so increment the queued byte count.
+                    self._stream_queue_bytes[endpoint] += len(data)
+                    queue_bytes = self._stream_queue_bytes[endpoint]
+                self._stats.record_completion(endpoint, len(data), queue.qsize(), queue_bytes)
+                self._resubmit_or_pause(endpoint, transfer)
             elif status != cancelled:
                 self._stats.record_transfer_error(endpoint, status)
                 error = RuntimeError(f"asynchronous USB transfer failed with status {status}")
                 if status in recoverable and not self._closed:
-                    try:
-                        transfer.submit()
-                    except Exception as resubmit_error:
-                        self._stats.record_resubmit_error()
-                        self._fail_stream_endpoint(endpoint, resubmit_error)
+                    self._resubmit_or_pause(endpoint, transfer)
                 else:
                     self._fail_stream_endpoint(endpoint, error)
             else:
                 self._stats.record_cancelled_transfer()
 
         return callback
+
+    def _resubmit_or_pause(self, endpoint: int, transfer: Any) -> None:
+        """Resubmit a transfer when its endpoint queue is below the byte limit."""
+        with self._stream_lock:
+            if self._closed:
+                return
+            if self._stream_queue_bytes[endpoint] >= self.async_queue_bytes:
+                self._paused_transfers[endpoint].append(transfer)
+                return
+            try:
+                transfer.submit()
+            except Exception as error:
+                self._stats.record_resubmit_error()
+                self._fail_stream_endpoint(endpoint, error)
+
+    def _resume_paused_transfers(self, endpoint: int) -> None:
+        """Resume paused transfers while an endpoint has queue capacity."""
+        while (
+            self._paused_transfers[endpoint]
+            and not self._closed
+            and self._stream_queue_bytes[endpoint] < self.async_queue_bytes
+        ):
+            transfer = self._paused_transfers[endpoint].pop()
+            try:
+                transfer.submit()
+            except Exception as error:
+                self._stats.record_resubmit_error()
+                self._fail_stream_endpoint(endpoint, error)
+                return
 
     def _fail_stream_endpoint(self, endpoint: int, error: BaseException) -> None:
         """Stop an endpoint after a fatal transfer or resubmission failure."""
@@ -463,6 +529,7 @@ class _LibUSB1Transport:
                     self.interface,
                     self.async_transfer_count,
                     self.async_endpoints,
+                    self.async_queue_mib,
                 )
             except (OSError, ValueError, RuntimeError) as error:
                 last_error = error
@@ -474,6 +541,12 @@ def default_transport_factory(
     vendor_id: int,
     product_id: int,
     async_endpoints: Collection[int] = (),
+    async_queue_mib: float | None = None,
 ) -> USBTransport:
     """Create the default libusb transport for a USB device."""
-    return _LibUSB1Transport.find(vendor_id, product_id, async_endpoints=async_endpoints)
+    return _LibUSB1Transport.find(
+        vendor_id,
+        product_id,
+        async_endpoints=async_endpoints,
+        async_queue_mib=async_queue_mib,
+    )

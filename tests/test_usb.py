@@ -221,6 +221,47 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch
     assert all(transfer.close_count == 1 for transfer in handle.transfers)
 
 
+def test_libusb_stream_pauses_and_resumes_transfers_at_queue_byte_limit(monkeypatch):
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
+    transport = LibUSB1Transport(
+        context,
+        handle,
+        async_transfer_count=1,
+        async_queue_mib=1 / (1024 * 1024),
+        async_endpoints=(0x84,),
+    )
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 0)
+    transfer = handle.transfers[0]
+    transfer.buffer[:] = b"data"
+    transfer.callback(transfer)
+
+    assert transfer.submit_count == 1
+    assert transport.bulk_read(0x84, 4, 100) == b"data"
+    assert transfer.submit_count == 2
+    transport.close()
+
+
+@pytest.mark.parametrize("queue_mib", [0, -1, 1 / (1024 * 1024 * 2)])
+def test_libusb_rejects_invalid_async_queue_limit(queue_mib):
+    with pytest.raises(ValueError, match="async_queue_mib"):
+        LibUSB1Transport(FakeUSBContext(), FakeLibUSBHandle(), async_queue_mib=queue_mib)
+
+
+def test_libusb_none_async_queue_limit_uses_default(monkeypatch):
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
+
+    transport = LibUSB1Transport(context, handle, async_queue_mib=None)
+
+    assert transport.async_queue_mib == usb_module.DEFAULT_MAX_QUEUE_SIZE
+    assert transport.async_queue_bytes == usb_module.DEFAULT_MAX_QUEUE_SIZE * 1024 * 1024
+
+
 def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkeypatch):
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
@@ -242,6 +283,7 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
     assert output[0].startswith("USB async cadence: completions=2 bytes=8")
     assert "completion_intervals_ms(avg/min/max)=" in output[0]
     assert "queue_depth(min/max)=1/1" in output[0]
+    assert "queue_size_mib(min/max)=0.000/0.000" in output[0]
     assert "completed_by_endpoint=0x84=2" in output[0]
     assert "zero_length=0 cancelled=0" in output[0]
     assert "transfer_error_statuses=none" in output[0]

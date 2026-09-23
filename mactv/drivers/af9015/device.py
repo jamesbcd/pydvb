@@ -71,12 +71,14 @@ class AF9015Device(DVBDevice):
         vendor_id: int,
         product_id: int,
         transport_factory: Callable[[int, int], USBTransport] | None = None,
+        async_queue_mib: float | None = None,
     ) -> "AF9015Device":
         if transport_factory is None:
             transport = default_transport_factory(
                 vendor_id,
                 product_id,
                 async_endpoints=cls.STREAM_ENDPOINTS,
+                async_queue_mib=async_queue_mib,
             )
         else:
             transport = transport_factory(vendor_id, product_id)

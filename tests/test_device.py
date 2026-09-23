@@ -92,7 +92,16 @@ def test_open_uses_default_transport_factory(monkeypatch):
 
     device = AF9015Device.open(0x0413, 0x6029)
 
-    assert calls == [(0x0413, 0x6029, {"async_endpoints": AF9015Device.STREAM_ENDPOINTS})]
+    assert calls == [
+        (
+            0x0413,
+            0x6029,
+            {
+                "async_endpoints": AF9015Device.STREAM_ENDPOINTS,
+                "async_queue_mib": None,
+            },
+        )
+    ]
     assert device.bridge.transport is transport
 
 
