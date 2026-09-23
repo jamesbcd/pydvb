@@ -40,30 +40,30 @@ class AF9015Device(DVBDevice):
 
     STREAM_ENDPOINTS = (0x84, 0x85)
 
-	# From Linux driver:
+    # From Linux driver:
     #
-	# I2C multiplexing:
-	# There could be two tuners, both using same I2C address. Demodulator
-	# I2C-gate is only possibility to select correct tuner.
-	# 
-	# ...........................................
-	# . AF9015 integrates AF9013 demodulator    .
-	# . ____________               ____________ .             ____________
-	# .|   USB IF   |             |   demod    |.            |   tuner    |
-	# .|------------|             |------------|.            |------------|
-	# .|   AF9015   |             |   AF9013   |.            |   MXL5003  |
-	# .|            |--+--I2C-----|-----/ -----|.----I2C-----|            |
-	# .|            |  |          | addr 0x1c  |.            |  addr 0x63 |
-	# .|____________|  |          |____________|.            |____________|
-	# .................|.........................
-	#                  |           ____________               ____________
-	#                  |          |   demod    |             |   tuner    |
-	#                  |          |------------|             |------------|
-	#                  |          |   AF9013   |             |   MXL5003  |
-	#                  +--I2C-----|-----/ -----|-----I2C-----|            |
-	#                             | addr 0x1d  |             |  addr 0x63 |
-	#                             |____________|             |____________|
-	#
+    # I2C multiplexing:
+    # There could be two tuners, both using same I2C address. Demodulator
+    # I2C-gate is only possibility to select correct tuner.
+    #
+    # ...........................................
+    # . AF9015 integrates AF9013 demodulator    .
+    # . ____________               ____________ .             ____________
+    # .|   USB IF   |             |   demod    |.            |   tuner    |
+    # .|------------|             |------------|.            |------------|
+    # .|   AF9015   |             |   AF9013   |.            |   MXL5003  |
+    # .|            |--+--I2C-----|-----/ -----|.----I2C-----|            |
+    # .|            |  |          | addr 0x1c  |.            |  addr 0x63 |
+    # .|____________|  |          |____________|.            |____________|
+    # .................|.........................
+    #                  |           ____________               ____________
+    #                  |          |   demod    |             |   tuner    |
+    #                  |          |------------|             |------------|
+    #                  |          |   AF9013   |             |   MXL5003  |
+    #                  +--I2C-----|-----/ -----|-----I2C-----|            |
+    #                             | addr 0x1d  |             |  addr 0x63 |
+    #                             |____________|             |____________|
+    #
 
     @classmethod
     def open(
