@@ -87,6 +87,7 @@ def capture_stream(
 def scan_stream(
     adapter,
     read_timeout: float = READ_TIMEOUT_SECONDS,
+    buffer_log: bool = False,
 ) -> DVBScanResult:
     """Feed a live transport stream to the scanner until its tables are complete."""
     if read_timeout < 0:
@@ -94,10 +95,16 @@ def scan_stream(
 
     stream = TSStream(adapter)
     scanner = DVBScanner()
+    previous_queue_size = None
     try:
         stream.start()
         while not scanner.complete:
             scanner.feed(stream.read(timeout=read_timeout))
+            if buffer_log:
+                queue_size = stream.queue_size
+                if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
+                    print(f"Buffer queue: {queue_size}/{stream.queue_capacity}", flush=True)
+                previous_queue_size = queue_size
         return scanner.result()
     finally:
         stream.stop()
@@ -155,11 +162,12 @@ def _run_device(device, args) -> int:
             return 2
         adapter = device.adapters[args.adapter_index]
         try:
-            result = scan_stream(adapter)
+            result = scan_stream(adapter, buffer_log=args.buffer_log)
         except (OSError, RuntimeError, TimeoutError, ValueError) as error:
             print(f"Scan failed: {error}")
             return 1
         device.bridge.transport.log_stats()
+        del result.warnings
         pprint.pprint(result, underscore_numbers=True)
 
     if args.serve is not None:
