@@ -23,6 +23,13 @@ class FakeTransport:
         return self
 
 
+class ControlRegisterTransport(FakeTransport):
+    def bulk_read(self, endpoint, length, timeout):
+        if endpoint == 0x81 and length == 3:
+            return b"\x00\x00\x80"
+        return super().bulk_read(endpoint, length, timeout)
+
+
 class StreamTransport(FakeTransport):
     def __init__(self, chunks):
         super().__init__()
@@ -74,10 +81,52 @@ def test_pid_filter_reuses_freed_slot_and_controls_filter():
 
     assert demuxer.pid_filter_enabled
     assert demuxer.pids == frozenset({200})
-    assert transport.writes[0][1][3:5] == b"\xD5\x03"
-    assert transport.writes[0][1][8:] == b"\x01"
+    control_writes = [
+        packet
+        for _, packet in transport.writes
+        if packet[3:5] == b"\xD5\x03" and packet[7] == 1 and len(packet) > 8
+    ]
+    assert control_writes[0][8:] == b"\x01"
     assert transport.writes[-1][1][3:5] == b"\xD5\x04"
     assert transport.writes[-1][1][8:] == b"\x20"
+
+
+def test_pid_filter_control_preserves_unrelated_register_bits():
+    transport = ControlRegisterTransport()
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
+
+    demuxer.enable_pid_filter()
+
+    assert transport.writes[-1][1][3:5] == b"\xD5\x03"
+    assert transport.writes[-1][1][8:] == b"\x81"
+
+
+def test_clear_all_pid_filters_disables_configured_slots():
+    transport = FakeTransport()
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
+
+    demuxer.set_pid_filter(100)
+    demuxer.set_pid_filter(200)
+    demuxer.enable_pid_filter()
+    writes_before_clear = len(transport.writes)
+
+    demuxer.clear_all_pid_filters()
+
+    assert demuxer.pids == frozenset()
+    assert demuxer.pid_filter_enabled
+    assert [
+        packet[3:5] + packet[8:]
+        for _, packet in transport.writes[writes_before_clear:]
+    ] == [b"\xD5\x04\x00", b"\xD5\x04\x01"]
+
+
+def test_clear_all_pid_filters_is_noop_when_empty():
+    transport = FakeTransport()
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
+
+    demuxer.clear_all_pid_filters()
+
+    assert transport.writes == []
 
 
 def test_pid_filter_rejects_more_than_32_slots():
@@ -88,6 +137,13 @@ def test_pid_filter_rejects_more_than_32_slots():
 
     with pytest.raises(ValueError, match="32 slots"):
         demuxer.set_pid_filter(32)
+
+
+def test_pid_filter_rejects_values_above_hardware_pid_range():
+    demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
+
+    with pytest.raises(ValueError, match="0x1FFF"):
+        demuxer.set_pid_filter(0x2001)
 
 
 def test_full_speed_stream_uses_five_packets():
@@ -153,14 +209,11 @@ def test_stop_waits_for_in_flight_read_and_discards_late_data():
     assert read_error and str(read_error[0]) == "demuxer is not started"
 
 
-def test_virtual_whole_stream_pid_is_accepted_without_a_slot():
-    transport = FakeTransport()
-    demuxer = AF9015Demuxer(AF9015Bridge(transport))
+def test_pid_filter_rejects_linux_whole_stream_sentinel():
+    demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
 
-    demuxer.set_pid_filter(0x2000)
-
-    assert demuxer.pids == frozenset()
-    assert transport.writes == []
+    with pytest.raises(ValueError, match="0x1FFF"):
+        demuxer.set_pid_filter(0x2000)
 
 
 def test_demuxer_get_config_dict_contains_configuration_and_is_a_snapshot():

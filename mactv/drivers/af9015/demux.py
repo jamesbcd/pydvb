@@ -105,10 +105,18 @@ class AF9015Demuxer(DVBDemuxer):
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
-        if not 0 <= pid <= 0x2000:
-            raise ValueError("PID must be between 0 and 0x2000")
-        if pid == 0x2000:
-            return
+        """
+        Set a PID filter slot for the given PID.
+
+        Args:
+            pid (int): The PID to set the filter for.
+            enabled (bool, optional): Whether to enable or disable the filter for this PID. Defaults to True.
+
+        Raises:
+            ValueError: If the PID is out of the valid range or if there are no available slots.
+        """
+        if not 0 <= pid <= 0x1FFF:
+            raise ValueError("PID must be between 0 and 0x1FFF")
 
         with self._pid_lock:
             if enabled:
@@ -128,6 +136,13 @@ class AF9015Demuxer(DVBDemuxer):
                 if slot is not None:
                     self._set_pid_filter_slot(pid, slot, False)
 
+    def clear_all_pid_filters(self) -> None:
+        """Disable and forget all currently configured PID filter slots."""
+        with self._pid_lock:
+            for pid, slot in sorted(self._pid_slots.items(), key=lambda item: item[1]):
+                self._set_pid_filter_slot(pid, slot, False)
+                del self._pid_slots[pid]
+
     def enable_pid_filter(self, enabled: bool = True) -> None:
         if enabled == self._pid_filter_enabled:
             return
@@ -145,7 +160,16 @@ class AF9015Demuxer(DVBDemuxer):
             return frozenset(self._pid_slots)
 
     def _set_pid_filter_slot(self, pid: int, slot: int, enabled: bool) -> None:
+        """
+        Set the PID filter slot for a specific PID.
+
+        Args:
+            pid (int): The PID to set the filter for.
+            slot (int): The slot number to assign to the PID.
+            enabled (bool): Whether to enable or disable the filter for this PID.
+        """
         if enabled:
+            # Write the PID value to the filter value register before enabling the slot
             self.bridge.write_i2c(
                 self.demodulator_address,
                 self.AF9013_PID_FILTER_VALUE,
@@ -159,6 +183,7 @@ class AF9015Demuxer(DVBDemuxer):
                 address_length=3,
             )
         else:
+            # Disable the PID filter slot by writing the slot number without the enable bit
             self.bridge.write_i2c(
                 self.demodulator_address,
                 self.AF9013_PID_FILTER_SLOT,
@@ -167,9 +192,14 @@ class AF9015Demuxer(DVBDemuxer):
             )
 
     def _set_pid_filter_enabled(self, enabled: bool) -> None:
-        self.bridge.write_i2c(
+        current = self.bridge.read_i2c_byte(
             self.demodulator_address,
             self.AF9013_PID_FILTER_CONTROL,
-            bytes((int(enabled),)),
+            address_length=3,
+        )
+        self.bridge.write_i2c_byte(
+            self.demodulator_address,
+            self.AF9013_PID_FILTER_CONTROL,
+            (current & ~0x01) | int(enabled),
             address_length=3,
         )
