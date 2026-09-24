@@ -81,8 +81,8 @@ class DVBScanner:
     """Incrementally discover services and programme metadata from TS bytes.
 
     ``feed`` accepts arbitrary byte chunks. The scanner is independent of USB
-    and can consume a file, a ``TSStream``, or an adapter read loop. It does
-    not start or stop the source supplied by the caller.
+    and can consume a file or an adapter read loop. It does not start or stop
+    the source supplied by the caller.
     """
 
     def __init__(self, *, verify_crc: bool = True) -> None:

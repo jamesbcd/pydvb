@@ -55,7 +55,7 @@ device.init_hardware()
 adapter = device.adapters[0]
 adapter.start()
 try:
-    transport_stream_chunk = adapter.read_ts()
+    transport_stream_chunk = adapter.read_stream()
 finally:
     adapter.stop()
 ```

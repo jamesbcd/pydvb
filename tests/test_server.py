@@ -4,7 +4,6 @@ from threading import Event, Thread
 from time import monotonic, sleep
 
 from mactv.server import LocalTS_HTTPServer
-from mactv import server as server_module
 
 
 class FakeAdapter:
@@ -15,11 +14,11 @@ class FakeAdapter:
     def start(self):
         pass
 
-    def read_ts(self, timeout_ms=2000):
+    def read_stream(self, timeout_ms=2000):
         try:
             return self.chunks.get(timeout=0.1)
-        except Exception:
-            return b""
+        except Exception as error:
+            raise TimeoutError from error
 
     def stop(self):
         self.stopped.set()
@@ -91,43 +90,8 @@ def test_server_returns_not_found_for_unknown_endpoint():
         serving.join(timeout=2)
 
 
-def test_server_logs_stream_queue_size(capsys):
-    server = LocalTS_HTTPServer(FakeAdapter(), port=0, buffer_log=True)
+def test_server_does_not_depend_on_ts_stream():
+    server = LocalTS_HTTPServer(FakeAdapter(), port=0)
 
-    class FakeStream:
-        queue_size = 3
-        queue_capacity = 20
-
-        def iter_chunks(self, timeout=None):
-            yield b"data"
-
-    server.stream = FakeStream()
-    server._broadcast()
-
-    assert "Buffer queue: 3/20" in capsys.readouterr().out
-
-
-def test_server_buffer_log_can_only_report_queue_size_changes(monkeypatch, capsys):
-    monkeypatch.setattr(server_module, "BUFFER_LOG_ON_CHANGE", True)
-    server = LocalTS_HTTPServer(FakeAdapter(), port=0, buffer_log=True)
-
-    class FakeStream:
-        queue_capacity = 20
-        queue_sizes = iter((3, 3, 4))
-
-        @property
-        def queue_size(self):
-            return next(self.queue_sizes)
-
-        def iter_chunks(self, timeout=None):
-            yield b"one"
-            yield b"two"
-            yield b"three"
-
-    server.stream = FakeStream()
-    server._broadcast()
-
-    assert capsys.readouterr().out.splitlines() == [
-        "Buffer queue: 3/20",
-        "Buffer queue: 4/20",
-    ]
+    assert server.adapter is not None
+    assert not hasattr(server, "stream")

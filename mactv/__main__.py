@@ -11,7 +11,6 @@ from mactv.driver_api.tuner import DVBTuning
 from .drivers.af9015.device import AF9015Device
 from . import usb
 from .server import LocalTS_HTTPServer
-from .stream import TSStream
 
 
 TS_PACKET_SIZE = 188
@@ -54,31 +53,22 @@ def capture_stream(
     if read_timeout < 0:
         raise ValueError("read_timeout must be non-negative")
 
-    stream = TSStream(adapter)
     bytes_written = 0
-    previous_queue_size = None
     start_time = monotonic()
     try:
         print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
-        stream.start()
+        adapter.start()
         with output_path.open("wb") as output:
             while bytes_written < max_bytes:
                 try:
-                    chunk = stream.read(timeout=read_timeout)
+                    chunk = adapter.read_stream(max(0, int(read_timeout * 1000)))
                 except TimeoutError as error:
                     raise IOError("transport stream read returned no data") from error
                 remaining = max_bytes - bytes_written
                 output.write(chunk[:remaining])
                 bytes_written += min(len(chunk), remaining)
-                if buffer_log:
-                    queue_size = stream.queue_size
-                    if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
-                        print(f"Buffer queue: {queue_size}/{stream.queue_capacity}", flush=True)
-                    previous_queue_size = queue_size
     finally:
-        stream.stop()
-        if stream.running:
-            raise RuntimeError("transport-stream reader did not stop")
+        adapter.stop()
         if hasattr(adapter, "sleep"):
             adapter.sleep()
     return bytes_written, monotonic() - start_time
@@ -93,23 +83,15 @@ def scan_stream(
     if read_timeout < 0:
         raise ValueError("read_timeout must be non-negative")
 
-    stream = TSStream(adapter)
     scanner = DVBScanner()
-    previous_queue_size = None
     try:
-        stream.start()
+        adapter.start()
         while not scanner.complete:
-            scanner.feed(stream.read(timeout=read_timeout))
-            if buffer_log:
-                queue_size = stream.queue_size
-                if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
-                    print(f"Buffer queue: {queue_size}/{stream.queue_capacity}", flush=True)
-                previous_queue_size = queue_size
+            chunk = adapter.read_stream(max(0, int(read_timeout * 1000)))
+            scanner.feed(chunk)
         return scanner.result()
     finally:
-        stream.stop()
-        if stream.running:
-            raise RuntimeError("transport-stream reader did not stop")
+        adapter.stop()
         if hasattr(adapter, "sleep"):
             adapter.sleep()
 

@@ -128,8 +128,8 @@ class DVBDevice(ABC):
             self._require_initialized()
             self._get_adapter(adapter_index).stop()
 
-    def read_ts(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
-        """Read a transport-stream chunk from one adapter.
+    def read_stream(self, timeout_ms: int = 2000, adapter_index: int = 0) -> bytes:
+        """Read non-empty transport-stream data from one adapter.
 
         Threading:
             The adapter permits one active read. This method snapshots the
@@ -139,7 +139,7 @@ class DVBDevice(ABC):
         with self._control_lock:
             self._require_initialized()
             adapter = self._get_adapter(adapter_index)
-        return adapter.read_ts(timeout_ms)
+        return adapter.read_stream(timeout_ms)
 
     def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
         """Enable or disable one adapter's hardware PID filter slot.

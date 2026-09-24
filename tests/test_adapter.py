@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import cast
 
+import pytest
+
 from mactv.drivers.af9015.adapter import AF9015Adapter
 from mactv.drivers.af9015.demux import AF9015Demuxer
 from mactv.driver_api.adapter import DVBAdapter
@@ -49,8 +51,8 @@ class FakeDemuxer:
     def stop(self):
         self.calls.append(("stop",))
 
-    def read_ts(self, timeout_ms=2000):
-        self.calls.append(("read_ts", timeout_ms))
+    def read_stream_once(self, timeout_ms=2000):
+        self.calls.append(("read_stream_once", timeout_ms))
         return b"ts"
 
     def set_pid_filter(self, pid, enabled=True):
@@ -73,7 +75,7 @@ def test_adapter_exposes_components_and_delegates_operations():
     adapter.start()
     adapter.set_pid_filter(100)
     adapter.enable_pid_filter()
-    assert adapter.read_ts(10) == b"ts"
+    assert adapter.read_stream(10) == b"ts"
     adapter.stop()
     adapter.sleep()
 
@@ -91,6 +93,38 @@ def test_adapter_exposes_components_and_delegates_operations():
         ("start",),
         ("set_pid_filter", 100, True),
         ("enable_pid_filter", True),
-        ("read_ts", 10),
+        ("read_stream_once", 9),
         ("stop",),
     ]
+
+
+class EmptyThenDataDemuxer(FakeDemuxer):
+    def __init__(self, results):
+        super().__init__()
+        self.results = iter(results)
+
+    def read_stream_once(self, timeout_ms=2000):
+        self.calls.append(("read_stream_once", timeout_ms))
+        return next(self.results)
+
+
+def test_adapter_retries_empty_demux_reads_until_data_arrives():
+    frontend = FakeFrontend()
+    demuxer = EmptyThenDataDemuxer([b"", b"ts"])
+    adapter = DVBAdapter(frontend, demuxer)
+
+    assert adapter.read_stream(100) == b"ts"
+    assert [call[0] for call in demuxer.calls] == [
+        "read_stream_once",
+        "read_stream_once",
+    ]
+    assert demuxer.calls[1][1] <= demuxer.calls[0][1]
+
+
+def test_adapter_read_stream_times_out_after_empty_demux_reads():
+    frontend = FakeFrontend()
+    demuxer = EmptyThenDataDemuxer([b""] * 2)
+    adapter = DVBAdapter(frontend, demuxer)
+
+    with pytest.raises(TimeoutError, match="transport-stream data"):
+        adapter.read_stream(0)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import RLock
+from time import monotonic
 from typing import Any
 
 @dataclass
@@ -48,8 +49,23 @@ class DVBAdapter:
         with self._control_lock:
             self.demuxer.stop()
 
-    def read_ts(self, timeout_ms: int = 2000) -> bytes:
-        return self.demuxer.read_ts(timeout_ms)
+    def read_stream(self, timeout_ms: int = 2000) -> bytes:
+        """Read non-empty transport-stream data within a total timeout.
+
+        The demuxer may return empty chunks while synchronizing or buffering
+        packets. Those chunks are retried here so adapter callers receive
+        usable stream data or a timeout error.
+        """
+        if timeout_ms < 0:
+            raise ValueError("timeout_ms must be non-negative")
+        deadline = monotonic() + timeout_ms / 1000
+        while True:
+            remaining_ms = max(0, int((deadline - monotonic()) * 1000))
+            data = self.demuxer.read_stream_once(remaining_ms)
+            if data:
+                return data
+            if monotonic() >= deadline:
+                raise TimeoutError("timed out waiting for transport-stream data")
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
         with self._control_lock:

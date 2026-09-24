@@ -101,7 +101,7 @@ class AF9015Demuxer(DVBDemuxer):
             self.bridge.update_memory_bits(0xDD11, 0x40, 0)
             self.bridge.update_memory_bits(0xDD13, 0x40, 0x40)
 
-    def _read_stream(self, length: int, timeout_ms: int) -> bytes:
+    def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:

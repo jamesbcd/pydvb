@@ -47,7 +47,12 @@ class DVBDemuxer(ABC):
                 self._state_condition.wait()
             self._stop_stream()
 
-    def read_ts(self, timeout_ms: int = 2000) -> bytes:
+    def read_stream_once(self, timeout_ms: int = 2000) -> bytes:
+        """Read one demuxed stream chunk, which may be empty.
+
+        Empty results indicate that the demuxer is still synchronizing or
+        buffering an incomplete transport-stream packet.
+        """
         with self._state_condition:
             if not self._running:
                 raise RuntimeError("demuxer is not started")
@@ -56,7 +61,7 @@ class DVBDemuxer(ABC):
             self._active_reads = 1
 
         try:
-            data = self._read_stream(
+            data = self._read_stream_raw(
                 self.packet_count * self.TS_PACKET_SIZE, timeout_ms
             )
             with self._state_condition:
@@ -104,7 +109,7 @@ class DVBDemuxer(ABC):
     def _stop_stream(self) -> None: ...
 
     @abstractmethod
-    def _read_stream(self, length: int, timeout_ms: int) -> bytes: ...
+    def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes: ...
 
     def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
         """Optionally configure a hardware PID filter."""

@@ -1,5 +1,4 @@
 import sys
-from itertools import repeat
 
 import pytest
 
@@ -180,7 +179,7 @@ class FakeStreamAdapter:
     def start(self):
         self.events.append("start")
 
-    def read_ts(self, timeout_ms=2000):
+    def read_stream(self, timeout_ms=2000):
         self.events.append("read")
         return next(self.chunks)
 
@@ -189,45 +188,6 @@ class FakeStreamAdapter:
 
     def sleep(self):
         self.events.append("sleep")
-
-
-class FakeLoggingStream:
-    def __init__(self, source):
-        self.chunks = iter(source.chunks)
-        self.queue_sizes = iter(source.queue_sizes)
-        self.queue_capacity = 20
-        self.running = False
-
-    @property
-    def queue_size(self):
-        return next(self.queue_sizes)
-
-    def start(self):
-        self.running = True
-
-    def read(self, timeout=None):
-        return next(self.chunks)
-
-    def stop(self):
-        self.running = False
-
-
-class FakeScanningStream:
-    def __init__(self, source):
-        self.source = source
-        self.running = False
-
-    def start(self):
-        self.running = True
-        self.source.events.append("stream-start")
-
-    def read(self, timeout=None):
-        self.source.events.append("stream-read")
-        return next(self.source.chunks)
-
-    def stop(self):
-        self.running = False
-        self.source.events.append("stream-stop")
 
 
 def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
@@ -242,28 +202,6 @@ def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
     assert adapter.events.count("read") >= 3
-
-
-@pytest.mark.parametrize(
-    ("on_change", "expected_lines"),
-    [(False, ["Buffer queue: 1/20", "Buffer queue: 1/20", "Buffer queue: 2/20"]),
-     (True, ["Buffer queue: 1/20", "Buffer queue: 2/20"])],
-)
-def test_capture_stream_logs_buffer_queue(monkeypatch, capsys, tmp_path, on_change, expected_lines):
-    adapter = FakeStreamAdapter([b"one", b"two", b"three"])
-    adapter.queue_sizes = [1, 1, 2]
-    monkeypatch.setattr(__main__, "TSStream", FakeLoggingStream)
-    monkeypatch.setattr(__main__, "BUFFER_LOG_ON_CHANGE", on_change)
-
-    __main__.capture_stream(
-        adapter,
-        tmp_path / "capture.ts",
-        max_bytes=11,
-        buffer_log=True,
-    )
-
-    output = capsys.readouterr().out.splitlines()
-    assert [line for line in output if line.startswith("Buffer queue:")] == expected_lines
 
 
 def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
@@ -285,32 +223,21 @@ def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
         "feed": lambda scanner, _chunk: setattr(scanner, "complete", True),
         "result": lambda _scanner: DVBScanResult(1, 2, "network", (), 1, True),
     })()
-    monkeypatch.setattr(__main__, "TSStream", FakeScanningStream)
     monkeypatch.setattr(__main__, "DVBScanner", lambda: scanner)
 
     result = __main__.scan_stream(adapter)
 
     assert result.complete
-    assert adapter.events == ["stream-start", "stream-read", "stream-stop", "sleep"]
-
-
-def test_capture_stream_waits_for_data_after_empty_reads(tmp_path):
-    adapter = FakeStreamAdapter([b"", b"data"])
-    output_path = tmp_path / "capture.ts"
-
-    bytes_written, _ = __main__.capture_stream(
-        adapter, output_path, max_bytes=4, read_timeout=1
-    )
-
-    assert bytes_written == 4
-    assert output_path.read_bytes() == b"data"
-    assert adapter.events[0] == "start"
-    assert adapter.events[-2:] == ["stop", "sleep"]
-    assert adapter.events.count("read") >= 2
+    assert adapter.events == ["start", "read", "stop", "sleep"]
 
 
 def test_capture_stream_fails_after_read_timeout(tmp_path):
-    adapter = FakeStreamAdapter(repeat(b""))
+    class TimeoutAdapter(FakeStreamAdapter):
+        def read_stream(self, timeout_ms=2000):
+            self.events.append("read")
+            raise TimeoutError
+
+    adapter = TimeoutAdapter(())
     output_path = tmp_path / "capture.ts"
 
     with pytest.raises(IOError, match="transport stream read returned no data"):

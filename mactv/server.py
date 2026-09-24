@@ -8,17 +8,15 @@ from socketserver import BaseServer
 from threading import Event, Lock, Thread
 from typing import cast
 
-from .stream import OverflowPolicy, TSStream
-
 BUFFER_LOG_ON_CHANGE = True
 
 
 class LocalTS_HTTPServer:
     """Serve one transport stream to one or more HTTP clients.
 
-    The server has one consumer of ``TSStream``. Each connected HTTP client
-    receives its own bounded queue, so a slow client cannot block the USB
-    reader or other clients.
+    The broadcaster reads directly from the adapter. Each connected HTTP
+    client receives its own bounded queue, so a slow client cannot block the
+    USB reader or other clients.
     """
 
     def __init__(
@@ -26,19 +24,14 @@ class LocalTS_HTTPServer:
         adapter,
         host: str = "127.0.0.1",
         port: int = 8080,
-        stream_queue_size: int = 20,
         client_queue_size: int = 20,
         buffer_log: bool = False,
     ) -> None:
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
-        if stream_queue_size <= 0 or client_queue_size <= 0:
-            raise ValueError("queue sizes must be positive")
-        self.stream = TSStream(
-            adapter,
-            slot_count=stream_queue_size,
-            overflow_policy=OverflowPolicy.DROP_OLDEST,
-        )
+        if client_queue_size <= 0:
+            raise ValueError("client_queue_size must be positive")
+        self.adapter = adapter
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
         self._clients: set[Queue[bytes | None]] = set()
@@ -55,7 +48,7 @@ class LocalTS_HTTPServer:
 
     def start(self) -> None:
         """Start the transport stream and its broadcaster."""
-        self.stream.start()
+        self.adapter.start()
         self._broadcaster = Thread(
             target=self._broadcast,
             name="mactv-ts-broadcaster",
@@ -72,10 +65,10 @@ class LocalTS_HTTPServer:
         self.httpd.shutdown()
 
     def close(self) -> None:
-        """Stop HTTP serving, the broadcaster, and the transport stream."""
+        """Stop HTTP serving, the broadcaster, and the adapter."""
         self._stop_event.set()
         self.httpd.server_close()
-        self.stream.stop()
+        self.adapter.stop()
         self._close_clients()
         if self._broadcaster is not None:
             self._broadcaster.join(timeout=2.0)
@@ -101,17 +94,12 @@ class LocalTS_HTTPServer:
                 pass
 
     def _broadcast(self) -> None:
-        previous_queue_size = None
         try:
-            for chunk in self.stream.iter_chunks(timeout=1.0):
-                if self.buffer_log:
-                    queue_size = self.stream.queue_size
-                    if not BUFFER_LOG_ON_CHANGE or queue_size != previous_queue_size:
-                        print(
-                            f"Buffer queue: {queue_size}/{self.stream.queue_capacity}",
-                            flush=True,
-                        )
-                    previous_queue_size = queue_size
+            while not self._stop_event.is_set():
+                try:
+                    chunk = self.adapter.read_stream(1000)
+                except TimeoutError:
+                    continue
                 with self._clients_lock:
                     clients = tuple(self._clients)
                 for client in clients:

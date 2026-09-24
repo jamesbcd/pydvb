@@ -109,7 +109,7 @@ def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():
     demuxer = AF9015Demuxer(AF9015Bridge(transport))
     demuxer.start()
 
-    assert demuxer.read_ts() == packet * 4
+    assert demuxer.read_stream_once() == packet * 4
 
 
 def test_read_ts_buffers_partial_packets():
@@ -118,9 +118,9 @@ def test_read_ts_buffers_partial_packets():
     demuxer = AF9015Demuxer(AF9015Bridge(transport))
     demuxer.start()
 
-    assert demuxer.read_ts() == packet * 4
-    assert demuxer.read_ts() == b""
-    assert demuxer.read_ts() == packet
+    assert demuxer.read_stream_once() == packet * 4
+    assert demuxer.read_stream_once() == b""
+    assert demuxer.read_stream_once() == packet
 
 
 def test_stop_waits_for_in_flight_read_and_discards_late_data():
@@ -131,7 +131,7 @@ def test_stop_waits_for_in_flight_read_and_discards_late_data():
 
     def read_stream():
         try:
-            demuxer.read_ts()
+            demuxer.read_stream_once()
         except RuntimeError as error:
             read_error.append(error)
 

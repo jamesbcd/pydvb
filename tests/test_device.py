@@ -57,8 +57,8 @@ class FakeAdapter:
     def stop(self):
         self.calls.append(("stop",))
 
-    def read_ts(self, timeout_ms=2000):
-        self.calls.append(("read_ts", timeout_ms))
+    def read_stream(self, timeout_ms=2000):
+        self.calls.append(("read_stream", timeout_ms))
         return b"ts"
 
     def set_pid_filter(self, pid, enabled=True):
@@ -156,13 +156,13 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
     device.start()
     device.set_pid_filter(100)
     device.enable_pid_filter()
-    assert device.read_ts(10) == b"ts"
+    assert device.read_stream(10) == b"ts"
     device.stop()
     device.read_status(adapter_index=1)
     device.start(adapter_index=1)
     device.set_pid_filter(200, adapter_index=1)
     device.enable_pid_filter(False, adapter_index=1)
-    assert device.read_ts(adapter_index=1) == b"ts"
+    assert device.read_stream(adapter_index=1) == b"ts"
     device.stop(adapter_index=1)
 
     assert first.calls == [
@@ -170,7 +170,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
         ("start",),
         ("set_pid_filter", 100, True),
         ("enable_pid_filter", True),
-        ("read_ts", 10),
+        ("read_stream", 10),
         ("stop",),
     ]
     assert second.calls == [
@@ -178,7 +178,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
         ("start",),
         ("set_pid_filter", 200, True),
         ("enable_pid_filter", False),
-        ("read_ts", 2000),
+        ("read_stream", 2000),
         ("stop",),
     ]
 
@@ -192,7 +192,7 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
         lambda device: device.read_status(),
         lambda device: device.start(),
         lambda device: device.stop(),
-        lambda device: device.read_ts(),
+        lambda device: device.read_stream(),
         lambda device: device.set_pid_filter(100),
         lambda device: device.enable_pid_filter(),
     ],
