@@ -51,6 +51,30 @@ class DVBEvent:
 
 
 @dataclass
+class DVBDescriptor:
+    """Raw descriptor attached to a DVB service or elementary stream.
+    
+    A descriptor is a structured piece of metadata attached to a DVB service or
+    elementary stream. It contains a tag identifying the type of descriptor and
+    the associated data.
+    """
+    tag: int
+    data: bytes
+
+
+@dataclass
+class DVBElementaryStream:
+    """Elementary stream entry advertised by a service's Program Map Table (PMT).
+    
+    An elementary stream represents a single media stream (audio, video, or data)
+    within a DVB service. It is identified by a PID and may have associated descriptors.
+    """
+    pid: int
+    stream_type: int
+    descriptors: tuple[DVBDescriptor, ...] = ()
+
+
+@dataclass
 class DVBService:
     """Metadata for a single DVB service (channel)."""
     service_id: int
@@ -60,8 +84,7 @@ class DVBService:
     service_type: int | None = None
     pmt_pid: int | None = None  # PMT = Program Map Table PID. PID = Packet Identifier
     pcr_pid: int | None = None  # PCR = Program Clock Reference PID. PID = Packet Identifier
-    video_pids: tuple[int, ...] = ()
-    audio_pids: tuple[int, ...] = ()
+    elementary_streams: tuple[DVBElementaryStream, ...] = ()
     current_event: DVBEvent | None = None
 
 
@@ -135,8 +158,17 @@ class DVBScanner:
                 service_type=service.service_type,
                 pmt_pid=service.pmt_pid,
                 pcr_pid=service.pcr_pid,
-                video_pids=tuple(sorted(service.video_pids)),
-                audio_pids=tuple(sorted(service.audio_pids)),
+                elementary_streams=tuple(
+                    DVBElementaryStream(
+                        pid=stream.pid,
+                        stream_type=stream.stream_type,
+                        descriptors=tuple(
+                            DVBDescriptor(tag=descriptor.tag, data=bytes(descriptor.data))
+                            for descriptor in stream.descriptors
+                        ),
+                    )
+                    for stream in service.elementary_streams
+                ),
                 current_event=service.current_event,
             )
             for service in sorted(self._services.values(), key=lambda item: item.service_id)
@@ -290,15 +322,24 @@ class DVBScanner:
         service.pcr_pid = ((section[8] & 0x1F) << 8) | section[9]
         info_length = ((section[10] & 0x0F) << 8) | section[11]
         offset = 12 + info_length
+        elementary_streams: list[DVBElementaryStream] = []
         while offset + 5 <= end:
             stream_type = section[offset]
             stream_pid = ((section[offset + 1] & 0x1F) << 8) | section[offset + 2]
             descriptor_length = ((section[offset + 3] & 0x0F) << 8) | section[offset + 4]
-            if stream_type in (0x01, 0x02, 0x10, 0x1B, 0x24, 0x42):
-                service.video_pids = tuple(sorted(set(service.video_pids) | {stream_pid}))
-            elif stream_type in (0x03, 0x04, 0x0F, 0x11, 0x81, 0x0B):
-                service.audio_pids = tuple(sorted(set(service.audio_pids) | {stream_pid}))
+            descriptor_data = section[offset + 5 : offset + 5 + descriptor_length]
+            elementary_streams.append(
+                DVBElementaryStream(
+                    pid=stream_pid,
+                    stream_type=stream_type,
+                    descriptors=tuple(
+                        DVBDescriptor(tag=tag, data=bytes(value))
+                        for tag, value in _descriptors(descriptor_data)
+                    ),
+                )
+            )
             offset += 5 + descriptor_length
+        service.elementary_streams = tuple(elementary_streams)
 
     def _decode_sdt(self, section: bytes) -> None:
         """Decode a Service Description Table (SDT) section."""

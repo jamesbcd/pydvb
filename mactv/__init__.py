@@ -20,7 +20,14 @@ from .drivers.af9015.demux import AF9015Demuxer
 from .drivers.af9015.device import AF9015Device
 from .drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
 from .drivers.af9015.tuner import TDA18271Tuner
-from .dvb import DVBEvent, DVBScanResult, DVBScanner, DVBService
+from .dvb import (
+    DVBDescriptor,
+    DVBElementaryStream,
+    DVBEvent,
+    DVBScanResult,
+    DVBScanner,
+    DVBService,
+)
 from .server import LocalTS_HTTPServer
 from .usb import USBSpeed, USBTransport, default_transport_factory
 
@@ -47,6 +54,8 @@ __all__ = [
     "TransmissionMode",
     "LocalTS_HTTPServer",
     "DVBEvent",
+    "DVBDescriptor",
+    "DVBElementaryStream",
     "DVBScanResult",
     "DVBScanner",
     "DVBService",

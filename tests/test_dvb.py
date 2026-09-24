@@ -1,3 +1,4 @@
+from mactv import DVBDescriptor, DVBElementaryStream
 from mactv.dvb import DVBScanner
 
 
@@ -42,8 +43,12 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     pmt = section(
         0x02,
         b"\x00\x01\xC1\x00\x00\xE1\x01\xF0\x00"
-        + b"\x1B\xE1\x01\xF0\x00"
-        + b"\x03\xE1\x02\xF0\x00",
+        + b"\x1B\xE1\x01\xF0\x07"
+        + descriptor(0x52, b"video")
+        + b"\x03\xE1\x02\xF0\x05"
+        + descriptor(0x0A, b"eng")
+        + b"\x06\xE1\x03\xF0\x05"
+        + descriptor(0x59, b"sub"),
     )
     service_descriptor = descriptor(0x48, b"\x01\x07Network\x09ExampleTV")
     sdt = section(
@@ -95,11 +100,50 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.provider_name == "Network"
     assert service.logical_channel_number == 5
     assert service.pmt_pid == 0x100
-    assert service.video_pids == (0x101,)
-    assert service.audio_pids == (0x102,)
+    assert service.elementary_streams == (
+        DVBElementaryStream(
+            pid=0x101,
+            stream_type=0x1B,
+            descriptors=(DVBDescriptor(tag=0x52, data=b"video"),),
+        ),
+        DVBElementaryStream(
+            pid=0x102,
+            stream_type=0x03,
+            descriptors=(DVBDescriptor(tag=0x0A, data=b"eng"),),
+        ),
+        DVBElementaryStream(
+            pid=0x103,
+            stream_type=0x06,
+            descriptors=(DVBDescriptor(tag=0x59, data=b"sub"),),
+        ),
+    )
     assert service.current_event is not None
     assert service.current_event.name == "News!"
     assert service.current_event.text == "Live"
+
+
+def test_scanner_replaces_elementary_streams_when_pmt_changes():
+    pat = section(0x00, b"\x00\x01\xC1\x00\x00\x00\x01\xE1\x00")
+    first_pmt = section(
+        0x02,
+        b"\x00\x01\xC1\x00\x00\xE1\x01\xF0\x00"
+        + b"\x1B\xE1\x01\xF0\x00"
+        + b"\x03\xE1\x02\xF0\x00",
+    )
+    second_pmt = section(
+        0x02,
+        b"\x00\x01\xC1\x00\x00\xE1\x01\xF0\x00"
+        + b"\x06\xE1\x03\xF0\x00",
+    )
+
+    scanner = DVBScanner()
+    scanner.feed(table_packet(0, pat))
+    scanner.feed(table_packet(0x100, first_pmt))
+    scanner.feed(table_packet(0x100, second_pmt))
+
+    assert scanner.result().services[0].elementary_streams == (
+        DVBElementaryStream(pid=0x103, stream_type=0x06),
+    )
 
 
 def test_scanner_reports_invalid_crc_and_can_skip_crc_validation():
