@@ -111,8 +111,3 @@ class DVBDemuxer(ABC):
     @abstractmethod
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes: ...
 
-    def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
-        """Optionally configure a hardware PID filter."""
-
-    def enable_pid_filter(self, enabled: bool = True) -> None:
-        """Optionally enable or disable hardware PID filtering."""

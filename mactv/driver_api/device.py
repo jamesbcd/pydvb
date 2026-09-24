@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from threading import RLock
 from typing import Any
 
@@ -141,8 +142,13 @@ class DVBDevice(ABC):
             adapter = self._get_adapter(adapter_index)
         return adapter.read_stream(timeout_ms)
 
-    def set_pid_filter(self, pid: int, enabled: bool = True, adapter_index: int = 0) -> None:
-        """Enable or disable one adapter's hardware PID filter slot.
+    def configure_pid_filter(
+        self,
+        pids: Iterable[int],
+        enabled: bool = True,
+        adapter_index: int = 0,
+    ) -> None:
+        """Atomically configure one adapter's software PID allow-list.
 
         Threading:
             Safe to call concurrently with other device control operations;
@@ -151,10 +157,10 @@ class DVBDevice(ABC):
         """
         with self._control_lock:
             self._require_initialized()
-            self._get_adapter(adapter_index).set_pid_filter(pid, enabled)
+            self._get_adapter(adapter_index).configure_pid_filter(pids, enabled)
 
-    def enable_pid_filter(self, enabled: bool = True, adapter_index: int = 0) -> None:
-        """Enable or disable one adapter's PID filtering.
+    def set_pid_filter_enabled(self, enabled: bool = True, adapter_index: int = 0) -> None:
+        """Enable or disable one adapter's PID allow-list.
 
         Threading:
             Safe to call concurrently with other device control operations;
@@ -163,4 +169,4 @@ class DVBDevice(ABC):
         """
         with self._control_lock:
             self._require_initialized()
-            self._get_adapter(adapter_index).enable_pid_filter(enabled)
+            self._get_adapter(adapter_index).set_pid_filter_enabled(enabled)

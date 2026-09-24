@@ -42,6 +42,8 @@ class FakeFrontend:
 
 
 class FakeDemuxer:
+    PID_FILTER_COUNT = 32
+
     def __init__(self):
         self.calls = []
 
@@ -53,7 +55,10 @@ class FakeDemuxer:
 
     def read_stream_once(self, timeout_ms=2000):
         self.calls.append(("read_stream_once", timeout_ms))
-        return b"ts"
+        return bytes((0x47, 0, 100, 0x10)) + b"x" * 184
+
+    def clear_all_pid_filters(self):
+        self.calls.append(("clear_all_pid_filters",))
 
     def set_pid_filter(self, pid, enabled=True):
         self.calls.append(("set_pid_filter", pid, enabled))
@@ -73,9 +78,9 @@ def test_adapter_exposes_components_and_delegates_operations():
     assert adapter.tune(tuning).lock
     assert adapter.tune(tuning, wait_for_lock=False).lock is False
     adapter.start()
-    adapter.set_pid_filter(100)
-    adapter.enable_pid_filter()
-    assert adapter.read_stream(10) == b"ts"
+    adapter.configure_pid_filter({100})
+    adapter.set_pid_filter_enabled()
+    assert adapter.read_stream(10) == bytes((0x47, 0, 100, 0x10)) + b"x" * 184
     adapter.stop()
     adapter.sleep()
 
@@ -91,7 +96,9 @@ def test_adapter_exposes_components_and_delegates_operations():
     ]
     assert demuxer.calls == [
         ("start",),
+        ("clear_all_pid_filters",),
         ("set_pid_filter", 100, True),
+        ("enable_pid_filter", True),
         ("enable_pid_filter", True),
         ("read_stream_once", 9),
         ("stop",),
@@ -128,3 +135,51 @@ def test_adapter_read_stream_times_out_after_empty_demux_reads():
 
     with pytest.raises(TimeoutError, match="transport-stream data"):
         adapter.read_stream(0)
+
+
+def _ts_packet(pid, payload=b"x"):
+    header = bytes((0x47, (pid >> 8) & 0x1F, pid & 0xFF, 0x10))
+    return header + payload * (188 - len(header))
+
+
+def test_adapter_software_pid_filter_replaces_collection_atomically():
+    frontend = FakeFrontend()
+    demuxer = EmptyThenDataDemuxer([_ts_packet(100) + _ts_packet(200)])
+    adapter = DVBAdapter(frontend, demuxer)
+
+    adapter.configure_pid_filter({100})
+
+    assert adapter.read_stream(100) == _ts_packet(100)
+
+
+def test_adapter_software_pid_filter_can_be_disabled():
+    frontend = FakeFrontend()
+    demuxer = EmptyThenDataDemuxer([_ts_packet(100) + _ts_packet(200)])
+    adapter = DVBAdapter(frontend, demuxer)
+    adapter.configure_pid_filter({100})
+    adapter.set_pid_filter_enabled(False)
+
+    assert adapter.read_stream(100) == _ts_packet(100) + _ts_packet(200)
+
+
+def test_adapter_rejects_invalid_pid_filter_values():
+    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
+
+    with pytest.raises(ValueError, match="0x1FFF"):
+        adapter.configure_pid_filter({0x2000})
+
+
+def test_af9015_adapter_uses_software_filter_when_hardware_slots_overflow():
+    demuxer = FakeDemuxer()
+    adapter = AF9015Adapter(
+        cast(AF9013Frontend, FakeFrontend()),
+        cast(AF9015Demuxer, demuxer),
+    )
+
+    adapter.configure_pid_filter(range(33))
+
+    assert demuxer.calls == [
+        ("clear_all_pid_filters",),
+        ("enable_pid_filter", False),
+    ]
+    assert adapter._filter_pid_stream(_ts_packet(32)) == _ts_packet(32)

@@ -61,11 +61,11 @@ class FakeAdapter:
         self.calls.append(("read_stream", timeout_ms))
         return b"ts"
 
-    def set_pid_filter(self, pid, enabled=True):
-        self.calls.append(("set_pid_filter", pid, enabled))
+    def configure_pid_filter(self, pids, enabled=True):
+        self.calls.append(("configure_pid_filter", pids, enabled))
 
-    def enable_pid_filter(self, enabled=True):
-        self.calls.append(("enable_pid_filter", enabled))
+    def set_pid_filter_enabled(self, enabled=True):
+        self.calls.append(("set_pid_filter_enabled", enabled))
 
 
 def test_default_firmware_path_exists():
@@ -154,30 +154,30 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
 
     assert device.read_status() == DVBFrontendStatus(False, False, False, False, False)
     device.start()
-    device.set_pid_filter(100)
-    device.enable_pid_filter()
+    device.configure_pid_filter({100})
+    device.set_pid_filter_enabled()
     assert device.read_stream(10) == b"ts"
     device.stop()
     device.read_status(adapter_index=1)
     device.start(adapter_index=1)
-    device.set_pid_filter(200, adapter_index=1)
-    device.enable_pid_filter(False, adapter_index=1)
+    device.configure_pid_filter({200}, adapter_index=1)
+    device.set_pid_filter_enabled(False, adapter_index=1)
     assert device.read_stream(adapter_index=1) == b"ts"
     device.stop(adapter_index=1)
 
     assert first.calls == [
         ("read_status",),
         ("start",),
-        ("set_pid_filter", 100, True),
-        ("enable_pid_filter", True),
+        ("configure_pid_filter", {100}, True),
+        ("set_pid_filter_enabled", True),
         ("read_stream", 10),
         ("stop",),
     ]
     assert second.calls == [
         ("read_status",),
         ("start",),
-        ("set_pid_filter", 200, True),
-        ("enable_pid_filter", False),
+        ("configure_pid_filter", {200}, True),
+        ("set_pid_filter_enabled", False),
         ("read_stream", 2000),
         ("stop",),
     ]
@@ -193,8 +193,8 @@ def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter()
         lambda device: device.start(),
         lambda device: device.stop(),
         lambda device: device.read_stream(),
-        lambda device: device.set_pid_filter(100),
-        lambda device: device.enable_pid_filter(),
+        lambda device: device.configure_pid_filter({100}),
+        lambda device: device.set_pid_filter_enabled(),
     ],
 )
 def test_device_rejects_adapter_operations_before_initialization(operation):
