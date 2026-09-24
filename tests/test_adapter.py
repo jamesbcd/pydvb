@@ -162,6 +162,21 @@ def test_adapter_software_pid_filter_can_be_disabled():
     assert adapter.read_stream(100) == _ts_packet(100) + _ts_packet(200)
 
 
+def test_adapter_software_pid_filter_returns_empty_for_no_matches():
+    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
+    adapter.configure_pid_filter({300})
+
+    assert adapter._filter_pid_stream(_ts_packet(100) + _ts_packet(200)) == b""
+
+
+def test_adapter_software_pid_filter_ignores_incomplete_tail():
+    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
+    adapter.configure_pid_filter({100})
+    packet = _ts_packet(100)
+
+    assert adapter._filter_pid_stream(packet + b"tail") == packet
+
+
 def test_adapter_rejects_invalid_pid_filter_values():
     adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
 

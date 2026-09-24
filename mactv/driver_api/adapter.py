@@ -66,7 +66,9 @@ class DVBAdapter:
         deadline = monotonic() + timeout_ms / 1000
         while True:
             remaining_ms = max(0, int((deadline - monotonic()) * 1000))
-            data = self._filter_pid_stream(self.demuxer.read_stream_once(remaining_ms))
+            data = self.demuxer.read_stream_once(remaining_ms)
+            if data:
+                data = self._filter_pid_stream(data)
             if data:
                 return data
             if monotonic() >= deadline:
@@ -110,15 +112,11 @@ class DVBAdapter:
             return data
         packet_size = 188
         filtered_data = bytearray()
-        # We loop through the data in chunks of packet_size (188 bytes)
-        for offset in range(0, len(data), packet_size):
-            packet = data[offset : offset + packet_size]
-            # Skip any incomplete packets at the end of the data.
-            if len(packet) < packet_size:
-                continue
-
-            packet_pid = ((packet[1] & 0x1F) << 8) | packet[2]
+        data_view = memoryview(data)
+        complete_packet_bytes = len(data) - len(data) % packet_size
+        for offset in range(0, complete_packet_bytes, packet_size):
+            packet_pid = ((data[offset + 1] & 0x1F) << 8) | data[offset + 2]
             if packet_pid in pids:
-                filtered_data.extend(packet)
+                filtered_data.extend(data_view[offset : offset + packet_size])
 
         return bytes(filtered_data)
