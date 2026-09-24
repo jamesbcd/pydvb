@@ -100,7 +100,7 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda adapter, output_path, buffer_log=False: (10, 1.0),
+        lambda adapter, output_path: (10, 1.0),
     )
     monkeypatch.setattr(sys, "argv", ["mactv", "--record", str(tmp_path / "capture.ts")])
 
@@ -112,7 +112,7 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
     result = DVBScanResult(1, 2, "network", (), 3, True)
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(__main__, "scan_stream", lambda adapter, buffer_log=False: result)
+    monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
     monkeypatch.setattr(sys, "argv", ["mactv", "--scan-stream"])
 
     assert __main__.main() == 0
@@ -131,14 +131,6 @@ def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
 
     assert __main__.main() == 0
     assert __main__.usb.LOG is expected
-
-
-def test_buffer_logging_option_is_accepted(monkeypatch):
-    device = FakeDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--safe", "--buffer-log"])
-
-    assert __main__.main() == 0
 
 
 @pytest.mark.parametrize(

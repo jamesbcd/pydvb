@@ -16,7 +16,6 @@ from .server import LocalTS_HTTPServer
 TS_PACKET_SIZE = 188
 MAX_CAPTURE_BYTES = ((35 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
 READ_TIMEOUT_SECONDS = 5.0
-BUFFER_LOG_ON_CHANGE = False
 DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
 
 
@@ -45,7 +44,6 @@ def capture_stream(
     output_path: Path,
     max_bytes: int = MAX_CAPTURE_BYTES,
     read_timeout: float = READ_TIMEOUT_SECONDS,
-    buffer_log: bool = False,
 ) -> tuple[int, float]:
     """Capture transport-stream data to disk and return bytes and elapsed seconds."""
     if max_bytes <= 0:
@@ -77,7 +75,6 @@ def capture_stream(
 def scan_stream(
     adapter,
     read_timeout: float = READ_TIMEOUT_SECONDS,
-    buffer_log: bool = False,
 ) -> DVBScanResult:
     """Feed a live transport stream to the scanner until its tables are complete."""
     if read_timeout < 0:
@@ -129,9 +126,7 @@ def _run_device(device, args) -> int:
         print(f"Frontend lock acquired. Starting capture to {args.record}")
         adapter = device.adapters[args.adapter_index]
         try:
-            bytes_written, elapsed = capture_stream(
-                adapter, args.record, buffer_log=args.buffer_log
-            )
+            bytes_written, elapsed = capture_stream(adapter, args.record)
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1
@@ -144,7 +139,7 @@ def _run_device(device, args) -> int:
             return 2
         adapter = device.adapters[args.adapter_index]
         try:
-            result = scan_stream(adapter, buffer_log=args.buffer_log)
+            result = scan_stream(adapter)
         except (OSError, RuntimeError, TimeoutError, ValueError) as error:
             print(f"Scan failed: {error}")
             return 1
@@ -159,7 +154,7 @@ def _run_device(device, args) -> int:
         host, port = args.serve
         adapter = device.adapters[args.adapter_index]
         server = LocalTS_HTTPServer(
-            adapter, host=host, port=port, buffer_log=args.buffer_log
+            adapter, host=host, port=port
         )
         bound_host, bound_port = server.address
         print(f"Frontend lock acquired. Serving http://{bound_host}:{bound_port}/stream.ts")
@@ -229,11 +224,6 @@ def main() -> int:
         "--usb-stats",
         action="store_true",
         help="Log stream USB read timing and returned byte counts",
-    )
-    parser.add_argument(
-        "--buffer-log",
-        action="store_true",
-        help="Log the transport-stream buffer queue during recording or serving",
     )
     parser.add_argument(
         "--sleep",
