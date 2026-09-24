@@ -57,8 +57,9 @@ class DVBAdapter:
         """Read non-empty transport-stream data within a total timeout.
 
         The demuxer may return empty chunks while synchronizing or buffering
-        packets. Those chunks are retried here so adapter callers receive
-        usable stream data or a timeout error.
+        packets. It returns only complete, 188-byte packets; empty chunks are
+        retried here so adapter callers receive usable stream data or a
+        timeout error.
         """
         if timeout_ms < 0:
             raise ValueError("timeout_ms must be non-negative")
@@ -95,18 +96,29 @@ class DVBAdapter:
             self._pid_filter_enabled = enabled
 
     def _filter_pid_stream(self, data: bytes) -> bytes:
+        """Return complete packets whose PID is in the configured allow-list.
+
+        ``data`` is expected to be packet-aligned and to contain only complete
+        packets, as provided by :meth:`DVBDemuxer.read_stream_once`. Any
+        incomplete tail is ignored defensively; packet reassembly belongs to
+        the demuxer, not this software PID filter.
+        """
         with self._pid_filter_lock:
             pids = self._pid_filter_pids
             enabled = self._pid_filter_enabled
         if not enabled or not pids:
             return data
-        # Filter the transport-stream packets based on the allowed PIDs.
-        # Each transport-stream packet is 188 bytes long. The PID is located in the
-        # second and third bytes of the packet header. Only packets with PIDs in the
-        # allowed set are included in the returned stream.
-        return b"".join(
-            packet
-            for offset in range(0, len(data), 188)
-            if len(packet := data[offset : offset + 188]) == 188
-            and ((packet[1] & 0x1F) << 8) | packet[2] in pids
-        )
+        packet_size = 188
+        filtered_data = bytearray()
+        # We loop through the data in chunks of packet_size (188 bytes)
+        for offset in range(0, len(data), packet_size):
+            packet = data[offset : offset + packet_size]
+            # Skip any incomplete packets at the end of the data.
+            if len(packet) < packet_size:
+                continue
+
+            packet_pid = ((packet[1] & 0x1F) << 8) | packet[2]
+            if packet_pid in pids:
+                filtered_data.extend(packet)
+
+        return bytes(filtered_data)

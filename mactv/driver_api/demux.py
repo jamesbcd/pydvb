@@ -48,10 +48,12 @@ class DVBDemuxer(ABC):
             self._stop_stream()
 
     def read_stream_once(self, timeout_ms: int = 2000) -> bytes:
-        """Read one demuxed stream chunk, which may be empty.
+        """Read one packet-aligned demuxed stream chunk, which may be empty.
 
-        Empty results indicate that the demuxer is still synchronizing or
-        buffering an incomplete transport-stream packet.
+        Every non-empty result contains only complete 188-byte transport-stream
+        packets. Empty results indicate that the demuxer is still synchronizing
+        or buffering an incomplete packet; any incomplete packet tail is kept
+        internally for the next call.
         """
         with self._state_condition:
             if not self._running:
