@@ -105,6 +105,7 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.provider_name == "Network"
     assert service.logical_channel_number == 5
     assert service.pmt_pid == 0x100
+    assert service.pids() == frozenset((0x100, 0x101, 0x102, 0x103))
     assert service.elementary_streams == (
         DVBElementaryStream(
             pid=0x101,
@@ -125,6 +126,15 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.current_event is not None
     assert service.current_event.name == "News!"
     assert service.current_event.text == "Live"
+
+
+def test_service_pids_omit_missing_optional_pids():
+    service = DVBService(
+        service_id=1,
+        elementary_streams=(DVBElementaryStream(pid=0x101, stream_type=0x1B),),
+    )
+
+    assert service.pids() == frozenset((0x101,))
 
 
 def test_scanner_replaces_elementary_streams_when_pmt_changes():

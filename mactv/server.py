@@ -8,6 +8,9 @@ from socketserver import BaseServer
 from threading import Event, Lock, Thread
 from typing import cast
 
+from mactv.driver_api.adapter import DVBAdapter
+from .dvb.scanner import DVBScanner, ScanPolicy
+
 
 class LocalTS_HTTPServer:
     """Serve one transport stream to one or more HTTP clients.
@@ -29,7 +32,7 @@ class LocalTS_HTTPServer:
             raise ValueError("port must be between 0 and 65535")
         if client_queue_size <= 0:
             raise ValueError("client_queue_size must be positive")
-        self.adapter = adapter
+        self.adapter: DVBAdapter = adapter
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
         self._clients: set[Queue[bytes | None]] = set()
@@ -47,6 +50,14 @@ class LocalTS_HTTPServer:
     def start(self) -> None:
         """Start the transport stream and its broadcaster."""
         self.adapter.start()
+        scanner = DVBScanner()
+        scan_result = scanner.scan(self.adapter, ScanPolicy.SERVICE_PIDS)
+        if len(scan_result.services) > 0:
+            service = scan_result.services[0]
+            print(f"Selected service: {service.name} (ID: {service.service_id})")
+            self.adapter.configure_pid_filter(service.pids())
+            self.adapter.set_pid_filter_enabled(True)
+
         self._broadcaster = Thread(
             target=self._broadcast,
             name="mactv-ts-broadcaster",

@@ -98,6 +98,18 @@ class DVBService:
     elementary_streams: tuple[DVBElementaryStream, ...] = ()
     current_event: DVBEvent | None = None
 
+    def pids(self) -> frozenset[int]:
+        """Return the transport-stream PIDs required for this service."""
+        return frozenset(
+            pid
+            for pid in (
+                self.pmt_pid,
+                self.pcr_pid,
+                *(stream.pid for stream in self.elementary_streams),
+            )
+            if pid is not None
+        )
+
 
 @dataclass
 class DVBScanResult:
