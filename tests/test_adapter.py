@@ -63,8 +63,8 @@ class FakeDemuxer:
         self.calls.append(("clear_hw_pid_filters",))
         self._pids.clear()
 
-    def configure_hw_pid_filter(self, pid, enabled=True):
-        self.calls.append(("configure_hw_pid_filter", pid, enabled))
+    def configure_one_hw_pid_filter(self, pid, enabled=True):
+        self.calls.append(("configure_one_hw_pid_filter", pid, enabled))
         if enabled:
             self._pids.add(pid)
         else:
@@ -109,7 +109,7 @@ def test_adapter_exposes_components_and_delegates_operations(monkeypatch):
     assert demuxer.calls == [
         ("start",),
         ("clear_hw_pid_filters",),
-        ("configure_hw_pid_filter", 100, True),
+        ("configure_one_hw_pid_filter", 100, True),
         ("set_hw_pid_filter_enabled", True),
         ("set_hw_pid_filter_enabled", True),
         ("read_stream_once", 9),

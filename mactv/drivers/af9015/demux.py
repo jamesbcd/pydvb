@@ -177,36 +177,82 @@ class AF9015Demuxer(DVBDemuxer):
         """
         if enabled:
             # Write the PID value to the filter value register before enabling the slot
-            self.bridge.write_i2c(
-                self.demodulator_address,
-                self.AF9013_PID_FILTER_VALUE,
-                pid.to_bytes(2, "little"),
-                address_length=3,
-            )
-            self.bridge.write_i2c(
-                self.demodulator_address,
-                self.AF9013_PID_FILTER_SLOT,
-                bytes((0x20 | slot,)),
-                address_length=3,
-            )
+            if self.adapter_index == 0:
+                self.bridge.write_memory(
+                    self.AF9013_PID_FILTER_VALUE,
+                    pid.to_bytes(2, "little"),
+                    address_length=3,
+                    mailbox=7,
+                    i2c_address=self.demodulator_address,
+                )
+                self.bridge.write_memory(
+                    self.AF9013_PID_FILTER_SLOT,
+                    bytes((0x20 | slot,)),
+                    address_length=3,
+                    mailbox=3,
+                    i2c_address=self.demodulator_address,
+                )
+            else:
+                self.bridge.write_i2c(
+                    self.demodulator_address,
+                    self.AF9013_PID_FILTER_VALUE,
+                    pid.to_bytes(2, "little"),
+                    address_length=3,
+                    mailbox=7,
+                )
+                self.bridge.write_i2c(
+                    self.demodulator_address,
+                    self.AF9013_PID_FILTER_SLOT,
+                    bytes((0x20 | slot,)),
+                    address_length=3,
+                    mailbox=3,
+                )
         else:
             # Disable the PID filter slot by writing the slot number without the enable bit
-            self.bridge.write_i2c(
-                self.demodulator_address,
-                self.AF9013_PID_FILTER_SLOT,
-                bytes((slot,)),
-                address_length=3,
-            )
+            if self.adapter_index == 0:
+                self.bridge.write_memory(
+                    self.AF9013_PID_FILTER_SLOT,
+                    bytes((slot,)),
+                    address_length=3,
+                    mailbox=3,
+                    i2c_address=self.demodulator_address,
+                )
+            else:
+                self.bridge.write_i2c(
+                    self.demodulator_address,
+                    self.AF9013_PID_FILTER_SLOT,
+                    bytes((slot,)),
+                    address_length=3,
+                    mailbox=3,
+                )
 
     def _set_hw_pid_filter_enabled(self, enabled: bool) -> None:
-        current = self.bridge.read_i2c_byte(
-            self.demodulator_address,
-            self.AF9013_PID_FILTER_CONTROL,
-            address_length=3,
-        )
-        self.bridge.write_i2c_byte(
-            self.demodulator_address,
-            self.AF9013_PID_FILTER_CONTROL,
-            (current & ~0x01) | int(enabled),
-            address_length=3,
-        )
+        if self.adapter_index == 0:
+            current = self.bridge.read_memory(
+                self.AF9013_PID_FILTER_CONTROL,
+                1,
+                address_length=3,
+                mailbox=2,
+                i2c_address=self.demodulator_address,
+            )[0]
+            self.bridge.write_memory(
+                self.AF9013_PID_FILTER_CONTROL,
+                bytes(((current & ~0x01) | int(enabled),)),
+                address_length=3,
+                mailbox=3,
+                i2c_address=self.demodulator_address,
+            )
+        else:
+            current = self.bridge.read_i2c_byte(
+                self.demodulator_address,
+                self.AF9013_PID_FILTER_CONTROL,
+                address_length=3,
+                mailbox=2,
+            )
+            self.bridge.write_i2c_byte(
+                self.demodulator_address,
+                self.AF9013_PID_FILTER_CONTROL,
+                (current & ~0x01) | int(enabled),
+                address_length=3,
+                mailbox=3,
+            )

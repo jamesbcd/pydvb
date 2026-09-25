@@ -197,6 +197,17 @@ class AF9013Frontend(DVBFrontend):
 
     def _read_register(self, register: int, length: int = 1) -> bytes:
         command = ((length - 1) << 2) | 0x02
+        if self.adapter_index == 1:
+            return b"".join(
+                self.bridge.read_i2c(
+                    self.demodulator_address,
+                    register + offset,
+                    1,
+                    address_length=3,
+                    mailbox=0x02,
+                )
+                for offset in range(length)
+            )
         if register & 0xFF00 == 0xAE00:
             return b"".join(
                 self.bridge.read_memory(
@@ -218,6 +229,16 @@ class AF9013Frontend(DVBFrontend):
 
     def _write_register(self, register: int, data: bytes) -> None:
         command = ((len(data) - 1) << 2) | 0x03
+        if self.adapter_index == 1:
+            for offset, value in enumerate(data):
+                self.bridge.write_i2c(
+                    self.demodulator_address,
+                    register + offset,
+                    bytes((value,)),
+                    address_length=3,
+                    mailbox=0x03,
+                )
+            return
         if register & 0xFF00 == 0xAE00:
             for offset, value in enumerate(data):
                 self.bridge.write_memory(

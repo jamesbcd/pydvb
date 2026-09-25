@@ -212,11 +212,30 @@ class AF9015Bridge:
             )
         )
 
-    def read_i2c_byte(self, address: int, register: int, address_length: int = 1) -> int:
-        return self.read_i2c(address, register, 1, address_length)[0]
+    def read_i2c_byte(
+        self,
+        address: int,
+        register: int,
+        address_length: int = 1,
+        mailbox: int = 0,
+    ) -> int:
+        return self.read_i2c(address, register, 1, address_length, mailbox)[0]
 
-    def write_i2c_byte(self, address: int, register: int, value: int, address_length: int = 1) -> None:
-        self.write_i2c(address, register, bytes((value & 0xFF,)), address_length)
+    def write_i2c_byte(
+        self,
+        address: int,
+        register: int,
+        value: int,
+        address_length: int = 1,
+        mailbox: int = 0,
+    ) -> None:
+        self.write_i2c(
+            address,
+            register,
+            bytes((value & 0xFF,)),
+            address_length,
+            mailbox,
+        )
 
     def download_firmware(self, firmware: bytes) -> None:
         max_payload_length = BUFFER_LENGTH - HEADER_LENGTH

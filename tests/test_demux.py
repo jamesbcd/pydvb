@@ -66,8 +66,25 @@ def test_pid_filter_programs_af9013_slot():
         b"\xD5\x05\x23\x01",
         b"\xD5\x04\x20",
     ]
-    assert all(packet[0] == 0x22 for _, packet in transport.writes)
+    assert all(packet[0] == 0x21 for _, packet in transport.writes)
     assert all(packet[2] == 0x3A for _, packet in transport.writes)
+    assert [packet[5] for _, packet in transport.writes] == [7, 3]
+
+
+def test_secondary_pid_filter_uses_af9013_i2c_transactions():
+    transport = FakeTransport()
+    demuxer = AF9015Demuxer(
+        AF9015Bridge(transport),
+        adapter_index=1,
+        dual_mode=True,
+        demodulator_address=0x1D,
+    )
+
+    demuxer.configure_one_hw_pid_filter(0x123)
+
+    assert [packet[0] for _, packet in transport.writes] == [0x22, 0x22]
+    assert [packet[2] for _, packet in transport.writes] == [0x3A, 0x3A]
+    assert [packet[5] for _, packet in transport.writes] == [7, 3]
 
 
 def test_pid_filter_reuses_freed_slot_and_controls_filter():
@@ -87,8 +104,12 @@ def test_pid_filter_reuses_freed_slot_and_controls_filter():
         if packet[3:5] == b"\xD5\x03" and packet[7] == 1 and len(packet) > 8
     ]
     assert control_writes[0][8:] == b"\x01"
+    assert control_writes[0][0] == 0x21
+    assert control_writes[0][5] == 3
     assert transport.writes[-1][1][3:5] == b"\xD5\x04"
     assert transport.writes[-1][1][8:] == b"\x20"
+    assert transport.writes[-1][1][0] == 0x21
+    assert transport.writes[-1][1][5] == 3
 
 
 def test_pid_filter_control_preserves_unrelated_register_bits():

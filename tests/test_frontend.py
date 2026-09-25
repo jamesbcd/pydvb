@@ -43,6 +43,26 @@ class FakeTuner:
         self.sleep_calls += 1
 
 
+def test_secondary_register_writes_use_single_byte_i2c_transactions():
+    bus = FakeBus()
+    frontend = AF9013Frontend(
+        bus,
+        0x1D,
+        None,
+        28_800_000,
+        4_570_000,
+        False,
+        adapter_index=1,
+    )
+
+    frontend._write_register(0xD3C0, b"\x01\x02")
+
+    assert bus.writes == [
+        (0x1D, 0xD3C0, b"\x01", 3, 3),
+        (0x1D, 0xD3C1, b"\x02", 3, 3),
+    ]
+
+
 def test_frontend_tunes_tuner_and_programs_frequency_and_bandwidth():
     bus = FakeBus()
     tuner = FakeTuner()

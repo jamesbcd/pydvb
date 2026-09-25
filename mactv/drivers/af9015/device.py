@@ -233,7 +233,7 @@ class AF9015Device(DVBDevice):
         self.bridge.write_memory(0xD416, b"\x04")
         self.bridge.copy_firmware(self.firmware_size, self.firmware_checksum)
         self.bridge.write_memory(0xD416, b"\x14")
-        self.bridge.write_i2c_byte(address, 0xE205, 0x01, address_length=3)
+        self.bridge.write_i2c_byte(address, 0xE205, 0x01, address_length=3, mailbox=1)
 
         deadline = monotonic() + 1.0
         while monotonic() < deadline:
