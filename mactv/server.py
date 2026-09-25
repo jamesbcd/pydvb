@@ -8,8 +8,6 @@ from socketserver import BaseServer
 from threading import Event, Lock, Thread
 from typing import cast
 
-BUFFER_LOG_ON_CHANGE = True
-
 
 class LocalTS_HTTPServer:
     """Serve one transport stream to one or more HTTP clients.
