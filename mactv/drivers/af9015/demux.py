@@ -104,9 +104,9 @@ class AF9015Demuxer(DVBDemuxer):
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)
 
-    def configure_hw_pid_filter(self, pid: int, enabled: bool = True) -> None:
+    def configure_one_hw_pid_filter(self, pid: int, enabled: bool = True) -> None:
         """
-        Configure a hardware PID filter slot for the given PID.
+        Configure a single hardware PID filter for the given PID.
 
         Args:
             pid (int): The PID to configure the filter for.
@@ -149,6 +149,12 @@ class AF9015Demuxer(DVBDemuxer):
                 return
             self._set_hw_pid_filter_enabled(enabled)
             self._hw_pid_filter_enabled = enabled
+            if enabled:
+                pids = frozenset(self._hw_pid_slots)
+                print(f"Hardware PID filter active with {len(pids)} PIDs: {sorted(pids)}")
+            else:
+                print(f"Hardware PID filter disabled")
+
 
     @property
     def hw_pid_filter_enabled(self) -> bool:

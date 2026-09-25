@@ -59,7 +59,7 @@ def test_pid_filter_programs_af9013_slot():
     transport = FakeTransport()
     demuxer = AF9015Demuxer(AF9015Bridge(transport), demodulator_address=0x1D)
 
-    demuxer.configure_hw_pid_filter(0x123)
+    demuxer.configure_one_hw_pid_filter(0x123)
 
     assert demuxer.hw_filter_pids == frozenset({0x123})
     assert [packet[3:5] + packet[8:] for _, packet in transport.writes] == [
@@ -75,9 +75,9 @@ def test_pid_filter_reuses_freed_slot_and_controls_filter():
     demuxer = AF9015Demuxer(AF9015Bridge(transport))
 
     demuxer.set_hw_pid_filter_enabled()
-    demuxer.configure_hw_pid_filter(100)
-    demuxer.configure_hw_pid_filter(100, enabled=False)
-    demuxer.configure_hw_pid_filter(200)
+    demuxer.configure_one_hw_pid_filter(100)
+    demuxer.configure_one_hw_pid_filter(100, enabled=False)
+    demuxer.configure_one_hw_pid_filter(200)
 
     assert demuxer.hw_pid_filter_enabled
     assert demuxer.hw_filter_pids == frozenset({200})
@@ -105,8 +105,8 @@ def test_clear_all_pid_filters_disables_configured_slots():
     transport = FakeTransport()
     demuxer = AF9015Demuxer(AF9015Bridge(transport))
 
-    demuxer.configure_hw_pid_filter(100)
-    demuxer.configure_hw_pid_filter(200)
+    demuxer.configure_one_hw_pid_filter(100)
+    demuxer.configure_one_hw_pid_filter(200)
     demuxer.set_hw_pid_filter_enabled()
     writes_before_clear = len(transport.writes)
 
@@ -133,17 +133,17 @@ def test_pid_filter_rejects_more_than_32_slots():
     demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
 
     for pid in range(32):
-        demuxer.configure_hw_pid_filter(pid)
+        demuxer.configure_one_hw_pid_filter(pid)
 
     with pytest.raises(ValueError, match="32 slots"):
-        demuxer.configure_hw_pid_filter(32)
+        demuxer.configure_one_hw_pid_filter(32)
 
 
 def test_pid_filter_rejects_values_above_hardware_pid_range():
     demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
 
     with pytest.raises(ValueError, match="0x1FFF"):
-        demuxer.configure_hw_pid_filter(0x2001)
+        demuxer.configure_one_hw_pid_filter(0x2001)
 
 
 def test_full_speed_stream_uses_five_packets():
@@ -213,7 +213,7 @@ def test_pid_filter_rejects_linux_whole_stream_sentinel():
     demuxer = AF9015Demuxer(AF9015Bridge(FakeTransport()))
 
     with pytest.raises(ValueError, match="0x1FFF"):
-        demuxer.configure_hw_pid_filter(0x2000)
+        demuxer.configure_one_hw_pid_filter(0x2000)
 
 
 def test_demuxer_get_config_dict_contains_configuration_and_is_a_snapshot():

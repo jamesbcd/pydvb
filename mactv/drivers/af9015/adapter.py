@@ -45,9 +45,8 @@ class AF9015Adapter(DVBAdapter):
             self.demuxer.clear_hw_pid_filters()
             if len(validated) <= self.demuxer.PID_FILTER_COUNT:
                 for pid in sorted(validated):
-                    self.demuxer.configure_hw_pid_filter(pid)
+                    self.demuxer.configure_one_hw_pid_filter(pid)
                 self.demuxer.set_hw_pid_filter_enabled(enabled and bool(validated))
-                print(f"Hardware PID filter enabled: {enabled and bool(pids)}")
                 self._using_hardware_pid_filter = True
                 # Disable software filtering
                 super().set_pid_filter_enabled(False)
@@ -74,7 +73,6 @@ class AF9015Adapter(DVBAdapter):
             if self._using_hardware_pid_filter:
                 pids = self.demuxer.hw_filter_pids
                 self.demuxer.set_hw_pid_filter_enabled(enabled and bool(pids))
-                print(f"Hardware PID filter enabled: {enabled and bool(pids)}")
                 super().set_pid_filter_enabled(False)
             else:
                 # We're using software PID filter, so delegate to the base class.

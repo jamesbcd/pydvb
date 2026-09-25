@@ -116,11 +116,13 @@ class DVBAdapter:
         with self._sw_pid_filter_lock:
             pids = self._sw_pid_filter_pids
             enabled = self._sw_pid_filter_enabled
-            first_filter_call = enabled and bool(pids) and self._first_sw_filter_call
+            first_filter_call = self._first_sw_filter_call
             if first_filter_call:
                 self._first_sw_filter_call = False
         if not enabled or not pids:
             # We're not filtering.
+            if first_filter_call:
+                print(f"Software PID filter inactive")
             return data
         # We are filtering.
         if first_filter_call:
