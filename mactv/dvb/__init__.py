@@ -5,6 +5,7 @@ from .scanner import (
 	DVBElementaryStream,
 	DVBEvent,
 	DVBScanResult,
+	ScanPolicy,
 	DVBScanner,
 	DVBService,
 )
@@ -14,6 +15,7 @@ __all__ = [
 	"DVBElementaryStream",
 	"DVBEvent",
 	"DVBScanResult",
+	"ScanPolicy",
 	"DVBScanner",
 	"DVBService",
 ]

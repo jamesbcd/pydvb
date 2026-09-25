@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from enum import Enum, auto
+from typing import Any
 
 from construct import Bit, BitStruct, BitsInteger
+
+from mactv.driver_api.adapter import DVBAdapter
 
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
@@ -74,6 +78,13 @@ class DVBElementaryStream:
     descriptors: tuple[DVBDescriptor, ...] = ()
 
 
+class ScanPolicy(Enum):
+    """Define the amount of metadata required for a scan to be complete."""
+
+    MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
+    SERVICE_PIDS = auto() # Require all PIDs for each service advertised by the current PAT to have been decoded
+
+
 @dataclass
 class DVBService:
     """Metadata for a single DVB service (channel)."""
@@ -115,6 +126,7 @@ class DVBScanner:
         self._continuity: dict[int, int] = {} # Continuity counters for each PID
         self._services: dict[int, DVBService] = {} # Discovered services keyed by service ID
         self._pmt_pids: dict[int, int] = {}     # Mapping from service ID to PMT (Program Map Table) PID
+        self._decoded_pmt_pids: dict[int, int] = {} # PMT PIDs decoded for each service
         self._seen_tables: set[int] = set()     # Set of table IDs that have been seen
         self._warnings: list[str] = []          # Accumulated warnings during scanning
         self._packets_seen = 0                  # Count of TS packets processed
@@ -122,32 +134,68 @@ class DVBScanner:
         self._original_network_id: int | None = None # Original network ID from the SDT
         self._network_name: str | None = None   # Network name from the SDT
 
-    def scan(self, chunks: Iterable[bytes]) -> DVBScanResult:
-        """Consume chunks until exhausted and return the accumulated result.
-        
+    def scan(
+        self,
+        source: Iterable[bytes] | DVBAdapter,
+        policy: ScanPolicy = ScanPolicy.MIN_METADATA,
+    ) -> DVBScanResult:
+        """Consume a transport-stream source and return the accumulated result.
+
         Args:
-            chunks: An iterable of byte chunks representing transport-stream data.
+            source: An iterable of byte chunks, or a started DVB adapter.
+            policy: The completion policy that determines when scanning stops.
 
         Returns:
-            A DVBScanResult object containing the accumulated scan results. 
-        """
-        for chunk in chunks:
-            self.feed(chunk)
-        return self.result()
+            A DVBScanResult object containing the accumulated scan results.
 
-    @property
-    def complete(self) -> bool:
-        """Whether the core PAT, PMT, and SDT information is available."""
+        Raises:
+            RuntimeError: If ``source`` is a DVB adapter that has not started
+                its stream.
+        """
+        if isinstance(source, DVBAdapter):
+            if not source.demuxer.running:
+                raise RuntimeError("start the adapter before scanning")
+            while not self.complete(policy):
+                self.feed(source.read_stream())
+        else:
+            for chunk in source:
+                self.feed(chunk)
+                if self.complete(policy):
+                    break
+        return self.result(policy)
+
+    def complete(
+        self,
+        policy: ScanPolicy = ScanPolicy.MIN_METADATA,
+    ) -> bool:
+        """Return whether the selected scan completion condition is satisfied.
+
+        ``MINIMUM_METADATA`` requires the PAT PMT references and SDT service
+        metadata. ``ALL_SERVICE_PIDS`` additionally requires every PMT
+        advertised by the current PAT to have been decoded (allowing filtering by a
+        single service).
+        """
         # PMT = Program Map Table (contains information about the programs and their associated PIDs)
         # SDT = Service Description Table (contains information about the services. e.g.names and provider names)
         # The scanner checks for the presence of these tables and PIDs to determine completeness.
         # The scanner is considered complete if it has seen the PMT PIDs,
         # the SDT table (0x42), and all services have a PMT PID.
-        return bool(self._pmt_pids) and 0x42 in self._seen_tables and all(
+        minimum_metadata = bool(self._pmt_pids) and 0x42 in self._seen_tables and all(
             service.pmt_pid is not None for service in self._services.values()
         )
+        if policy is ScanPolicy.MIN_METADATA:
+            return minimum_metadata
+        if policy is ScanPolicy.SERVICE_PIDS:
+            return minimum_metadata and all(
+                self._decoded_pmt_pids.get(service_id) == pmt_pid
+                for service_id, pmt_pid in self._pmt_pids.items()
+            )
+        raise ValueError(f"unsupported scan completion policy: {policy!r}")
 
-    def result(self) -> DVBScanResult:
+    def result(
+        self,
+        policy: ScanPolicy = ScanPolicy.MIN_METADATA,
+    ) -> DVBScanResult:
         """Return a snapshot of the scanner state."""
         services = tuple(
             DVBService(
@@ -179,7 +227,7 @@ class DVBScanner:
             network_name=self._network_name,
             services=services,
             packets_seen=self._packets_seen,
-            complete=self.complete,
+            complete=self.complete(policy),
             warnings=tuple(self._warnings),
         )
 
@@ -301,7 +349,7 @@ class DVBScanner:
         elif pid == 0x12 and 0x4E <= table_id <= 0x6F: # EIT (Event Information Table)
             self._decode_eit(section)
         elif pid in self._pmt_pids.values() and table_id == 0x02: # PMT (Program Map Table)
-            self._decode_pmt(section)
+            self._decode_pmt(pid, section)
 
     def _decode_pat(self, section: bytes) -> None:
         """Decode a Program Association Table (PAT) section."""
@@ -314,7 +362,7 @@ class DVBScanner:
                 self._pmt_pids[service_id] = pid
                 self._services.setdefault(service_id, DVBService(service_id)).pmt_pid = pid
 
-    def _decode_pmt(self, section: bytes) -> None:
+    def _decode_pmt(self, pid: int, section: bytes) -> None:
         """Decode a Program Map Table (PMT) section."""
         service_id = int.from_bytes(section[3:5], "big")
         service = self._services.setdefault(service_id, DVBService(service_id))
@@ -340,6 +388,7 @@ class DVBScanner:
             )
             offset += 5 + descriptor_length
         service.elementary_streams = tuple(elementary_streams)
+        self._decoded_pmt_pids[service_id] = pid
 
     def _decode_sdt(self, section: bytes) -> None:
         """Decode a Service Description Table (SDT) section."""

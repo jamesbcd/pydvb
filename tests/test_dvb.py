@@ -1,5 +1,10 @@
+from types import SimpleNamespace
+
+import pytest
+
 from mactv import DVBDescriptor, DVBElementaryStream
-from mactv.dvb import DVBScanner
+from mactv.dvb import DVBScanner, DVBService, ScanPolicy
+from mactv.driver_api.adapter import DVBAdapter
 
 
 def mpeg_crc(data):
@@ -178,3 +183,40 @@ def test_scanner_skips_irrelevant_packet_payloads():
 
     assert scanner.result().packets_seen == 1
     assert scanner._section_buffers == {}
+
+
+def test_scanner_rejects_an_unstarted_adapter():
+    adapter = DVBAdapter(SimpleNamespace(), SimpleNamespace(running=False))
+
+    with pytest.raises(RuntimeError, match="start the adapter"):
+        DVBScanner().scan(adapter)
+
+
+def test_scanner_completion_policy_can_require_decoded_pmts():
+    scanner = DVBScanner()
+    scanner._pmt_pids[1] = 100
+    scanner._services[1] = DVBService(service_id=1, pmt_pid=100)
+    scanner._seen_tables.add(0x42)
+
+    assert scanner.complete(ScanPolicy.MIN_METADATA)
+    assert not scanner.complete(ScanPolicy.SERVICE_PIDS)
+
+    scanner._decoded_pmt_pids[1] = 100
+    assert scanner.complete(ScanPolicy.SERVICE_PIDS)
+
+
+def test_scanner_reads_a_started_adapter_until_complete():
+    adapter = DVBAdapter(SimpleNamespace(), SimpleNamespace(running=True))
+    chunks = iter((b"first",))
+    adapter.read_stream = lambda: next(chunks)
+    scanner = DVBScanner()
+
+    def feed(_chunk):
+        scanner._pmt_pids[1] = 2
+        scanner._seen_tables.add(0x42)
+
+    scanner.feed = feed
+
+    result = scanner.scan(adapter)
+
+    assert result.complete

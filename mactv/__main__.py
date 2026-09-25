@@ -83,7 +83,7 @@ def scan_stream(
     scanner = DVBScanner()
     try:
         adapter.start()
-        while not scanner.complete:
+        while not scanner.complete():
             chunk = adapter.read_stream(max(0, int(read_timeout * 1000)))
             scanner.feed(chunk)
         return scanner.result()
