@@ -138,25 +138,30 @@ class DVBScanner:
         self,
         source: Iterable[bytes] | DVBAdapter,
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
+        read_timeout_ms: int = 2000,
     ) -> DVBScanResult:
         """Consume a transport-stream source and return the accumulated result.
 
         Args:
             source: An iterable of byte chunks, or a started DVB adapter.
             policy: The completion policy that determines when scanning stops.
+            read_timeout_ms: The timeout in milliseconds for adapter reads.
 
         Returns:
             A DVBScanResult object containing the accumulated scan results.
 
         Raises:
+            ValueError: If ``read_timeout_ms`` is negative.
             RuntimeError: If ``source`` is a DVB adapter that has not started
                 its stream.
         """
+        if read_timeout_ms < 0:
+            raise ValueError("read_timeout_ms must be non-negative")
         if isinstance(source, DVBAdapter):
             if not source.demuxer.running:
                 raise RuntimeError("start the adapter before scanning")
             while not self.complete(policy):
-                self.feed(source.read_stream())
+                self.feed(source.read_stream(read_timeout_ms))
         else:
             for chunk in source:
                 self.feed(chunk)

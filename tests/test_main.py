@@ -210,18 +210,20 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
 
 def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
     adapter = FakeStreamAdapter([b"first", b"second"])
+    scan_calls = []
     scanner = type("Scanner", (), {
-        "complete": lambda scanner: scanner._complete,
-        "_complete": False,
-        "feed": lambda scanner, _chunk: setattr(scanner, "_complete", True),
-        "result": lambda _scanner: DVBScanResult(1, 2, "network", (), 1, True),
+        "scan": lambda _scanner, source, read_timeout_ms: (
+            scan_calls.append((source, read_timeout_ms))
+            or DVBScanResult(1, 2, "network", (), 1, True)
+        ),
     })()
     monkeypatch.setattr(__main__, "DVBScanner", lambda: scanner)
 
     result = __main__.scan_stream(adapter)
 
     assert result.complete
-    assert adapter.events == ["start", "read", "stop", "sleep"]
+    assert scan_calls == [(adapter, 5000)]
+    assert adapter.events == ["start", "stop", "sleep"]
 
 
 def test_capture_stream_fails_after_read_timeout(tmp_path):

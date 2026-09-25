@@ -208,7 +208,7 @@ def test_scanner_completion_policy_can_require_decoded_pmts():
 def test_scanner_reads_a_started_adapter_until_complete():
     adapter = DVBAdapter(SimpleNamespace(), SimpleNamespace(running=True))
     chunks = iter((b"first",))
-    adapter.read_stream = lambda: next(chunks)
+    adapter.read_stream = lambda _timeout_ms=2000: next(chunks)
     scanner = DVBScanner()
 
     def feed(_chunk):
