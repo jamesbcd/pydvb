@@ -152,7 +152,7 @@ class _AsynchronousReadStats:
                 for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
             ) or "none"
             print(
-                "USB async cadence: completions=0 transfer_errors="
+                "USB async summary: completions=0 transfer_errors="
                 f"{self._transfer_errors} cancelled={self._cancelled_transfers} "
                 f"transfer_error_statuses={error_statuses} "
                 f"resubmit_errors={self._resubmit_errors}",
@@ -182,7 +182,7 @@ class _AsynchronousReadStats:
             for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
         ) or "none"
         print(
-            f"USB async cadence: completions={self._completions} bytes={self._bytes} "
+            f"USB async summary: completions={self._completions} bytes={self._bytes} "
             f"completion_intervals_ms(avg/min/max)={interval_text} "
             f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
             f"queue_size_mib(min/max)={self._min_queue_bytes / 1048576:.3f}/"

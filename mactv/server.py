@@ -109,6 +109,13 @@ class LocalTS_HTTPServer:
                     chunk = self.adapter.read_stream(1000)
                 except TimeoutError:
                     continue
+                except RuntimeError:
+                    # Adapter read_stream raised RuntimeError, likely due to stopping.
+                    # If the stop event is not set, re-raise the exception. Otherwise, since we are
+                    # stopping, we simply break the loop.
+                    if not self._stop_event.is_set():
+                        raise
+                    break
                 with self._clients_lock:
                     clients = tuple(self._clients)
                 for client in clients:

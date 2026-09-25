@@ -6,6 +6,11 @@ from time import monotonic, sleep
 from mactv.server import LocalTS_HTTPServer
 
 
+class FakeScanner:
+    def scan(self, adapter, policy):
+        return type("ScanResult", (), {"services": ()})()
+
+
 class FakeAdapter:
     def __init__(self):
         self.chunks = Queue()
@@ -24,6 +29,12 @@ class FakeAdapter:
         self.stopped.set()
 
 
+class ShutdownRaceAdapter(FakeAdapter):
+    def read_stream(self, timeout_ms=2000):
+        self.stopped.wait(timeout=1)
+        raise RuntimeError("demuxer is not started")
+
+
 def wait_for_clients(server, count):
     deadline = monotonic() + 2
     while monotonic() < deadline:
@@ -34,9 +45,10 @@ def wait_for_clients(server, count):
     raise AssertionError("HTTP clients did not connect")
 
 
-def test_server_fans_out_transport_stream_to_multiple_clients(capsys):
+def test_server_fans_out_transport_stream_to_multiple_clients(capsys, monkeypatch):
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(adapter, port=0)
+    monkeypatch.setattr("mactv.server.DVBScanner", FakeScanner)
     serving = Thread(target=server.serve_forever)
     serving.start()
     server.start()
@@ -95,3 +107,14 @@ def test_server_does_not_depend_on_ts_stream():
 
     assert server.adapter is not None
     assert not hasattr(server, "stream")
+
+
+def test_server_suppresses_demux_shutdown_error_from_broadcaster():
+    server = LocalTS_HTTPServer(ShutdownRaceAdapter(), port=0)
+    server._broadcaster = Thread(target=server._broadcast)
+    server._broadcaster.start()
+
+    server.close()
+
+    assert server._broadcaster is not None
+    assert not server._broadcaster.is_alive()

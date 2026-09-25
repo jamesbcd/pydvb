@@ -262,7 +262,8 @@ def test_libusb_none_async_queue_limit_uses_default(monkeypatch):
     assert transport.async_queue_bytes == usb_module.DEFAULT_MAX_QUEUE_SIZE * 1024 * 1024
 
 
-def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkeypatch):
+def test_libusb_async_summary_reports_callback_statistics(capsys, monkeypatch):
+    monkeypatch.setattr(usb_module, "LOG", False)
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
@@ -280,7 +281,7 @@ def test_libusb_async_cadence_summary_reports_callback_statistics(capsys, monkey
 
     output = capsys.readouterr().out.splitlines()
     assert len(output) == 1
-    assert output[0].startswith("USB async cadence: completions=2 bytes=8")
+    assert output[0].startswith("USB async summary: completions=2 bytes=8")
     assert "completion_intervals_ms(avg/min/max)=" in output[0]
     assert "queue_depth(min/max)=1/1" in output[0]
     assert "queue_size_mib(min/max)=0.000/0.000" in output[0]
