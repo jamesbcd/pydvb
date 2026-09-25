@@ -3,6 +3,7 @@ from typing import cast
 
 import pytest
 
+import mactv.drivers.af9015.adapter as af9015_adapter
 from mactv.drivers.af9015.adapter import AF9015Adapter
 from mactv.drivers.af9015.demux import AF9015Demuxer
 from mactv.driver_api.adapter import DVBAdapter
@@ -46,6 +47,7 @@ class FakeDemuxer:
 
     def __init__(self):
         self.calls = []
+        self._pids = set()
 
     def start(self):
         self.calls.append(("start",))
@@ -57,17 +59,27 @@ class FakeDemuxer:
         self.calls.append(("read_stream_once", timeout_ms))
         return bytes((0x47, 0, 100, 0x10)) + b"x" * 184
 
-    def clear_all_pid_filters(self):
-        self.calls.append(("clear_all_pid_filters",))
+    def clear_hw_pid_filters(self):
+        self.calls.append(("clear_hw_pid_filters",))
+        self._pids.clear()
 
-    def set_pid_filter(self, pid, enabled=True):
-        self.calls.append(("set_pid_filter", pid, enabled))
+    def configure_hw_pid_filter(self, pid, enabled=True):
+        self.calls.append(("configure_hw_pid_filter", pid, enabled))
+        if enabled:
+            self._pids.add(pid)
+        else:
+            self._pids.discard(pid)
 
-    def enable_pid_filter(self, enabled=True):
-        self.calls.append(("enable_pid_filter", enabled))
+    def set_hw_pid_filter_enabled(self, enabled=True):
+        self.calls.append(("set_hw_pid_filter_enabled", enabled))
+
+    @property
+    def hw_filter_pids(self):
+        return frozenset(self._pids)
 
 
-def test_adapter_exposes_components_and_delegates_operations():
+def test_adapter_exposes_components_and_delegates_operations(monkeypatch):
+    monkeypatch.setattr(af9015_adapter, "ALLOW_HARDWARE_PID_FILTER", True)
     frontend = FakeFrontend()
     demuxer = FakeDemuxer()
     adapter = AF9015Adapter(cast(AF9013Frontend, frontend), cast(AF9015Demuxer, demuxer))
@@ -96,13 +108,28 @@ def test_adapter_exposes_components_and_delegates_operations():
     ]
     assert demuxer.calls == [
         ("start",),
-        ("clear_all_pid_filters",),
-        ("set_pid_filter", 100, True),
-        ("enable_pid_filter", True),
-        ("enable_pid_filter", True),
+        ("clear_hw_pid_filters",),
+        ("configure_hw_pid_filter", 100, True),
+        ("set_hw_pid_filter_enabled", True),
+        ("set_hw_pid_filter_enabled", True),
         ("read_stream_once", 9),
         ("stop",),
+        ("set_hw_pid_filter_enabled", False),
     ]
+
+
+def test_af9015_hardware_filter_does_not_filter_stream_again(monkeypatch):
+    monkeypatch.setattr(af9015_adapter, "ALLOW_HARDWARE_PID_FILTER", True)
+    frontend = FakeFrontend()
+    demuxer = EmptyThenDataDemuxer([_ts_packet(100) + _ts_packet(200)])
+    adapter = AF9015Adapter(
+        cast(AF9013Frontend, frontend),
+        cast(AF9015Demuxer, demuxer),
+    )
+
+    adapter.configure_pid_filter({100})
+
+    assert adapter.read_stream(100) == _ts_packet(100) + _ts_packet(200)
 
 
 class EmptyThenDataDemuxer(FakeDemuxer):
@@ -162,6 +189,15 @@ def test_adapter_software_pid_filter_can_be_disabled():
     assert adapter.read_stream(100) == _ts_packet(100) + _ts_packet(200)
 
 
+def test_adapter_stop_disables_software_pid_filter():
+    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
+    adapter.configure_pid_filter({100})
+
+    adapter.stop()
+
+    assert adapter._sw_pid_filter_enabled is False
+
+
 def test_adapter_software_pid_filter_returns_empty_for_no_matches():
     adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
     adapter.configure_pid_filter({300})
@@ -184,7 +220,8 @@ def test_adapter_rejects_invalid_pid_filter_values():
         adapter.configure_pid_filter({0x2000})
 
 
-def test_af9015_adapter_uses_software_filter_when_hardware_slots_overflow():
+def test_af9015_adapter_uses_software_filter_when_hardware_slots_overflow(monkeypatch):
+    monkeypatch.setattr(af9015_adapter, "ALLOW_HARDWARE_PID_FILTER", True)
     demuxer = FakeDemuxer()
     adapter = AF9015Adapter(
         cast(AF9013Frontend, FakeFrontend()),
@@ -194,7 +231,7 @@ def test_af9015_adapter_uses_software_filter_when_hardware_slots_overflow():
     adapter.configure_pid_filter(range(33))
 
     assert demuxer.calls == [
-        ("clear_all_pid_filters",),
-        ("enable_pid_filter", False),
+        ("clear_hw_pid_filters",),
+        ("set_hw_pid_filter_enabled", False),
     ]
     assert adapter._filter_pid_stream(_ts_packet(32)) == _ts_packet(32)

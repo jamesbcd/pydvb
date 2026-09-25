@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .demux import AF9015Demuxer
 from ...driver_api.adapter import DVBAdapter
 from .frontend import AF9013Frontend
+
+
+ALLOW_HARDWARE_PID_FILTER = True
 
 
 @dataclass
@@ -20,32 +23,59 @@ class AF9015Adapter(DVBAdapter):
 
     frontend: AF9013Frontend
     demuxer: AF9015Demuxer
+    _using_hardware_pid_filter: bool = field(
+        default=ALLOW_HARDWARE_PID_FILTER,
+        init=False,
+        repr=False,
+    )
 
     def configure_pid_filter(self, pids: Iterable[int], enabled: bool = True) -> None:
-        """Atomically configure hardware or software PID filtering.
+        """Atomically configure the PID allow-list, and enable or disable PID filtering.
 
-        AF9015 hardware has 32 PID slots. Larger allow-lists use the
-        unfiltered hardware stream and the generic adapter software filter.
+        We override the base class method to provide hardware PID filtering when available.
+        AF9015 hardware has 32 PID slots. Larger allow-lists use the unfiltered hardware
+        stream and the software filter of the base class.
         """
-        normalized = self._validate_pids(pids)
+        if not ALLOW_HARDWARE_PID_FILTER:
+            # Use the software filter of the base class.
+            return super().configure_pid_filter(pids, enabled)
+
+        validated = self._validate_pids(pids)
         with self._control_lock:
-            self.demuxer.clear_all_pid_filters()
-            if len(normalized) <= self.demuxer.PID_FILTER_COUNT:
-                for pid in sorted(normalized):
-                    self.demuxer.set_pid_filter(pid)
-                self.demuxer.enable_pid_filter(enabled and bool(normalized))
-                self._hardware_pid_filter_mode = True
+            self.demuxer.clear_hw_pid_filters()
+            if len(validated) <= self.demuxer.PID_FILTER_COUNT:
+                for pid in sorted(validated):
+                    self.demuxer.configure_hw_pid_filter(pid)
+                self.demuxer.set_hw_pid_filter_enabled(enabled and bool(validated))
+                print(f"Hardware PID filter enabled: {enabled and bool(pids)}")
+                self._using_hardware_pid_filter = True
+                # Disable software filtering
+                super().set_pid_filter_enabled(False)
             else:
-                self.demuxer.enable_pid_filter(False)
-                self._hardware_pid_filter_mode = False
-            self._set_software_pid_filter(normalized, enabled)
+                # The PID list is too large for the hardware PID filter, so we fall back
+                # to the software filter.
+                self.demuxer.set_hw_pid_filter_enabled(False)
+                self._using_hardware_pid_filter = False
+                # Delegate to the base class to configure the software PID filter.
+                super().configure_pid_filter(validated, enabled)
 
     def set_pid_filter_enabled(self, enabled: bool = True) -> None:
-        """Enable or disable the configured AF9015 PID filter."""
+        """Enable or disable the PID filtering.
+
+        We override the base class method to provide hardware PID filtering when available.
+        AF9015 hardware has 32 PID slots. Larger allow-lists use the unfiltered hardware
+        stream and the software filter of the base class
+        """
+        if not ALLOW_HARDWARE_PID_FILTER:
+            # Use the software filter of the base class.
+            return super().set_pid_filter_enabled(enabled)
+
         with self._control_lock:
-            with self._pid_filter_lock:
-                pids = self._pid_filter_pids
-            if getattr(self, "_hardware_pid_filter_mode", True):
-                self.demuxer.enable_pid_filter(enabled and bool(pids))
-            with self._pid_filter_lock:
-                self._pid_filter_enabled = enabled
+            if self._using_hardware_pid_filter:
+                pids = self.demuxer.hw_filter_pids
+                self.demuxer.set_hw_pid_filter_enabled(enabled and bool(pids))
+                print(f"Hardware PID filter enabled: {enabled and bool(pids)}")
+                super().set_pid_filter_enabled(False)
+            else:
+                # We're using software PID filter, so delegate to the base class.
+                super().set_pid_filter_enabled(enabled)

@@ -15,9 +15,10 @@ class DVBAdapter:
     frontend: Any
     demuxer: Any
     _control_lock: RLock = field(default_factory=RLock, init=False, repr=False)
-    _pid_filter_lock: RLock = field(default_factory=RLock, init=False, repr=False)
-    _pid_filter_pids: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
-    _pid_filter_enabled: bool = field(default=False, init=False, repr=False)
+    _sw_pid_filter_lock: RLock = field(default_factory=RLock, init=False, repr=False)
+    _sw_pid_filter_pids: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
+    _sw_pid_filter_enabled: bool = field(default=False, init=False, repr=False)
+    _first_sw_filter_call = False
 
     @property
     def adapter_index(self) -> int:
@@ -52,6 +53,7 @@ class DVBAdapter:
     def stop(self) -> None:
         with self._control_lock:
             self.demuxer.stop()
+            self.set_pid_filter_enabled(False)
 
     def read_stream(self, timeout_ms: int = 2000) -> bytes:
         """Read non-empty transport-stream data within a total timeout.
@@ -75,15 +77,25 @@ class DVBAdapter:
                 raise TimeoutError("timed out waiting for transport-stream data")
 
     def configure_pid_filter(self, pids: Iterable[int], enabled: bool = True) -> None:
-        """Atomically configure the software PID allow-list."""
+        """Atomically configure the PID allow-list, and enable or disable PID filtering.
+
+        This base class provides software PID filtering functionality.
+        Subclasses may override this method to provide hardware PID filtering."""
         with self._control_lock:
-            self._set_software_pid_filter(self._validate_pids(pids), enabled)
+            with self._sw_pid_filter_lock:
+                self._sw_pid_filter_pids = self._validate_pids(pids)
+                self._sw_pid_filter_enabled = enabled
+                self._first_sw_filter_call = enabled
 
     def set_pid_filter_enabled(self, enabled: bool = True) -> None:
-        """Enable or disable the configured software PID allow-list."""
+        """Enable or disable the PID filtering.
+
+        This base class provides software PID filtering functionality.
+        Subclasses may override this method to provide hardware PID filtering."""
         with self._control_lock:
-            with self._pid_filter_lock:
-                self._pid_filter_enabled = enabled
+            with self._sw_pid_filter_lock:
+                self._sw_pid_filter_enabled = enabled
+                self._first_sw_filter_call = enabled
 
     @staticmethod
     def _validate_pids(pids: Iterable[int]) -> frozenset[int]:
@@ -92,31 +104,36 @@ class DVBAdapter:
             raise ValueError("PID must be between 0 and 0x1FFF")
         return pid_set
 
-    def _set_software_pid_filter(self, pids: frozenset[int], enabled: bool) -> None:
-        with self._pid_filter_lock:
-            self._pid_filter_pids = pids
-            self._pid_filter_enabled = enabled
-
     def _filter_pid_stream(self, data: bytes) -> bytes:
-        """Return complete packets whose PID is in the configured allow-list.
+        """ Software PID filter. Returns complete packets whose PID is in the
+        configured allow-list.
 
         ``data`` is expected to be packet-aligned and to contain only complete
         packets, as provided by :meth:`DVBDemuxer.read_stream_once`. Any
         incomplete tail is ignored defensively; packet reassembly belongs to
         the demuxer, not this software PID filter.
         """
-        with self._pid_filter_lock:
-            pids = self._pid_filter_pids
-            enabled = self._pid_filter_enabled
+        with self._sw_pid_filter_lock:
+            pids = self._sw_pid_filter_pids
+            enabled = self._sw_pid_filter_enabled
+            first_filter_call = enabled and bool(pids) and self._first_sw_filter_call
+            if first_filter_call:
+                self._first_sw_filter_call = False
         if not enabled or not pids:
+            # We're not filtering.
             return data
+        # We are filtering.
+        if first_filter_call:
+            print(f"Software PID filter active with {len(pids)} PIDs: {sorted(pids)}")
         packet_size = 188
-        filtered_data = bytearray()
+        # For efficiency We use memoryviews to reduce unnecessary copying of the original data.
         data_view = memoryview(data)
+        filtered_packets = [] # A list of memoryview objects for packets that pass the PID filter
         complete_packet_bytes = len(data) - len(data) % packet_size
         for offset in range(0, complete_packet_bytes, packet_size):
-            packet_pid = ((data[offset + 1] & 0x1F) << 8) | data[offset + 2]
+            packet_pid = ((data_view[offset + 1] & 0x1F) << 8) | data_view[offset + 2]
             if packet_pid in pids:
-                filtered_data.extend(data_view[offset : offset + packet_size])
+                filtered_packets.append(data_view[offset : offset + packet_size])
 
-        return bytes(filtered_data)
+        # We convert the list of memoryview objects back into a single bytes object before returning.
+        return b"".join(filtered_packets)

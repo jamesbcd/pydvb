@@ -19,7 +19,15 @@ TS_SYNC_BYTE = 0x47     # Sync byte value for MPEG transport stream packets
 # Standard PIDs for DVB tables that are typically scanned.
 # These PIDs correspond to the Program Association Table (PAT), Network Information Table (NIT),
 # Service Description Table (SDT), and Event Information Table (EIT) respectively.
-SCAN_TABLE_PIDS = frozenset((0x0000, 0x0010, 0x0011, 0x0012))
+SCAN_TABLE_PIDS = frozenset((
+        0x0000,    # PAT (Program Association Table)
+        0x0010,    # NIT (Network Information Table)
+        0x0011,    # SDT (Service Description Table)
+        0x0012,    # EIT (Event Information Table)
+    ))
+
+# PSI/SI PIDs useful when presenting one service to a transport-stream client.
+SERVICE_METADATA_PIDS = frozenset((0x0000, 0x0001, 0x0010, 0x0011, 0x0012, 0x0014))
 
 # MPEG transport stream packet header structure for DVB tables.
 TS_PACKET_HEADER: Any = BitStruct(
@@ -99,15 +107,18 @@ class DVBService:
     current_event: DVBEvent | None = None
 
     def pids(self) -> frozenset[int]:
-        """Return the transport-stream PIDs required for this service."""
+        """Return the transport-stream PIDs required to describe this service."""
         return frozenset(
-            pid
-            for pid in (
-                self.pmt_pid,
-                self.pcr_pid,
-                *(stream.pid for stream in self.elementary_streams),
+            SERVICE_METADATA_PIDS
+            | frozenset(
+                pid
+                for pid in (
+                    self.pmt_pid,
+                    self.pcr_pid,
+                    *(stream.pid for stream in self.elementary_streams),
+                )
+                if pid is not None
             )
-            if pid is not None
         )
 
 

@@ -43,9 +43,9 @@ class AF9015Demuxer(DVBDemuxer):
             endpoint=endpoint,
             packet_count=5 if full_speed else self.TS_PACKET_COUNT,
         )
-        self._pid_lock = Lock()
-        self._pid_slots: dict[int, int] = {}
-        self._pid_filter_enabled = False
+        self._hw_pid_lock = Lock()
+        self._hw_pid_slots: dict[int, int] = {}
+        self._hw_pid_filter_enabled = False
 
     def get_config_dict(self) -> dict[str, object]:
         """Return demuxer configuration and current state for diagnostics."""
@@ -57,7 +57,7 @@ class AF9015Demuxer(DVBDemuxer):
             after this method returns.
         """
         with self._state_condition:
-            with self._pid_lock:
+            with self._hw_pid_lock:
                 return {
                     "adapter_index": self.adapter_index,
                     "dual_mode": self._dual_mode,
@@ -67,9 +67,9 @@ class AF9015Demuxer(DVBDemuxer):
                     "packet_count": self.packet_count,
                     "running": self._running,
                     "configured": self._configured,
-                    "pid_filter_enabled": self._pid_filter_enabled,
-                    "pids": frozenset(self._pid_slots),
-                    "pid_slots": dict(self._pid_slots),
+                    "pid_filter_enabled": self._hw_pid_filter_enabled,
+                    "pids": frozenset(self._hw_pid_slots),
+                    "pid_slots": dict(self._hw_pid_slots),
                 }
 
     def _configure_stream(self) -> None:
@@ -104,12 +104,12 @@ class AF9015Demuxer(DVBDemuxer):
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)
 
-    def set_pid_filter(self, pid: int, enabled: bool = True) -> None:
+    def configure_hw_pid_filter(self, pid: int, enabled: bool = True) -> None:
         """
-        Set a PID filter slot for the given PID.
+        Configure a hardware PID filter slot for the given PID.
 
         Args:
-            pid (int): The PID to set the filter for.
+            pid (int): The PID to configure the filter for.
             enabled (bool, optional): Whether to enable or disable the filter for this PID. Defaults to True.
 
         Raises:
@@ -118,50 +118,51 @@ class AF9015Demuxer(DVBDemuxer):
         if not 0 <= pid <= 0x1FFF:
             raise ValueError("PID must be between 0 and 0x1FFF")
 
-        with self._pid_lock:
+        with self._hw_pid_lock:
             if enabled:
-                if pid in self._pid_slots:
+                if pid in self._hw_pid_slots:
                     return
-                if len(self._pid_slots) >= self.PID_FILTER_COUNT:
+                if len(self._hw_pid_slots) >= self.PID_FILTER_COUNT:
                     raise ValueError("AF9015 PID filter has 32 slots")
                 slot = next(
                     index
                     for index in range(self.PID_FILTER_COUNT)
-                    if index not in self._pid_slots.values()
+                    if index not in self._hw_pid_slots.values()
                 )
-                self._set_pid_filter_slot(pid, slot, True)
-                self._pid_slots[pid] = slot
+                self._configure_hw_pid_filter_slot(pid, slot, True)
+                self._hw_pid_slots[pid] = slot
             else:
-                slot = self._pid_slots.pop(pid, None)
+                slot = self._hw_pid_slots.pop(pid, None)
                 if slot is not None:
-                    self._set_pid_filter_slot(pid, slot, False)
+                    self._configure_hw_pid_filter_slot(pid, slot, False)
 
-    def clear_all_pid_filters(self) -> None:
-        """Disable and forget all currently configured PID filter slots."""
-        with self._pid_lock:
-            for pid, slot in sorted(self._pid_slots.items(), key=lambda item: item[1]):
-                self._set_pid_filter_slot(pid, slot, False)
-                del self._pid_slots[pid]
+    def clear_hw_pid_filters(self) -> None:
+        """Disable and forget all currently configured hardware PID filter slots."""
+        with self._hw_pid_lock:
+            for pid, slot in sorted(self._hw_pid_slots.items(), key=lambda item: item[1]):
+                self._configure_hw_pid_filter_slot(pid, slot, False)
+                del self._hw_pid_slots[pid]
 
-    def enable_pid_filter(self, enabled: bool = True) -> None:
-        if enabled == self._pid_filter_enabled:
-            return
-        self._set_pid_filter_enabled(enabled)
-        self._pid_filter_enabled = enabled
-
-    @property
-    def pid_filter_enabled(self) -> bool:
-        with self._pid_lock:
-            return self._pid_filter_enabled
+    def set_hw_pid_filter_enabled(self, enabled: bool = True) -> None:
+        with self._hw_pid_lock:
+            if enabled == self._hw_pid_filter_enabled:
+                return
+            self._set_hw_pid_filter_enabled(enabled)
+            self._hw_pid_filter_enabled = enabled
 
     @property
-    def pids(self) -> frozenset[int]:
-        with self._pid_lock:
-            return frozenset(self._pid_slots)
+    def hw_pid_filter_enabled(self) -> bool:
+        with self._hw_pid_lock:
+            return self._hw_pid_filter_enabled
 
-    def _set_pid_filter_slot(self, pid: int, slot: int, enabled: bool) -> None:
+    @property
+    def hw_filter_pids(self) -> frozenset[int]:
+        with self._hw_pid_lock:
+            return frozenset(self._hw_pid_slots)
+
+    def _configure_hw_pid_filter_slot(self, pid: int, slot: int, enabled: bool) -> None:
         """
-        Set the PID filter slot for a specific PID.
+        Actually configure the PID filter slot on the demodulator.
 
         Args:
             pid (int): The PID to set the filter for.
@@ -191,7 +192,7 @@ class AF9015Demuxer(DVBDemuxer):
                 address_length=3,
             )
 
-    def _set_pid_filter_enabled(self, enabled: bool) -> None:
+    def _set_hw_pid_filter_enabled(self, enabled: bool) -> None:
         current = self.bridge.read_i2c_byte(
             self.demodulator_address,
             self.AF9013_PID_FILTER_CONTROL,
