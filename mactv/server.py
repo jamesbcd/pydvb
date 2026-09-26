@@ -52,7 +52,7 @@ class LocalTS_HTTPServer:
         self.adapter.start()
         scanner = DVBScanner()
         scan_result = scanner.scan(self.adapter, ScanPolicy.SERVICE_PIDS)
-        STREAM_ONE_SERVICE = True
+        STREAM_ONE_SERVICE = False
         if STREAM_ONE_SERVICE and len(scan_result.services) > 2:
             service = scan_result.services[2]
             print(f"Selected service: {service.name} (ID: {service.service_id})")

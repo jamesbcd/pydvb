@@ -145,7 +145,7 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0
 
     if args.use_scan is not None:
-        tunings = parse_scan(args.use_scan)
+        tunings = parse_scan(args.use_scan, prefer_auto=True)
         if not tunings:
             raise ValueError(f"scan table contains no DVB-T channels: {args.use_scan}")
     else:
@@ -161,8 +161,9 @@ def _run_device(device: AF9015Device, args) -> int:
             status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
             locks_acquired.append(status and status.lock)
-            tuning_status = status
         return 0 if all(locks_acquired) else 2
+    else:
+        tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
 
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
@@ -192,7 +193,8 @@ def _run_device(device: AF9015Device, args) -> int:
         del result.warnings
         pprint.pprint(result, underscore_numbers=True)
 
-    if args.serve is not None:
+
+    if args.command == "serve" and args.serve is not None:
         if tuning_status is None or not tuning_status.lock:
             print("Server failed: frontend did not lock; no transport stream is available")
             return 2
@@ -263,7 +265,8 @@ def main() -> int:
     parser.add_argument(
         "--frequency",
         type=parse_frequency,
-        default=177_500_000,
+        #default=226_500_000,    # ABC
+        default=177_500_000,    # Seven Network
         help="DVB-T centre frequency in MHz (default: 177.5)",
     )
     parser.add_argument(
@@ -337,7 +340,7 @@ def main() -> int:
         nargs="?",
         type=parse_server_address,
         metavar="HOST:PORT",
-        const=DEFAULT_SERVER_ADDRESS,
+        default=DEFAULT_SERVER_ADDRESS,
     )
     subparsers.add_parser(
         "scan-stream",
