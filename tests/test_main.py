@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from mactv import __main__
+from mactv.driver_api.tuner import DVBTuning
 from mactv.scanner import DVBScanResult
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
@@ -85,14 +86,14 @@ class FakeStatusDevice(FakeDevice):
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "devices"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "device"])
 
     assert __main__.main() == 0
     assert not device.initialize_called
     assert "Device state: cold" in capsys.readouterr().out
 
 
-def test_devices_accepts_device_ids(monkeypatch):
+def test_device_accepts_device_ids(monkeypatch):
     device = FakeDevice()
     calls = []
 
@@ -104,7 +105,7 @@ def test_devices_accepts_device_ids(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "devices", "--vendor-id", "0x1234", "--product-id", "0x5678"],
+        ["mactv", "device", "--vendor-id", "0x1234", "--product-id", "0x5678"],
     )
 
     assert __main__.main() == 0
@@ -162,6 +163,22 @@ def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_co
     assert __main__.main() == expected_code
     assert device.tune_called
     assert expected_output in capsys.readouterr().out
+
+
+def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
+    device = FakeDevice()
+    parsed_args = []
+    scan_path = tmp_path / "brisbane.scan"
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(
+        __main__,
+        "_run_device",
+        lambda _device, args: (parsed_args.append(args) or 0),
+    )
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--use-scan", str(scan_path)])
+
+    assert __main__.main() == 0
+    assert parsed_args[0].use_scan == str(scan_path)
 
 
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
@@ -249,7 +266,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", *arguments, "devices"])
+    monkeypatch.setattr(sys, "argv", ["mactv", *arguments, "device"])
 
     assert __main__.main() == 0
     assert __main__.usb.LOG is expected

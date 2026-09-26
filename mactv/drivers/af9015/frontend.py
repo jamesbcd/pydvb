@@ -10,7 +10,7 @@ from ...driver_api.frontend import DVBFrontend, DVBFrontendStatus
 from ...driver_api.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
 
 
-DEFAULT_LOCK_TIMEOUT: float | None = 60.0
+DEFAULT_LOCK_TIMEOUT: float | None = 30.0
 
 
 class AF9013Frontend(DVBFrontend):

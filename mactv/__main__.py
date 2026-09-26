@@ -5,6 +5,7 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
+
 from .scan_files import known_dvb_t_scan_tables, parse_scan
 from .scanner import DVBScanResult, DVBScanner
 from mactv.driver_api.tuner import DVBTuning
@@ -116,10 +117,10 @@ def _print_status(device) -> None:
         print()
 
 
-def _run_device(device, args) -> int:
+def _run_device(device: AF9015Device, args) -> int:
     print(f"Device state: {'warm' if device.is_warm else 'cold'}")
-    # 'devices' command stops at device discovery
-    if args.command == "devices":
+    # 'device' command stops at device discovery
+    if args.command == "device":
         return 0
 
     if not device.is_warm:
@@ -143,17 +144,25 @@ def _run_device(device, args) -> int:
         print("Device is sleeping")
         return 0
 
-    # Brisbane DVB-T transmitters use 7 MHz channels.
-    tuning = DVBTuning(
-        frequency_hz=args.frequency,
-        bandwidth_hz=args.bandwidth * 1_000_000,
-    )
-    print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
-    tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+    if args.use_scan is not None:
+        tunings = parse_scan(args.use_scan)
+        if not tunings:
+            raise ValueError(f"scan table contains no DVB-T channels: {args.use_scan}")
+    else:
+        tunings = [DVBTuning(frequency_hz=args.frequency,
+                             bandwidth_hz=args.bandwidth * 1_000_000)]
 
+    tuning_status = None
     if args.command == "tune":
-        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
-        return 0 if tuning_status and tuning_status.lock else 2
+        locks_acquired = []
+        for tuning in tunings:
+            print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
+                  f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+            status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+            print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
+            locks_acquired.append(status and status.lock)
+            tuning_status = status
+        return 0 if all(locks_acquired) else 2
 
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
@@ -223,6 +232,13 @@ def main() -> int:
         type=lambda value: int(value, 0),
         default=argparse.SUPPRESS,
     )
+    tunable = argparse.ArgumentParser(add_help=False)
+    tunable.add_argument(
+        "--use-scan",
+        type=str,
+        metavar="scan-table-name-or-path",
+        help="Use a known or local DVB-T scan table",
+    )
     parser = argparse.ArgumentParser(
         description="Test an AF9015 device",
         epilog=(
@@ -271,8 +287,8 @@ def main() -> int:
         title="commands",
     )
 
-    devices_parser = subparsers.add_parser(
-        "devices",
+    subparsers.add_parser(
+        "device",
         help="Only check device state; do not initialize or upload firmware",
         parents=[device_id],
     )
@@ -294,7 +310,7 @@ def main() -> int:
     subparsers.add_parser(
         "tune",
         help="Initialize the device, tune it, and exit with the lock result",
-        parents=[device_id],
+        parents=[device_id, tunable],
     )
     subparsers.add_parser(
         "known-scans",
@@ -308,11 +324,13 @@ def main() -> int:
     record_parser = subparsers.add_parser(
         "record",
         help="Capture transport-stream data to a file",
+        parents=[tunable],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
     serve_parser = subparsers.add_parser(
         "serve",
         help="Serve the transport stream over HTTP",
+        parents=[tunable],
     )
     serve_parser.add_argument(
         "serve",
@@ -324,6 +342,7 @@ def main() -> int:
     subparsers.add_parser(
         "scan-stream",
         help="Scan a live transport stream until complete",
+        parents=[tunable],
     )
 
     args = parser.parse_args()

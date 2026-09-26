@@ -40,7 +40,7 @@ The command uploads the bundled firmware when needed, initializes the tuner,
 waits for MPEG lock, and prints frontend reception metrics. It exits with
 status 0 when locked and status 2 when tuning completes without lock. Use
 another multiplex frequency, such as `184.5`, with `--frequency` when testing
-local reception. `devices` only checks the USB device state and does not tune.
+local reception. `device` only checks the USB device state and does not tune.
 Use `--sleep` to initialize the device and put it into its low-power state
 without tuning.
 
