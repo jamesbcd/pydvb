@@ -5,6 +5,7 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
+from .scan_files import known_dvb_t_scan_tables, parse_scan
 from .scanner import DVBScanResult, DVBScanner
 from mactv.driver_api.tuner import DVBTuning
 
@@ -254,6 +255,11 @@ def main() -> int:
         help="Print known LinuxTV DVB-T scan-table filenames",
     )
     parser.add_argument(
+        "--parse-scan",
+        metavar="NAME_OR_PATH",
+        help="Parse a known DVB scan name or local scan file",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -277,8 +283,11 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.known_scans:
-        for table_name in DVBScanner().known_dvb_t_scan_tables():
+        for table_name in known_dvb_t_scan_tables():
             print(table_name)
+        return 0
+    if args.parse_scan is not None:
+        pprint.pprint(parse_scan(args.parse_scan), underscore_numbers=True)
         return 0
     stream_actions = [
         name for name, enabled in (

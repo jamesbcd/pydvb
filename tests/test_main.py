@@ -123,12 +123,11 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
 def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, capsys):
     calls = []
 
-    class FakeScanner:
-        def known_dvb_t_scan_tables(self):
-            calls.append(True)
-            return ["au-Adelaide", "au-Brisbane"]
-
-    monkeypatch.setattr(__main__, "DVBScanner", FakeScanner)
+    monkeypatch.setattr(
+        __main__,
+        "known_dvb_t_scan_tables",
+        lambda: (calls.append(True) or ["au-Adelaide", "au-Brisbane"]),
+    )
     monkeypatch.setattr(
         __main__.AF9015Device,
         "open",
@@ -139,6 +138,27 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
     assert __main__.main() == 0
     assert calls == [True]
     assert capsys.readouterr().out == "au-Adelaide\nau-Brisbane\n"
+
+
+def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
+    calls = []
+    tunings = ["tuning"]
+
+    monkeypatch.setattr(
+        __main__,
+        "parse_scan",
+        lambda scan: (calls.append(scan) or tunings),
+    )
+    monkeypatch.setattr(
+        __main__.AF9015Device,
+        "open",
+        lambda *_args: pytest.fail("parse scan should not open a device"),
+    )
+    monkeypatch.setattr(sys, "argv", ["mactv", "--parse-scan", "au-Brisbane"])
+
+    assert __main__.main() == 0
+    assert calls == ["au-Brisbane"]
+    assert capsys.readouterr().out == "['tuning']\n"
 
 
 @pytest.mark.parametrize(

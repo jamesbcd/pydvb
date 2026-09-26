@@ -6,10 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
 from enum import Enum, auto
-from html.parser import HTMLParser
 from typing import Any
-
-import requests
 
 from construct import Bit, BitStruct, BitsInteger
 
@@ -52,33 +49,6 @@ SECTION_HEADER: Any = BitStruct(
     "reserved" / BitsInteger(2),
     "section_length" / BitsInteger(12),
 )
-
-DVB_T_SCAN_TABLES_URL = "https://git.linuxtv.org/dtv-scan-tables.git/tree/dvb-t"
-
-
-class _ScanTableLinkParser(HTMLParser):
-    """Collect direct file links from the LinuxTV DVB-T directory page."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.file_names: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag != "a":
-            return
-        href = dict(attrs).get("href")
-        if href is None:
-            return
-        prefix = "/dtv-scan-tables.git/tree/dvb-t/"
-        file_name = href.removeprefix(prefix)
-        if (
-            file_name
-            and not file_name.endswith("/")
-            and "/" not in file_name
-            and file_name not in self.file_names
-        ):
-            self.file_names.append(file_name)
-
 
 @dataclass
 class DVBEvent:
@@ -185,14 +155,6 @@ class DVBScanner:
         self._transport_stream_id: int | None = None # Transport stream ID from the PAT
         self._original_network_id: int | None = None # Original network ID from the SDT
         self._network_name: str | None = None   # Network name from the SDT
-
-    def known_dvb_t_scan_tables(self) -> list[str]:
-        """Download and return the known LinuxTV DVB-T scan-table filenames."""
-        parser = _ScanTableLinkParser()
-        response = requests.get(DVB_T_SCAN_TABLES_URL, timeout=15)
-        response.raise_for_status()
-        parser.feed(response.content.decode("utf-8"))
-        return sorted(parser.file_names)
 
     def scan(
         self,

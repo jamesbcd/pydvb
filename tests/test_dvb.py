@@ -3,8 +3,17 @@ from types import SimpleNamespace
 import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
+from mactv.scan_files import parse_scan
 from mactv.scanner import DVBScanner, DVBService, ScanPolicy
 from mactv.driver_api.adapter import DVBAdapter
+from mactv.driver_api.tuner import (
+    CodeRate,
+    GuardInterval,
+    Hierarchy,
+    Modulation,
+    TransmissionMode,
+)
+import mactv.scan_files as scan_files_module
 import mactv.scanner as scanner_module
 
 
@@ -247,6 +256,89 @@ def test_scanner_lists_known_dvb_t_scan_tables(monkeypatch):
         def raise_for_status(self):
             pass
 
-    monkeypatch.setattr(scanner_module.requests, "get", lambda url, timeout: Response())
+    monkeypatch.setattr(scan_files_module.requests, "get", lambda url, timeout: Response())
 
-    assert DVBScanner().known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
+    assert scan_files_module.known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
+
+
+def test_scanner_parses_local_scan_table(tmp_path):
+    scan_path = tmp_path / "au-Brisbane"
+    scan_path.write_text(
+        "# Brisbane\n"
+        "T 177500000 7MHz 3/4 1/2 QAM64 8K 1/32 NONE\n"
+        "T 226500000 7000kHz AUTO AUTO QPSK 2K AUTO AUTO\n",
+        encoding="utf-8",
+    )
+
+    assert parse_scan(scan_path) == [
+        scan_files_module.DVBTuning(
+            177_500_000,
+            7_000_000,
+            TransmissionMode.K8,
+            GuardInterval.GI_1_32,
+            Hierarchy.NONE,
+            Modulation.QAM64,
+            CodeRate.RATE_3_4,
+            CodeRate.RATE_1_2,
+        ),
+        scan_files_module.DVBTuning(
+            226_500_000,
+            7_000_000,
+            TransmissionMode.K2,
+            modulation=Modulation.QPSK,
+        ),
+    ]
+
+
+def test_scanner_parses_known_scan_table(monkeypatch):
+    class Response:
+        content = b"T 177500000 7MHz 3/4 1/2 QAM64 8K 1/32 NONE\n"
+
+        def raise_for_status(self):
+            pass
+
+    requests_get = lambda url, timeout: Response()
+    monkeypatch.setattr(scan_files_module.requests, "get", requests_get)
+
+    assert parse_scan("au-Brisbane") == [
+        scan_files_module.DVBTuning(
+            177_500_000,
+            7_000_000,
+            TransmissionMode.K8,
+            GuardInterval.GI_1_32,
+            Hierarchy.NONE,
+            Modulation.QAM64,
+            CodeRate.RATE_3_4,
+            CodeRate.RATE_1_2,
+        )
+    ]
+
+
+def test_scanner_parses_channel_scan_table_format(tmp_path):
+    scan_path = tmp_path / "au-Brisbane"
+    scan_path.write_text(
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBT\n"
+        "FREQUENCY = 226500000\n"
+        "BANDWIDTH_HZ = 7000000\n"
+        "CODE_RATE_HP = 3/4\n"
+        "CODE_RATE_LP = NONE\n"
+        "MODULATION = QAM/64\n"
+        "TRANSMISSION_MODE = 8K\n"
+        "GUARD_INTERVAL = 1/16\n"
+        "HIERARCHY = NONE\n",
+        encoding="utf-8",
+    )
+
+    assert parse_scan(scan_path) == [
+        scan_files_module.DVBTuning(
+            226_500_000,
+            7_000_000,
+            TransmissionMode.K8,
+            GuardInterval.GI_1_16,
+            Hierarchy.NONE,
+            Modulation.QAM64,
+            CodeRate.RATE_3_4,
+            CodeRate.NONE,
+        )
+    ]
