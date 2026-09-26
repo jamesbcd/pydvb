@@ -163,7 +163,10 @@ def _run_device(device: AF9015Device, args) -> int:
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
     else:
+        print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
+                f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
         tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
+        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
 
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
