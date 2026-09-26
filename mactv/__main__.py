@@ -94,11 +94,35 @@ def scan_stream(
             adapter.sleep()
 
 
+def _print_status(device) -> None:
+    """Print USB, adapter, frontend, demodulator, and tuner status."""
+    print(f"USB speed: {device.bridge.transport.get_speed().name}")
+    print(f"Adapter count: {device.adapter_count}")
+    for adapter_index, adapter in enumerate(device.adapters):
+        print(f"Adapter {adapter_index}:")
+        print(f"Frontend index {adapter_index} configuration:")
+        pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
+        print()
+        print(f"Demodulator index {adapter_index} configuration:")
+        pprint.pprint(adapter.demuxer.get_config_dict(),
+                      underscore_numbers=True)
+        print()
+        print(f"Tuner index {adapter_index} configuration:")
+        pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
+                      underscore_numbers=True)
+        print()
+        print(f"Frontend index {adapter_index} status:")
+        pprint.pprint(adapter.read_status(), underscore_numbers=True)
+        print()
+
+
 def _run_device(device, args) -> int:
     print(f"Device state: {'warm' if device.is_warm else 'cold'}")
+    # 'devices' command stops at device discovery
+    if args.command == "devices":
+        return 0
+
     if not device.is_warm:
-        if args.safe:
-            return 0
         print("Device is cold; initializing and downloading firmware to device...")
         device.init_hardware()
         print(f"Device state: {'warm' if device.is_warm else 'cold'}")
@@ -106,19 +130,26 @@ def _run_device(device, args) -> int:
         print("Device is warm; reinitializing hardware...")
         device.init_hardware()
 
-    tuning_status = None
-    if args.sleep:
+    if args.command == "init":
+        return 0
+
+    if args.command == "status":
+        _print_status(device)
+        return 0
+
+    if args.command == "sleep":
         print("Putting device to sleep...")
         device.sleep()
         print("Device is sleeping")
-    else:
-        # Brisbane DVB-T transmitters use 7 MHz channels.
-        tuning = DVBTuning(
-            frequency_hz=args.frequency,
-            bandwidth_hz=args.bandwidth * 1_000_000,
-        )
-        print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
-        tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+        return 0
+
+    # Brisbane DVB-T transmitters use 7 MHz channels.
+    tuning = DVBTuning(
+        frequency_hz=args.frequency,
+        bandwidth_hz=args.bandwidth * 1_000_000,
+    )
+    print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
+    tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
 
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
@@ -173,27 +204,7 @@ def _run_device(device, args) -> int:
             if hasattr(adapter, "sleep"):
                 adapter.sleep()
 
-    if args.status:
-        print(f"USB speed: {device.bridge.transport.get_speed().name}")
-        print(f"Adapter count: {device.adapter_count}")
-        for adapter_index, adapter in enumerate(device.adapters):
-            print(f"Adapter {adapter_index}:")
-            print(f"Frontend index {adapter_index} configuration:")
-            pprint.pprint(adapter.frontend.get_config_dict(), underscore_numbers=True)
-            print()
-            print(f"Demodulator index {adapter_index} configuration:")
-            pprint.pprint(adapter.demuxer.get_config_dict(),
-                          underscore_numbers=True)
-            print()
-            print(f"Tuner index {adapter_index} configuration:")
-            pprint.pprint(adapter.tuner.get_config_dict() if adapter.tuner else None,
-                          underscore_numbers=True)
-            print()
-            print(f"Frontend index {adapter_index} status:")
-            pprint.pprint(adapter.read_status(), underscore_numbers=True)
-            print()
-
-    if args.sleep or args.record is not None or args.serve is not None or args.scan_stream:
+    if args.record is not None or args.serve is not None or args.scan_stream:
         return 0
     status = device.adapters[args.adapter_index].read_status()
     print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
@@ -201,20 +212,27 @@ def _run_device(device, args) -> int:
 
 
 def main() -> int:
+    device_id = argparse.ArgumentParser(add_help=False)
+    device_id.add_argument(
+        "--vendor-id",
+        type=lambda value: int(value, 0),
+        default=argparse.SUPPRESS,
+    )
+    device_id.add_argument(
+        "--product-id",
+        type=lambda value: int(value, 0),
+        default=argparse.SUPPRESS,
+    )
     parser = argparse.ArgumentParser(
-        description="Test an AF9015 device"
-    )
-    parser.add_argument("--vendor-id", type=lambda value: int(value, 0), default=0x0413)
-    parser.add_argument("--product-id", type=lambda value: int(value, 0), default=0x6029)
-    parser.add_argument(
-        "--safe",
-        action="store_true",
-        help="Only check device state; do not initialize or upload firmware",
-    )
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Print status information about the device",
+        description="Test an AF9015 device",
+        epilog=(
+            "stream commands:\n"
+            "  record OUTPUT_PATH  Capture transport-stream data to this file\n"
+            "  serve [HOST:PORT]   Serve the transport stream over HTTP\n"
+            "  scan-stream         Scan a live transport stream until complete"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[device_id],
     )
     parser.add_argument(
         "--usb-log",
@@ -225,39 +243,6 @@ def main() -> int:
         "--usb-stats",
         action="store_true",
         help="Log stream USB read timing and returned byte counts",
-    )
-    parser.add_argument(
-        "--sleep",
-        action="store_true",
-        help="Put the initialized device into its low-power state instead of tuning",
-    )
-    parser.add_argument(
-        "--record",
-        type=Path,
-        help="Capture up to 5 MiB of transport-stream data to this file",
-    )
-    parser.add_argument(
-        "--serve",
-        nargs="?",
-        type=parse_server_address,
-        metavar="HOST:PORT",
-        const=DEFAULT_SERVER_ADDRESS,
-        help="Serve at http://HOST:PORT/stream.ts (default: http://127.0.0.1:8080/stream.ts)",
-    )
-    parser.add_argument(
-        "--scan-stream",
-        action="store_true",
-        help="Scan a live transport stream until DVB service tables are complete",
-    )
-    parser.add_argument(
-        "--known-scans",
-        action="store_true",
-        help="Print known LinuxTV DVB-T scan-table filenames",
-    )
-    parser.add_argument(
-        "--parse-scan",
-        metavar="NAME_OR_PATH",
-        help="Parse a known DVB scan name or local scan file",
     )
     parser.add_argument(
         "--frequency",
@@ -281,14 +266,77 @@ def main() -> int:
         default=0,
         help="Adapter index to tune (default: 0)",
     )
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="commands",
+    )
+
+    devices_parser = subparsers.add_parser(
+        "devices",
+        help="Only check device state; do not initialize or upload firmware",
+        parents=[device_id],
+    )
+    subparsers.add_parser(
+        "init",
+        help="Initialize the device without tuning",
+        parents=[device_id],
+    )
+    subparsers.add_parser(
+        "status",
+        help="Initialize the device, print status information, and exit",
+        parents=[device_id],
+    )
+    subparsers.add_parser(
+        "sleep",
+        help="Initialize the device, put it into its low-power state, and exit",
+        parents=[device_id],
+    )
+    subparsers.add_parser(
+        "known-scans",
+        help="Print known LinuxTV DVB-T scan-table filenames",
+    )
+    parse_scan_parser = subparsers.add_parser(
+        "parse-scan",
+        help="Parse a known DVB scan name or local scan file",
+    )
+    parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
+    record_parser = subparsers.add_parser(
+        "record",
+        help="Capture transport-stream data to a file",
+    )
+    record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Serve the transport stream over HTTP",
+    )
+    serve_parser.add_argument(
+        "serve",
+        nargs="?",
+        type=parse_server_address,
+        metavar="HOST:PORT",
+        const=DEFAULT_SERVER_ADDRESS,
+    )
+    subparsers.add_parser(
+        "scan-stream",
+        help="Scan a live transport stream until complete",
+    )
+
     args = parser.parse_args()
-    if args.known_scans:
+    args.vendor_id = getattr(args, "vendor_id", 0x0413)
+    args.product_id = getattr(args, "product_id", 0x6029)
+    args.record = getattr(args, "record", None)
+    args.serve = getattr(args, "serve", None)
+    args.scan_stream = args.command == "scan-stream"
+
+    if args.command == "known-scans":
         for table_name in known_dvb_t_scan_tables():
             print(table_name)
         return 0
-    if args.parse_scan is not None:
-        pprint.pprint(parse_scan(args.parse_scan), underscore_numbers=True)
+
+    if args.command == "parse-scan":
+        pprint.pprint(parse_scan(args.scan), underscore_numbers=True)
         return 0
+
     stream_actions = [
         name for name, enabled in (
             ("--record", args.record is not None),
@@ -298,8 +346,6 @@ def main() -> int:
     ]
     if len(stream_actions) > 1:
         parser.error(f"{', '.join(stream_actions)} cannot be used together")
-    if args.sleep and stream_actions:
-        parser.error(f"--sleep cannot be used with {stream_actions[0]}")
     usb.LOG = args.usb_log
     usb.RECORD_STATS = args.usb_stats
 

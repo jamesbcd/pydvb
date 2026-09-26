@@ -61,20 +61,84 @@ class FakeLockedRecordingDevice(FakeDevice):
         return DVBFrontendStatus(True, True, True, True, True)
 
 
+class FakeStatusDevice(FakeDevice):
+    def __init__(self):
+        super().__init__()
+        transport = type("Transport", (), {
+            "get_speed": lambda _self: type("Speed", (), {"name": "HIGH"})(),
+        })()
+        adapter = type("Adapter", (), {
+            "frontend": type("Frontend", (), {
+                "get_config_dict": lambda _self: {"frequency": 177_500_000},
+            })(),
+            "demuxer": type("Demuxer", (), {
+                "get_config_dict": lambda _self: {"running": False},
+            })(),
+            "tuner": None,
+            "read_status": lambda _self: DVBFrontendStatus(False, False, False, False, False),
+        })()
+        self.adapters = [adapter]
+        self.adapter_count = 1
+        self.bridge = type("Bridge", (), {"transport": transport})()
+
+
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--safe"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "devices"])
 
     assert __main__.main() == 0
     assert not device.initialize_called
     assert "Device state: cold" in capsys.readouterr().out
 
 
+def test_devices_accepts_device_ids(monkeypatch):
+    device = FakeDevice()
+    calls = []
+
+    def open_device(vendor_id, product_id):
+        calls.append((vendor_id, product_id))
+        return device
+
+    monkeypatch.setattr(__main__.AF9015Device, "open", open_device)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "devices", "--vendor-id", "0x1234", "--product-id", "0x5678"],
+    )
+
+    assert __main__.main() == 0
+    assert calls == [(0x1234, 0x5678)]
+
+
+def test_init_initializes_without_tuning(monkeypatch, capsys):
+    device = FakeDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "init"])
+
+    assert __main__.main() == 0
+    assert device.initialize_called
+    assert not device.tune_called
+    assert "Device is cold; initializing" in capsys.readouterr().out
+
+
+def test_status_initializes_reports_and_exits(monkeypatch, capsys):
+    device = FakeStatusDevice()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "status"])
+
+    assert __main__.main() == 0
+    assert device.initialize_called
+    assert not device.tune_called
+    output = capsys.readouterr().out
+    assert "USB speed: HIGH" in output
+    assert "Adapter count: 1" in output
+
+
 def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--sleep"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "sleep"])
 
     assert __main__.main() == 0
     assert device.initialize_called
@@ -86,7 +150,7 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--record", str(tmp_path / "capture.ts")])
+    monkeypatch.setattr(sys, "argv", ["mactv", "record", str(tmp_path / "capture.ts")])
 
     assert __main__.main() == 2
     output = capsys.readouterr().out
@@ -102,7 +166,7 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
         "capture_stream",
         lambda adapter, output_path: (10, 1.0),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "--record", str(tmp_path / "capture.ts")])
+    monkeypatch.setattr(sys, "argv", ["mactv", "record", str(tmp_path / "capture.ts")])
 
     assert __main__.main() == 0
     assert device.close_called
@@ -113,7 +177,7 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     result = DVBScanResult(1, 2, "network", (), 3, True)
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
     monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--scan-stream"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "scan-stream"])
 
     assert __main__.main() == 0
     assert "DVBScanResult" in capsys.readouterr().out
@@ -133,7 +197,7 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
         "open",
         lambda *_args: pytest.fail("known scan tables should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "--known-scans"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "known-scans"])
 
     assert __main__.main() == 0
     assert calls == [True]
@@ -154,7 +218,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
         "open",
         lambda *_args: pytest.fail("parse scan should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "--parse-scan", "au-Brisbane"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "parse-scan", "au-Brisbane"])
 
     assert __main__.main() == 0
     assert calls == ["au-Brisbane"]
@@ -168,7 +232,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "--safe", *arguments])
+    monkeypatch.setattr(sys, "argv", ["mactv", *arguments, "devices"])
 
     assert __main__.main() == 0
     assert __main__.usb.LOG is expected

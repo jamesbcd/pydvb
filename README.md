@@ -20,19 +20,19 @@ python3 -m mactv --frequency 177.5 --bandwidth 7
 To capture up to 5 MiB of transport-stream data after tuning:
 
 ```sh
-python3 -m mactv --frequency 177.5 --bandwidth 7 --record capture.ts
+python3 -m mactv --frequency 177.5 --bandwidth 7 record capture.ts
 ```
 
 To serve the live transport stream for VLC or another MPEG-TS client, bind
 the local HTTP server to a host and port:
 
 ```sh
-python3 -m mactv --frequency 177.5 --bandwidth 7 --serve
+python3 -m mactv --frequency 177.5 --bandwidth 7 serve
 ```
 
 Open `http://127.0.0.1:8080/stream.ts` in VLC. The server binds to loopback
 only when that address is specified, and it stops the adapter when interrupted
-with Ctrl-C. `--record` and `--serve` are mutually exclusive.
+with Ctrl-C. `record` and `serve` are mutually exclusive subcommands.
 
 The adapter is stopped and put to sleep after capture completes.
 
@@ -40,7 +40,7 @@ The command uploads the bundled firmware when needed, initializes the tuner,
 waits for MPEG lock, and prints frontend reception metrics. It exits with
 status 0 when locked and status 2 when tuning completes without lock. Use
 another multiplex frequency, such as `184.5`, with `--frequency` when testing
-local reception. `--safe` only checks the USB device state and does not tune.
+local reception. `devices` only checks the USB device state and does not tune.
 Use `--sleep` to initialize the device and put it into its low-power state
 without tuning.
 
