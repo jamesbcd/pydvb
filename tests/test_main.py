@@ -120,6 +120,27 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     assert device.close_called
 
 
+def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, capsys):
+    calls = []
+
+    class FakeScanner:
+        def known_dvb_t_scan_tables(self):
+            calls.append(True)
+            return ["au-Adelaide", "au-Brisbane"]
+
+    monkeypatch.setattr(__main__, "DVBScanner", FakeScanner)
+    monkeypatch.setattr(
+        __main__.AF9015Device,
+        "open",
+        lambda *_args: pytest.fail("known scan tables should not open a device"),
+    )
+    monkeypatch.setattr(sys, "argv", ["mactv", "--known-scans"])
+
+    assert __main__.main() == 0
+    assert calls == [True]
+    assert capsys.readouterr().out == "au-Adelaide\nau-Brisbane\n"
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [([], False), (["--usb-log"], True)],

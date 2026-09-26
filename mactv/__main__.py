@@ -249,6 +249,11 @@ def main() -> int:
         help="Scan a live transport stream until DVB service tables are complete",
     )
     parser.add_argument(
+        "--known-scans",
+        action="store_true",
+        help="Print known LinuxTV DVB-T scan-table filenames",
+    )
+    parser.add_argument(
         "--frequency",
         type=parse_frequency,
         default=177_500_000,
@@ -271,6 +276,10 @@ def main() -> int:
         help="Adapter index to tune (default: 0)",
     )
     args = parser.parse_args()
+    if args.known_scans:
+        for table_name in DVBScanner().known_dvb_t_scan_tables():
+            print(table_name)
+        return 0
     stream_actions = [
         name for name, enabled in (
             ("--record", args.record is not None),

@@ -5,6 +5,7 @@ import pytest
 from mactv import DVBDescriptor, DVBElementaryStream
 from mactv.scanner import DVBScanner, DVBService, ScanPolicy
 from mactv.driver_api.adapter import DVBAdapter
+import mactv.scanner as scanner_module
 
 
 def mpeg_crc(data):
@@ -232,3 +233,20 @@ def test_scanner_reads_a_started_adapter_until_complete():
     result = scanner.scan(adapter)
 
     assert result.complete
+
+
+def test_scanner_lists_known_dvb_t_scan_tables(monkeypatch):
+    class Response:
+        content = (
+            b'<a href="/dtv-scan-tables.git/tree/dvb-t/au-Brisbane">Brisbane</a>'
+            b'<a href="/dtv-scan-tables.git/tree/dvb-t/au-Adelaide">Adelaide</a>'
+            b'<a href="/dtv-scan-tables.git/tree/dvb-t/subdir/">Directory</a>'
+            b'<a href="/other/file">Other</a>'
+        )
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(scanner_module.requests, "get", lambda url, timeout: Response())
+
+    assert DVBScanner().known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
