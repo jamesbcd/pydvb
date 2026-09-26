@@ -282,6 +282,16 @@ class AF9013Frontend(DVBFrontend):
         current = self._read_register(register)[0]
         self._write_register(register, bytes(((current & ~mask) | (value & mask),)))
 
+    def read_hardware_diagnostics(self) -> dict[int, int]:
+        """Read the AF9013 registers most useful for tuning diagnostics."""
+        registers = (
+            self.REG_FREQUENCY_CONTROL,
+            self.REG_FREQUENCY_CONTROL_EXT,
+            self.REG_TPS_STATUS,
+            self.REG_MPEG_STATUS,
+        )
+        return {register: self._read_register(register)[0] for register in registers}
+
     def _apply_table(self, table: tuple[tuple[int, int, int], ...]) -> None:
         for register, mask, value in table:
             self._update_bits(register, mask, value)

@@ -3,12 +3,13 @@
 import argparse
 import pprint
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
+from typing import Any, Callable, cast
 
 
 from .scan_files import known_dvb_t_scan_tables, parse_scan
 from .scanner import DVBScanResult, DVBScanner
-from mactv.driver_api.tuner import DVBTuning
+from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from .drivers.af9015.device import AF9015Device
 from . import usb
@@ -95,6 +96,64 @@ def scan_stream(
             adapter.sleep()
 
 
+def wait_for_lock_with_diagnostics(device, adapter_index: int, timeout: float = 20.0):
+    """Poll and print frontend status while waiting for a DVB lock."""
+    deadline = monotonic() + timeout
+    while True:
+        status = device.read_status(adapter_index=adapter_index)
+        print(f"Frontend status: {status}")
+        if status.lock or monotonic() >= deadline:
+            return status
+        sleep(1.0)
+
+
+def print_tuning_hardware_diagnostics(device, adapter_index: int) -> None:
+    """Print physical tuner and demodulator registers after a nonblocking tune."""
+    try:
+        adapters = getattr(device, "adapters", None)
+        if adapters is None:
+            return
+        adapter = cast(Any, adapters[adapter_index])
+        frontend = getattr(adapter, "frontend", None)
+        tuner = getattr(frontend, "tuner", None)
+        if frontend is None or tuner is None:
+            return
+        tuner = cast(Any, tuner)
+        get_register_cache = getattr(tuner, "get_register_cache", None)
+        read_hardware_register = getattr(tuner, "read_hardware_register", None)
+        read_tuner_registers = getattr(tuner, "read_hardware_registers", None) if tuner else None
+        read_frontend_registers = getattr(frontend, "read_hardware_diagnostics", None) if frontend else None
+        if (
+            not callable(get_register_cache)
+            or not callable(read_hardware_register)
+            or not callable(read_tuner_registers)
+            or not callable(read_frontend_registers)
+        ):
+            return
+        cached_registers = cast(bytes, cast(Callable[[], bytes], get_register_cache)())
+        direct_mpd = cast(int, cast(Callable[[int], int], read_hardware_register)(tuner.REG_MPD))
+        tuner_registers = cast(bytes, cast(Callable[[], bytes], read_tuner_registers)())
+        frontend_registers = cast(
+            dict[int, int], cast(Callable[[], dict[int, int]], read_frontend_registers)()
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Hardware register readback failed: {error}")
+        return
+
+    register_dump = " ".join(
+        f"{register:02x}:{value:02x}" for register, value in enumerate(tuner_registers)
+    )
+    print("TDA18271 cached registers 08-0f: " + cached_registers[8:16].hex(" "))
+    mpd = tuner_registers[tuner.REG_MPD]
+    print(f"TDA18271 physical registers: {register_dump}")
+    print(f"TDA18271 physical MPD (0x{tuner.REG_MPD:02x}): 0x{mpd:02x}; "
+          f"digital IF notch={'on' if mpd & 0x80 else 'off'}")
+    print(f"TDA18271 direct MPD read (0x{tuner.REG_MPD:02x}): 0x{direct_mpd:02x}")
+    print("AF9013 physical registers: " + " ".join(
+        f"0x{register:04x}=0x{value:02x}" for register, value in frontend_registers.items()
+    ))
+
+
 def _print_status(device) -> None:
     """Print USB, adapter, frontend, demodulator, and tuner status."""
     print(f"USB speed: {device.bridge.transport.get_speed().name}")
@@ -150,7 +209,13 @@ def _run_device(device: AF9015Device, args) -> int:
             raise ValueError(f"scan table contains no DVB-T channels: {args.use_scan}")
     else:
         tunings = [DVBTuning(frequency_hz=args.frequency,
-                             bandwidth_hz=args.bandwidth * 1_000_000)]
+                             bandwidth_hz=args.bandwidth * 1_000_000,
+                             modulation=Modulation.QAM64,
+                             transmission_mode=TransmissionMode.K8,
+                             guard_interval=GuardInterval.GI_1_16,
+                             code_rate_hp=CodeRate.RATE_3_4,
+                             code_rate_lp=CodeRate.RATE_1_2,
+                             hierarchy=Hierarchy.NONE)]
 
     tuning_status = None
     if args.command == "tune":
@@ -158,7 +223,10 @@ def _run_device(device: AF9015Device, args) -> int:
         for tuning in tunings:
             print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
                   f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
-            status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+            status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=False)
+            print_tuning_hardware_diagnostics(device, args.adapter_index)
+            if hasattr(device, "read_status"):
+                status = wait_for_lock_with_diagnostics(device, args.adapter_index)
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
@@ -268,8 +336,8 @@ def main() -> int:
     parser.add_argument(
         "--frequency",
         type=parse_frequency,
-        #default=226_500_000,    # ABC
-        default=177_500_000,    # Seven Network
+        default=226_500_000,    # ABC
+        #default=177_500_000,    # Seven Network
         help="DVB-T centre frequency in MHz (default: 177.5)",
     )
     parser.add_argument(

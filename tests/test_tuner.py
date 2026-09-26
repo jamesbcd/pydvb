@@ -97,11 +97,48 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
     tuner.tune(DVBTuning(650_000_000, 8_000_000))
 
     assert tuner.current_tuning == DVBTuning(650_000_000, 8_000_000)
-    pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
-    assert pll_write[tuner.REG_MPD - tuner.REG_EP1] != 0
+    pll_write = next(
+        data for _, register, data in reversed(frontend.writes)
+        if register == tuner.REG_MPD and len(data) == 4 and data[0] & 0x80
+    )
+    assert pll_write[0] != 0
+    assert pll_write[0] & 0x80
+    assert any(
+        register == tuner.REG_MPD and len(data) == 4 and data[0] & 0x80
+        for _, register, data in frontend.writes
+    )
     assert any(register == tuner.REG_EB13 for _, register, _ in frontend.writes)
     assert any(register == tuner.REG_TM and len(data) == 7 for _, register, data in frontend.writes)
     assert all(len(data) <= tuner.I2C_WRITE_CHUNK_SIZE for _, _, data in frontend.writes)
+
+
+def test_tda18271_reads_physical_register_block():
+    frontend = FakeFrontend()
+    tuner = TDA18271Tuner(frontend)
+
+    registers = tuner.read_hardware_registers()
+
+    assert len(registers) == tuner.REGISTER_COUNT
+    assert registers[0] == tuner.CHIP_ID_HDC2
+    assert frontend.gated_reads == 1
+
+
+def test_tda18271_reads_one_physical_register():
+    frontend = FakeFrontend()
+    tuner = TDA18271Tuner(frontend)
+
+    assert tuner.read_hardware_register(tuner.REG_MPD) == 0
+    assert frontend.gated_reads == 1
+
+
+def test_tda18271_register_cache_is_a_snapshot():
+    tuner = TDA18271Tuner(FakeFrontend())
+
+    registers = tuner.get_register_cache()
+    registers = bytes((0x00,)) + registers[1:]
+
+    assert registers[0] == 0
+    assert tuner.get_register_cache()[0] == tuner.CHIP_ID_HDC2
 
 
 def test_tda18271_reports_linux_standard_map_if_frequency():
@@ -190,8 +227,11 @@ def test_tda18271_uses_hdc1_defaults_and_pll_map():
     assert frontend.writes[0][2][tuner.REG_ID] == 0x83
     assert frontend.writes[1][2][tuner.REG_EB1 - 16] == 0xFF
     tuner.tune(DVBTuning(650_000_000, 8_000_000))
-    pll_write = next(data for _, register, data in frontend.writes if register == tuner.REG_EP1 and len(data) >= 13)
-    assert pll_write[tuner.REG_MPD - tuner.REG_EP1] == 0x1C
+    pll_write = next(
+        data for _, register, data in reversed(frontend.writes)
+        if register == tuner.REG_MPD and len(data) == 4
+    )
+    assert pll_write[0] == 0x9C
 
 
 def test_tda18271_hdc2_calibration_is_persistent(monkeypatch):

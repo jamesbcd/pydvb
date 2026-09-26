@@ -436,6 +436,20 @@ class TDA18271Tuner(DVBTuner):
                 self._registers[register] = value
         return values
 
+    def read_hardware_registers(self) -> bytes:
+        """Read and return the physical TDA18271 register block."""
+        return self._read_extended()
+
+    def read_hardware_register(self, register: int) -> int:
+        """Read one physical TDA18271 register from a Linux-style extended dump."""
+        if not 0 <= register < self.REGISTER_COUNT:
+            raise ValueError("TDA18271 register is out of range")
+        return self._read_extended()[register]
+
+    def get_register_cache(self) -> bytes:
+        """Return a snapshot of the software TDA18271 register cache."""
+        return bytes(self._registers)
+
     def init_hardware(self) -> None:
         chip_id = self._read_register(self.REG_ID, 1)[0]
         if chip_id not in (self.CHIP_ID_HDC1, self.CHIP_ID_HDC2):
@@ -841,11 +855,13 @@ class TDA18271Tuner(DVBTuner):
         self._registers[self.REG_EB22] = (self._registers[self.REG_EB22] & 0x80) | rfagc_top
         self._registers[self.REG_EP3] &= 0x1F
         self._set_main_pll(tuning.frequency_hz + if_frequency)
+        self._registers[self.REG_MPD] |= 0x80
 
         self._write_cached(self.REG_EB22, 1)
         self._write_cached(self.REG_EB1, 1)
-        self._write_cached(self.REG_EP1, self.REG_MD3 - self.REG_EP1 + 1)
+        self._write_cached(self.REG_EP1, 1)
         self._write_cached(self.REG_EB13, 1)
+        self._write_cached(self.REG_MPD, self.REG_MD3 - self.REG_MPD + 1)
         self._write_cached(self.REG_TM, self.REG_EP5 - self.REG_TM + 1)
         self._registers[self.REG_EB4] |= 0x20
         self._write_cached(self.REG_EB4, 1)
