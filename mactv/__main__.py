@@ -151,6 +151,10 @@ def _run_device(device, args) -> int:
     print(f"Tuning to frequency {args.frequency} Hz with bandwidth {args.bandwidth} MHz")
     tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
 
+    if args.command == "tune":
+        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
+        return 0 if tuning_status and tuning_status.lock else 2
+
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
             print("Capture failed: frontend did not lock; no transport stream is available")
@@ -204,11 +208,7 @@ def _run_device(device, args) -> int:
             if hasattr(adapter, "sleep"):
                 adapter.sleep()
 
-    if args.record is not None or args.serve is not None or args.scan_stream:
-        return 0
-    status = device.adapters[args.adapter_index].read_status()
-    print(f"Lock result: {'LOCKED' if status.lock else 'NO LOCK'}")
-    return 0 if status.lock else 2
+    return 0
 
 
 def main() -> int:
@@ -289,6 +289,11 @@ def main() -> int:
     subparsers.add_parser(
         "sleep",
         help="Initialize the device, put it into its low-power state, and exit",
+        parents=[device_id],
+    )
+    subparsers.add_parser(
+        "tune",
+        help="Initialize the device, tune it, and exit with the lock result",
         parents=[device_id],
     )
     subparsers.add_parser(

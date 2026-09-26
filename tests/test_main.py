@@ -147,6 +147,23 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     assert "Device is sleeping" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("device_class", "expected_code", "expected_output"),
+    [
+        (FakeLockedRecordingDevice, 0, "Lock result: LOCKED"),
+        (FakeUnlockedRecordingDevice, 2, "Lock result: NO LOCK"),
+    ],
+)
+def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_code, expected_output):
+    device = device_class()
+    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune"])
+
+    assert __main__.main() == expected_code
+    assert device.tune_called
+    assert expected_output in capsys.readouterr().out
+
+
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
