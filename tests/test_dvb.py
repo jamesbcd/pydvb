@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
-from mactv.dvb import DVBScanner, DVBService, ScanPolicy
+from mactv.scanner import DVBScanner, DVBService, ScanPolicy
 from mactv.driver_api.adapter import DVBAdapter
 
 

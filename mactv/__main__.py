@@ -5,7 +5,7 @@ import pprint
 from pathlib import Path
 from time import monotonic
 
-from .dvb import DVBScanResult, DVBScanner
+from .scanner import DVBScanResult, DVBScanner
 from mactv.driver_api.tuner import DVBTuning
 
 from .drivers.af9015.device import AF9015Device
