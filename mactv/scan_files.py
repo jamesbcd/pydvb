@@ -54,8 +54,16 @@ def known_dvb_t_scan_tables() -> list[str]:
     return sorted(parser.file_names)
 
 
-def parse_scan(scan: str | Path) -> list[DVBTuning]:
-    """Read a local or known LinuxTV scan table into DVB tuning values."""
+def parse_scan(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
+    """Read a local or known LinuxTV scan table into DVB tuning values.
+
+    Args:
+        scan: Path to a local scan table file or the name of a known LinuxTV scan table.
+        prefer_auto: Whether to prefer 'auto' values when parsing.
+
+    Returns:
+        A list of DVBTuning objects representing the parsed scan table.
+    """
     scan_path = Path(scan)
     if scan_path.is_file():
         contents = scan_path.read_text(encoding="utf-8")
@@ -73,7 +81,7 @@ def parse_scan(scan: str | Path) -> list[DVBTuning]:
     for line_number, line in enumerate(contents.splitlines(), 1):
         stripped = line.strip()
         if stripped == "[CHANNEL]":
-            tuning = _parse_channel(channel, line_number)
+            tuning = _parse_channel(channel, line_number, prefer_auto)
             if tuning is not None:
                 tunings.append(tuning)
             channel.clear()
@@ -98,25 +106,26 @@ def parse_scan(scan: str | Path) -> list[DVBTuning]:
             continue
         if len(fields) != 9:
             raise ValueError(f"invalid scan entry on line {line_number}")
-        tunings.append(
-            DVBTuning(
-                frequency_hz=int(fields[1]),
-                bandwidth_hz=_parse_bandwidth(fields[2]),
-                code_rate_hp=CodeRate(fields[3].lower()),
-                code_rate_lp=CodeRate(fields[4].lower()),
-                modulation=Modulation(fields[5].lower()),
-                transmission_mode=TransmissionMode(fields[6].lower()),
-                guard_interval=GuardInterval(fields[7].lower()),
-                hierarchy=Hierarchy(fields[8].lower()),
-            )
+        tuning = DVBTuning(
+            frequency_hz=int(fields[1]),
+            bandwidth_hz=_parse_bandwidth(fields[2]),
+            code_rate_hp=CodeRate(fields[3].lower()),
+            code_rate_lp=CodeRate(fields[4].lower()),
+            modulation=Modulation(fields[5].lower()),
+            transmission_mode=TransmissionMode(fields[6].lower()),
+            guard_interval=GuardInterval(fields[7].lower()),
+            hierarchy=Hierarchy(fields[8].lower()),
         )
-    tuning = _parse_channel(channel, len(contents.splitlines()) + 1)
+        tunings.append(_prefer_auto_values(tuning) if prefer_auto else tuning)
+    tuning = _parse_channel(channel, len(contents.splitlines()) + 1, prefer_auto)
     if tuning is not None:
         tunings.append(tuning)
     return tunings
 
 
-def _parse_channel(channel: dict[str, str], line_number: int) -> DVBTuning | None:
+def _parse_channel(
+    channel: dict[str, str], line_number: int, prefer_auto: bool
+) -> DVBTuning | None:
     """Convert one LinuxTV channel block into a DVB tuning value."""
     if not channel or channel.get("DELIVERY_SYSTEM") != "DVBT":
         return None
@@ -132,7 +141,7 @@ def _parse_channel(channel: dict[str, str], line_number: int) -> DVBTuning | Non
     )
     if any(field not in channel for field in required):
         raise ValueError(f"invalid scan entry on line {line_number}")
-    return DVBTuning(
+    tuning = DVBTuning(
         frequency_hz=int(channel["FREQUENCY"]),
         bandwidth_hz=int(channel["BANDWIDTH_HZ"]),
         code_rate_hp=CodeRate(channel["CODE_RATE_HP"].lower()),
@@ -141,6 +150,15 @@ def _parse_channel(channel: dict[str, str], line_number: int) -> DVBTuning | Non
         transmission_mode=TransmissionMode(channel["TRANSMISSION_MODE"].lower()),
         guard_interval=GuardInterval(channel["GUARD_INTERVAL"].lower()),
         hierarchy=Hierarchy(channel["HIERARCHY"].lower()),
+    )
+    return _prefer_auto_values(tuning) if prefer_auto else tuning
+
+
+def _prefer_auto_values(tuning: DVBTuning) -> DVBTuning:
+    """Replace discoverable DVB-T parameters with automatic values."""
+    return DVBTuning(
+        frequency_hz=tuning.frequency_hz,
+        bandwidth_hz=tuning.bandwidth_hz,
     )
 
 

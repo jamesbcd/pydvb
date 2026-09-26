@@ -270,7 +270,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_scan(scan_path) == [
+    assert parse_scan(scan_path, prefer_auto=False) == [
         scan_files_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -288,6 +288,10 @@ def test_scanner_parses_local_scan_table(tmp_path):
             modulation=Modulation.QPSK,
         ),
     ]
+    assert parse_scan(scan_path) == [
+        scan_files_module.DVBTuning(177_500_000, 7_000_000),
+        scan_files_module.DVBTuning(226_500_000, 7_000_000),
+    ]
 
 
 def test_scanner_parses_known_scan_table(monkeypatch):
@@ -300,7 +304,7 @@ def test_scanner_parses_known_scan_table(monkeypatch):
     requests_get = lambda url, timeout: Response()
     monkeypatch.setattr(scan_files_module.requests, "get", requests_get)
 
-    assert parse_scan("au-Brisbane") == [
+    assert parse_scan("au-Brisbane", prefer_auto=False) == [
         scan_files_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -330,7 +334,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_scan(scan_path) == [
+    assert parse_scan(scan_path, prefer_auto=False) == [
         scan_files_module.DVBTuning(
             226_500_000,
             7_000_000,
@@ -341,4 +345,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
             CodeRate.RATE_3_4,
             CodeRate.NONE,
         )
+    ]
+    assert parse_scan(scan_path) == [
+        scan_files_module.DVBTuning(226_500_000, 7_000_000),
     ]
