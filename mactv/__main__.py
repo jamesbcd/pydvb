@@ -7,7 +7,7 @@ from time import monotonic, sleep
 from typing import Any, Callable, cast
 
 
-from .scan_files import known_dvb_t_scan_tables, parse_scan
+from .scan_tables import known_dvb_t_scan_tables, parse_scan
 from .scanner import DVBScanResult, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 

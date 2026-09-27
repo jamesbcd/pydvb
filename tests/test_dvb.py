@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
-from mactv.scan_files import parse_scan
+from mactv.scan_tables import parse_scan
 from mactv.scanner import (
     DVBScanner,
     DVBService,
@@ -19,7 +19,7 @@ from mactv.driver_api.tuner import (
     Modulation,
     TransmissionMode,
 )
-import mactv.scan_files as scan_files_module
+import mactv.scan_tables as scan_tables_module
 import mactv.scanner as scanner_module
 
 
@@ -307,9 +307,9 @@ def test_scanner_lists_known_dvb_t_scan_tables(monkeypatch):
         def raise_for_status(self):
             pass
 
-    monkeypatch.setattr(scan_files_module.requests, "get", lambda url, timeout: Response())
+    monkeypatch.setattr(scan_tables_module.requests, "get", lambda url, timeout: Response())
 
-    assert scan_files_module.known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
+    assert scan_tables_module.known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
 
 
 def test_scanner_parses_local_scan_table(tmp_path):
@@ -322,7 +322,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
     )
 
     assert parse_scan(scan_path, prefer_auto=False) == [
-        scan_files_module.DVBTuning(
+        scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
             TransmissionMode.K8,
@@ -332,7 +332,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
             CodeRate.RATE_3_4,
             CodeRate.RATE_1_2,
         ),
-        scan_files_module.DVBTuning(
+        scan_tables_module.DVBTuning(
             226_500_000,
             7_000_000,
             TransmissionMode.K2,
@@ -340,8 +340,8 @@ def test_scanner_parses_local_scan_table(tmp_path):
         ),
     ]
     assert parse_scan(scan_path) == [
-        scan_files_module.DVBTuning(177_500_000, 7_000_000),
-        scan_files_module.DVBTuning(226_500_000, 7_000_000),
+        scan_tables_module.DVBTuning(177_500_000, 7_000_000),
+        scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
 
 
@@ -353,10 +353,10 @@ def test_scanner_parses_known_scan_table(monkeypatch):
             pass
 
     requests_get = lambda url, timeout: Response()
-    monkeypatch.setattr(scan_files_module.requests, "get", requests_get)
+    monkeypatch.setattr(scan_tables_module.requests, "get", requests_get)
 
     assert parse_scan("au-Brisbane", prefer_auto=False) == [
-        scan_files_module.DVBTuning(
+        scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
             TransmissionMode.K8,
@@ -386,7 +386,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
     )
 
     assert parse_scan(scan_path, prefer_auto=False) == [
-        scan_files_module.DVBTuning(
+        scan_tables_module.DVBTuning(
             226_500_000,
             7_000_000,
             TransmissionMode.K8,
@@ -398,5 +398,5 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
         )
     ]
     assert parse_scan(scan_path) == [
-        scan_files_module.DVBTuning(226_500_000, 7_000_000),
+        scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
