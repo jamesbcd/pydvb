@@ -214,7 +214,9 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["mactv", "scan-stream"])
 
     assert __main__.main() == 0
-    assert "DVBScanResult" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "DVBScanResult" in output
+    assert "Logical channel numbers:" in output
     assert device.close_called
 
 
@@ -351,8 +353,8 @@ def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
     adapter = FakeStreamAdapter([b"first", b"second"])
     scan_calls = []
     scanner = type("Scanner", (), {
-        "scan": lambda _scanner, source, read_timeout_ms: (
-            scan_calls.append((source, read_timeout_ms))
+        "scan": lambda _scanner, source, policy, read_timeout_ms: (
+            scan_calls.append((source, policy, read_timeout_ms))
             or DVBScanResult(1, 2, "network", (), 1, True)
         ),
     })()
@@ -361,7 +363,7 @@ def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
     result = __main__.scan_stream(adapter)
 
     assert result.complete
-    assert scan_calls == [(adapter, 5000)]
+    assert scan_calls == [(adapter, __main__.ScanPolicy.ALL_SERVICE_METADATA, 5000)]
     assert adapter.events == ["start", "stop", "sleep"]
 
 

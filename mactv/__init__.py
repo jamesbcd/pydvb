@@ -27,6 +27,8 @@ from .scanner import (
     DVBScanResult,
     DVBScanner,
     DVBService,
+    DVBServiceMetatype,
+    DVBServiceType,
 )
 from .server import LocalTS_HTTPServer
 from .usb import USBSpeed, USBTransport, default_transport_factory
@@ -59,4 +61,6 @@ __all__ = [
     "DVBScanResult",
     "DVBScanner",
     "DVBService",
+    "DVBServiceMetatype",
+    "DVBServiceType",
 ]

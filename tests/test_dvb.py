@@ -4,7 +4,13 @@ import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
 from mactv.scan_files import parse_scan
-from mactv.scanner import DVBScanner, DVBService, ScanPolicy
+from mactv.scanner import (
+    DVBScanner,
+    DVBService,
+    DVBServiceMetatype,
+    DVBServiceType,
+    ScanPolicy,
+)
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import (
     CodeRate,
@@ -112,6 +118,8 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert len(result.services) == 1
     service = result.services[0]
     assert service.name == "ExampleTV"
+    assert service.service_type is DVBServiceType.DIGITAL_TELEVISION
+    assert service.service_metatype is DVBServiceMetatype.TV
     assert service.provider_name == "Network"
     assert service.logical_channel_number == 5
     assert service.pmt_pid == 0x100
@@ -138,6 +146,46 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.current_event is not None
     assert service.current_event.name == "News!"
     assert service.current_event.text == "Live"
+
+
+def test_dvb_service_type_uses_int_compatible_standard_codes():
+    assert DVBServiceType.DIGITAL_TELEVISION == 0x01
+    assert DVBServiceType.DIGITAL_RADIO_SOUND == 0x02
+    assert DVBServiceType.DVB_MHP == 0x10
+    assert DVBServiceType(0x01) is DVBServiceType.DIGITAL_TELEVISION
+
+
+def test_every_dvb_service_type_has_a_metatype():
+    assert {
+        service_type.metatype
+        for service_type in DVBServiceType
+    } == {
+        DVBServiceMetatype.TV,
+        DVBServiceMetatype.RADIO,
+        DVBServiceMetatype.OTHER,
+    }
+    assert DVBServiceType.DIGITAL_RADIO_SOUND.metatype is DVBServiceMetatype.RADIO
+    assert DVBServiceType.DATA_BROADCAST.metatype is DVBServiceMetatype.OTHER
+
+
+def test_scanner_uses_bat_lcn_when_nit_does_not_advertise_one():
+    pat = section(0x00, b"\x12\x34\xC1\x00\x00\x00\x01\xE1\x00")
+    lcn_descriptor = descriptor(0x83, b"\x00\x01\xC0\x07")
+    bat = section(
+        0x4A,
+        b"\x00\x01\xC1\x00\x00"
+        + b"\xF0\x00"
+        + bytes((0xF0, 6 + len(lcn_descriptor)))
+        + b"\x12\x34\x00\x01"
+        + bytes((0xF0 | (len(lcn_descriptor) >> 8), len(lcn_descriptor)))
+        + lcn_descriptor,
+    )
+
+    scanner = DVBScanner()
+    scanner.feed(table_packet(0x0000, pat))
+    scanner.feed(table_packet(0x0011, bat))
+
+    assert scanner.result().services[0].logical_channel_number == 7
 
 
 def test_service_pids_omit_missing_optional_pids():
@@ -214,17 +262,20 @@ def test_scanner_rejects_an_unstarted_adapter():
         DVBScanner().scan(adapter)
 
 
-def test_scanner_completion_policy_can_require_decoded_pmts():
+def test_scanner_completion_policy_can_require_all_service_metadata():
     scanner = DVBScanner()
     scanner._pmt_pids[1] = 100
     scanner._services[1] = DVBService(service_id=1, pmt_pid=100)
     scanner._seen_tables.add(0x42)
 
     assert scanner.complete(ScanPolicy.MIN_METADATA)
-    assert not scanner.complete(ScanPolicy.SERVICE_PIDS)
+    assert not scanner.complete(ScanPolicy.ALL_SERVICE_METADATA)
 
     scanner._decoded_pmt_pids[1] = 100
-    assert scanner.complete(ScanPolicy.SERVICE_PIDS)
+    assert not scanner.complete(ScanPolicy.ALL_SERVICE_METADATA)
+
+    scanner._services[1].logical_channel_number = 7
+    assert scanner.complete(ScanPolicy.ALL_SERVICE_METADATA)
 
 
 def test_scanner_reads_a_started_adapter_until_complete():

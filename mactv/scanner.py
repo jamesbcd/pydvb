@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 from typing import Any
 
 from construct import Bit, BitStruct, BitsInteger
@@ -89,7 +89,75 @@ class ScanPolicy(Enum):
     """Define the amount of metadata required for a scan to be complete."""
 
     MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
-    SERVICE_PIDS = auto() # Require all PIDs for each service advertised by the current PAT to have been decoded
+    ALL_SERVICE_METADATA = auto() # Require all service PIDs and logical channel numbers
+
+
+class DVBServiceType(IntEnum):
+    """Service type values from the DVB service descriptor."""
+
+    RESERVED = 0x00
+    DIGITAL_TELEVISION = 0x01
+    DIGITAL_RADIO_SOUND = 0x02
+    TELETEXT = 0x03
+    NVOD_REFERENCE = 0x04
+    NVOD_TIME_SHIFTED = 0x05
+    MOSAIC = 0x06
+    PAL_CODED_SIGNAL = 0x07
+    SECAM_CODED_SIGNAL = 0x08
+    D_D2_MAC = 0x09
+    FM_RADIO = 0x0A
+    NTSC = 0x0B
+    DATA_BROADCAST = 0x0C
+    RCS_MAP = 0x0E
+    RCS_FLS = 0x0F
+    DVB_MHP = 0x10
+    MPEG2_HD_DIGITAL_TELEVISION = 0x11
+    ADVANCED_CODEC_SD_DIGITAL_TELEVISION = 0x12
+    ADVANCED_CODEC_SD_NVOD = 0x13
+    ADVANCED_CODEC_SD_TIME_SHIFTED = 0x14
+    ADVANCED_CODEC_HD_DIGITAL_TELEVISION = 0x15
+    ADVANCED_CODEC_HD_NVOD = 0x16
+    ADVANCED_CODEC_HD_TIME_SHIFTED = 0x17
+
+    @property
+    def metatype(self) -> "DVBServiceMetatype":
+        """Return the broad media category for this DVB service type."""
+        return _DVB_SERVICE_METATYPES[self]
+
+
+class DVBServiceMetatype(str, Enum):
+    """Broad media category for a DVB service."""
+
+    TV = "TV"
+    RADIO = "RADIO"
+    OTHER = "OTHER"
+
+
+_DVB_SERVICE_METATYPES = {
+    DVBServiceType.RESERVED: DVBServiceMetatype.OTHER,
+    DVBServiceType.DIGITAL_TELEVISION: DVBServiceMetatype.TV,
+    DVBServiceType.DIGITAL_RADIO_SOUND: DVBServiceMetatype.RADIO,
+    DVBServiceType.TELETEXT: DVBServiceMetatype.OTHER,
+    DVBServiceType.NVOD_REFERENCE: DVBServiceMetatype.TV,
+    DVBServiceType.NVOD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.MOSAIC: DVBServiceMetatype.TV,
+    DVBServiceType.PAL_CODED_SIGNAL: DVBServiceMetatype.TV,
+    DVBServiceType.SECAM_CODED_SIGNAL: DVBServiceMetatype.TV,
+    DVBServiceType.D_D2_MAC: DVBServiceMetatype.TV,
+    DVBServiceType.FM_RADIO: DVBServiceMetatype.RADIO,
+    DVBServiceType.NTSC: DVBServiceMetatype.TV,
+    DVBServiceType.DATA_BROADCAST: DVBServiceMetatype.OTHER,
+    DVBServiceType.RCS_MAP: DVBServiceMetatype.OTHER,
+    DVBServiceType.RCS_FLS: DVBServiceMetatype.OTHER,
+    DVBServiceType.DVB_MHP: DVBServiceMetatype.OTHER,
+    DVBServiceType.MPEG2_HD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_SD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_SD_NVOD: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_SD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_HD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_HD_NVOD: DVBServiceMetatype.TV,
+    DVBServiceType.ADVANCED_CODEC_HD_TIME_SHIFTED: DVBServiceMetatype.TV,
+}
 
 
 @dataclass
@@ -99,7 +167,8 @@ class DVBService:
     name: str | None = None
     provider_name: str | None = None
     logical_channel_number: int | None = None
-    service_type: int | None = None
+    service_type: DVBServiceType | int | None = None
+    service_metatype: DVBServiceMetatype = DVBServiceMetatype.OTHER
     pmt_pid: int | None = None  # PMT = Program Map Table PID. PID = Packet Identifier
     pcr_pid: int | None = None  # PCR = Program Clock Reference PID. PID = Packet Identifier
     elementary_streams: tuple[DVBElementaryStream, ...] = ()
@@ -197,10 +266,10 @@ class DVBScanner:
     ) -> bool:
         """Return whether the selected scan completion condition is satisfied.
 
-        ``MINIMUM_METADATA`` requires the PAT PMT references and SDT service
-        metadata. ``ALL_SERVICE_PIDS`` additionally requires every PMT
-        advertised by the current PAT to have been decoded (allowing filtering by a
-        single service).
+        ``MIN_METADATA`` requires the PAT PMT references and SDT service
+        metadata. ``ALL_SERVICE_METADATA`` additionally requires every PMT
+        advertised by the current PAT to have been decoded and a logical
+        channel number on every discovered service.
         """
         # PMT = Program Map Table (contains information about the programs and their associated PIDs)
         # SDT = Service Description Table (contains information about the services. e.g.names and provider names)
@@ -212,10 +281,13 @@ class DVBScanner:
         )
         if policy is ScanPolicy.MIN_METADATA:
             return minimum_metadata
-        if policy is ScanPolicy.SERVICE_PIDS:
+        if policy is ScanPolicy.ALL_SERVICE_METADATA:
             return minimum_metadata and all(
                 self._decoded_pmt_pids.get(service_id) == pmt_pid
                 for service_id, pmt_pid in self._pmt_pids.items()
+            ) and all(
+                service.logical_channel_number is not None
+                for service in self._services.values()
             )
         raise ValueError(f"unsupported scan completion policy: {policy!r}")
 
@@ -231,6 +303,7 @@ class DVBScanner:
                 provider_name=service.provider_name,
                 logical_channel_number=service.logical_channel_number,
                 service_type=service.service_type,
+                service_metatype=service.service_metatype,
                 pmt_pid=service.pmt_pid,
                 pcr_pid=service.pcr_pid,
                 elementary_streams=tuple(
@@ -371,6 +444,8 @@ class DVBScanner:
             self._decode_pat(section)
         elif pid == 0x11 and table_id in (0x42, 0x46): # SDT (Service Description Table)
             self._decode_sdt(section)
+        elif pid == 0x11 and table_id == 0x4A: # BAT (Bouquet Association Table)
+            self._decode_bat(section)
         elif pid == 0x10 and table_id in (0x40, 0x41): # NIT (Network Information Table)
             self._decode_nit(section)
         elif pid == 0x12 and 0x4E <= table_id <= 0x6F: # EIT (Event Information Table)
@@ -430,7 +505,12 @@ class DVBScanner:
             service_data = section[offset + 5 : offset + 5 + descriptor_length]
             for tag, value in _descriptors(service_data):
                 if tag == 0x48 and len(value) >= 2:
-                    service.service_type = value[0]
+                    try:
+                        service.service_type = DVBServiceType(value[0])
+                        service.service_metatype = service.service_type.metatype
+                    except ValueError:
+                        service.service_type = value[0]
+                        service.service_metatype = DVBServiceMetatype.OTHER
                     provider_length = value[1]
                     service.provider_name = _decode_text(value[2 : 2 + provider_length])
                     name_offset = 2 + provider_length
@@ -454,12 +534,38 @@ class DVBScanner:
         limit = min(offset + transport_length, end)
         while offset + 6 <= limit:
             descriptor_length = ((section[offset + 4] & 0x0F) << 8) | section[offset + 5]
-            for tag, value in _descriptors(section[offset + 6 : offset + 6 + descriptor_length]):
-                if tag == 0x83:
-                    for index in range(0, len(value) - 3, 4):
-                        service_id = int.from_bytes(value[index : index + 2], "big")
-                        self._services.setdefault(service_id, DVBService(service_id)).logical_channel_number = int.from_bytes(value[index + 2 : index + 4], "big") & 0x03FF
+            self._decode_lcn_descriptors(section[offset + 6 : offset + 6 + descriptor_length])
             offset += 6 + descriptor_length
+
+    def _decode_bat(self, section: bytes) -> None:
+        """Decode local channel numbers from a Bouquet Association Table."""
+        if len(section) < 12:
+            self._warnings.append("truncated BAT section")
+            return
+        bouquet_length = ((section[8] & 0x0F) << 8) | section[9]
+        offset = 10 + bouquet_length
+        end = _section_end(section)
+        if offset + 2 > end:
+            return
+        transport_length = ((section[offset] & 0x0F) << 8) | section[offset + 1]
+        offset += 2
+        limit = min(offset + transport_length, end)
+        while offset + 6 <= limit:
+            descriptor_length = ((section[offset + 4] & 0x0F) << 8) | section[offset + 5]
+            descriptor_end = min(offset + 6 + descriptor_length, limit)
+            self._decode_lcn_descriptors(section[offset + 6 : descriptor_end])
+            offset += 6 + descriptor_length
+
+    def _decode_lcn_descriptors(self, data: bytes) -> None:
+        """Decode LCN descriptors without replacing an LCN found in the NIT."""
+        for tag, value in _descriptors(data):
+            if tag != 0x83:
+                continue
+            for index in range(0, len(value) - 3, 4):
+                service_id = int.from_bytes(value[index : index + 2], "big")
+                service = self._services.setdefault(service_id, DVBService(service_id))
+                if service.logical_channel_number is None:
+                    service.logical_channel_number = int.from_bytes(value[index + 2 : index + 4], "big") & 0x03FF
 
     def _decode_eit(self, section: bytes) -> None:
         """Decode an Event Information Table (EIT) section."""

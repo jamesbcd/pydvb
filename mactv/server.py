@@ -51,7 +51,7 @@ class LocalTS_HTTPServer:
         """Start the transport stream and its broadcaster."""
         self.adapter.start()
         scanner = DVBScanner()
-        scan_result = scanner.scan(self.adapter, ScanPolicy.SERVICE_PIDS)
+        scan_result = scanner.scan(self.adapter, ScanPolicy.ALL_SERVICE_METADATA)
         STREAM_ONE_SERVICE = False
         if STREAM_ONE_SERVICE and len(scan_result.services) > 2:
             service = scan_result.services[2]

@@ -8,7 +8,7 @@ from typing import Any, Callable, cast
 
 
 from .scan_files import known_dvb_t_scan_tables, parse_scan
-from .scanner import DVBScanResult, DVBScanner
+from .scanner import DVBScanResult, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from .drivers.af9015.device import AF9015Device
@@ -88,6 +88,7 @@ def scan_stream(
         adapter.start()
         return scanner.scan(
             adapter,
+            policy=ScanPolicy.ALL_SERVICE_METADATA,
             read_timeout_ms=max(0, int(read_timeout * 1000)),
         )
     finally:
@@ -270,7 +271,6 @@ def _run_device(device: AF9015Device, args) -> int:
         device.bridge.transport.log_stats()
         del result.warnings
         pprint.pprint(result, underscore_numbers=True)
-
 
     if args.command == "serve" and args.serve is not None:
         if tuning_status is None or not tuning_status.lock:
