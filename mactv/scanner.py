@@ -19,7 +19,7 @@ TS_SYNC_BYTE = 0x47     # Sync byte value for MPEG transport stream packets
 # Standard PIDs for DVB tables that are typically scanned.
 # These PIDs correspond to the Program Association Table (PAT), Network Information Table (NIT),
 # Service Description Table (SDT), and Event Information Table (EIT) respectively.
-SCAN_TABLE_PIDS = frozenset((
+STREAM_TABLE_PIDS = frozenset((
         0x0000,    # PAT (Program Association Table)
         0x0010,    # NIT (Network Information Table)
         0x0011,    # SDT (Service Description Table)
@@ -370,7 +370,7 @@ class DVBScanner:
         # Otherwise we ignore this packet. Without ignoring irrelevant packets, the scanner
         # struggles to keep up with the stream.
         pid = ((packet[1] & 0x1F) << 8) | packet[2]
-        if pid not in SCAN_TABLE_PIDS and pid not in self._pmt_pids.values():
+        if pid not in STREAM_TABLE_PIDS and pid not in self._pmt_pids.values():
             return
         header = TS_PACKET_HEADER.parse(packet[:4])
         if header.transport_error_indicator:
