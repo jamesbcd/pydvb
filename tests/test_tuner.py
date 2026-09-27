@@ -267,7 +267,7 @@ def test_tda18271_power_scan_keeps_successful_downward_frequency(monkeypatch):
     tuner._write_cached = lambda *_: None
     tuner._set_main_pll = lambda _: None
     readings = iter((0, 0, 10))
-    tuner._read_extended = lambda: tuner._registers.__setitem__(tuner.REG_EB10, next(readings)) or b""
+    tuner.read_hardware_registers = lambda: tuner._registers.__setitem__(tuner.REG_EB10, next(readings)) or b""
     tuner._lookup_cid_target = lambda _: (10, 0)
     monkeypatch.setattr("mactv.drivers.af9015.tuner.sleep", lambda _: None)
 

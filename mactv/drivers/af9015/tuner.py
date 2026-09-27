@@ -427,7 +427,8 @@ class TDA18271Tuner(DVBTuner):
                 bytes(self._registers[register + offset : register + offset + chunk_length]),
             )
 
-    def _read_extended(self) -> bytes:
+    def read_hardware_registers(self) -> bytes:
+        """Read and return the physical TDA18271 register block."""
         values = self._read_register(self.REG_ID, self.REGISTER_COUNT)
         if len(values) != self.REGISTER_COUNT:
             raise IOError("short TDA18271 extended register read")
@@ -436,15 +437,11 @@ class TDA18271Tuner(DVBTuner):
                 self._registers[register] = value
         return values
 
-    def read_hardware_registers(self) -> bytes:
-        """Read and return the physical TDA18271 register block."""
-        return self._read_extended()
-
     def read_hardware_register(self, register: int) -> int:
         """Read one physical TDA18271 register from the extended register dump."""
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
-        return self._read_extended()[register]
+        return self.read_hardware_registers()[register]
 
     def get_register_cache(self) -> bytes:
         """Return a snapshot of the software TDA18271 register cache."""
@@ -485,14 +482,14 @@ class TDA18271Tuner(DVBTuner):
     def _read_thermometer(self) -> int:
         self._registers[self.REG_TM] |= 0x10
         self._write_cached(self.REG_TM, 1)
-        self._read_extended()
+        self.read_hardware_registers()
         if ((self._registers[self.REG_TM] & 0x0F) == 0x00 and self._registers[self.REG_TM] & 0x20) or (
             (self._registers[self.REG_TM] & 0x0F) == 0x08 and not self._registers[self.REG_TM] & 0x20
         ):
             self._registers[self.REG_TM] ^= 0x20
             self._write_cached(self.REG_TM, 1)
             sleep(0.010)
-            self._read_extended()
+            self.read_hardware_registers()
         code = self._registers[self.REG_TM] & 0x0F
         # Temperature values are in Gray-code ordering, and likely represent actual temperatures in Celsius.
         low_values = (60, 62, 66, 64, 74, 72, 68, 70, 90, 88, 84, 86, 76, 78, 82, 80) 
@@ -515,7 +512,7 @@ class TDA18271Tuner(DVBTuner):
         self._registers[self.REG_EP4] = (self._registers[self.REG_EP4] & ~0x03) | 0x01
         self._write_cached(self.REG_EP4, 1)
         self._write_cached(self.REG_EP2, 1)
-        self._read_extended()
+        self.read_hardware_registers()
         target, count_limit = self._lookup_cid_target(frequency_hz)
         direction = 1
         count = 0
@@ -530,7 +527,7 @@ class TDA18271Tuner(DVBTuner):
             else:
                 sleep(0.0001)
             self._write_cached(self.REG_EP2, 1)
-            self._read_extended()
+            self.read_hardware_registers()
             count += 200_000
             if count <= count_limit * 1000:
                 continue
@@ -580,7 +577,7 @@ class TDA18271Tuner(DVBTuner):
         self._write_cached(self.REG_EB18, 1)
         self._write_cached(self.REG_EP3, 2)
         self._write_cached(self.REG_EP1, 1)
-        self._read_extended()
+        self.read_hardware_registers()
         return self._registers[self.REG_EB14]
 
     def _initialize_hdc2_calibration(self) -> None:
