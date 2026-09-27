@@ -94,30 +94,41 @@ class ScanPolicy(Enum):
 
 class DVBServiceType(IntEnum):
     """Service type values from the DVB service descriptor."""
-
-    RESERVED = 0x00
+    # See p100 of https://www.etsi.org/deliver/etsi_en/300400_300499/300468/01.19.00_20/en_300468v011900a.pdf
+    RESERVED_0x00 = 0x00
     DIGITAL_TELEVISION = 0x01
     DIGITAL_RADIO_SOUND = 0x02
     TELETEXT = 0x03
     NVOD_REFERENCE = 0x04
     NVOD_TIME_SHIFTED = 0x05
     MOSAIC = 0x06
-    PAL_CODED_SIGNAL = 0x07
-    SECAM_CODED_SIGNAL = 0x08
-    D_D2_MAC = 0x09
-    FM_RADIO = 0x0A
-    NTSC = 0x0B
+    FM_RADIO = 0x07
+    DVB_SRM = 0x08
+    RESERVED_0x09 = 0x09
+    ADVANCED_CODEC_DIGITAL_RADIO_SOUND = 0x0A
+    H264_AVC_MOSAIC = 0x0B
     DATA_BROADCAST = 0x0C
     RCS_MAP = 0x0E
     RCS_FLS = 0x0F
-    DVB_MHP = 0x10
-    MPEG2_HD_DIGITAL_TELEVISION = 0x11
-    ADVANCED_CODEC_SD_DIGITAL_TELEVISION = 0x12
-    ADVANCED_CODEC_SD_NVOD = 0x13
-    ADVANCED_CODEC_SD_TIME_SHIFTED = 0x14
-    ADVANCED_CODEC_HD_DIGITAL_TELEVISION = 0x15
-    ADVANCED_CODEC_HD_NVOD = 0x16
-    ADVANCED_CODEC_HD_TIME_SHIFTED = 0x17
+    DVB_MULTIMEDIA_HOME_PLATFORM = 0x10
+    HD_DIGITAL_TELEVISION = 0x11
+    RESERVED_0x12 = 0x12
+    RESERVED_0x13 = 0x13
+    RESERVED_0x14 = 0x14
+    RESERVED_0x15 = 0x15
+    H264_AVC_SD_DTV = 0x16
+    H264_AVC_SD_NVOD_TIME_SHIFTED = 0x17
+    H264_AVC_SD_NVOD_REFERENCE = 0x18
+    H264_AVC_HD_DTV = 0x19
+    H264_AVC_HD_NVOD_TIME_SHIFTED = 0x1A
+    H264_AVC_HD_NVOD_REFERENCE = 0x1B
+    H264_AVC_STEREOSCOPIC_HD_DTV = 0x1C
+    H264_AVC_STEREOSCOPIC_HD_NVOD_TIME_SHIFTED = 0x1D
+    H264_AVC_STEREOSCOPIC_HD_NVOD_REFERENCE = 0x1E
+    HEVC_DTV = 0x1F
+    HEVC_UHD_DTV = 0x20
+    VVC_DTV = 0x21
+    AVS3_DTV = 0x22
 
     @property
     def metatype(self) -> "DVBServiceMetatype":
@@ -134,29 +145,40 @@ class DVBServiceMetatype(str, Enum):
 
 
 _DVB_SERVICE_METATYPES = {
-    DVBServiceType.RESERVED: DVBServiceMetatype.OTHER,
+    DVBServiceType.RESERVED_0x00: DVBServiceMetatype.OTHER,
     DVBServiceType.DIGITAL_TELEVISION: DVBServiceMetatype.TV,
     DVBServiceType.DIGITAL_RADIO_SOUND: DVBServiceMetatype.RADIO,
     DVBServiceType.TELETEXT: DVBServiceMetatype.OTHER,
     DVBServiceType.NVOD_REFERENCE: DVBServiceMetatype.TV,
     DVBServiceType.NVOD_TIME_SHIFTED: DVBServiceMetatype.TV,
     DVBServiceType.MOSAIC: DVBServiceMetatype.TV,
-    DVBServiceType.PAL_CODED_SIGNAL: DVBServiceMetatype.TV,
-    DVBServiceType.SECAM_CODED_SIGNAL: DVBServiceMetatype.TV,
-    DVBServiceType.D_D2_MAC: DVBServiceMetatype.TV,
     DVBServiceType.FM_RADIO: DVBServiceMetatype.RADIO,
-    DVBServiceType.NTSC: DVBServiceMetatype.TV,
+    DVBServiceType.DVB_SRM: DVBServiceMetatype.TV,
+    DVBServiceType.RESERVED_0x09: DVBServiceMetatype.OTHER,
+    DVBServiceType.ADVANCED_CODEC_DIGITAL_RADIO_SOUND: DVBServiceMetatype.RADIO,
+    DVBServiceType.H264_AVC_MOSAIC: DVBServiceMetatype.TV,
     DVBServiceType.DATA_BROADCAST: DVBServiceMetatype.OTHER,
     DVBServiceType.RCS_MAP: DVBServiceMetatype.OTHER,
     DVBServiceType.RCS_FLS: DVBServiceMetatype.OTHER,
-    DVBServiceType.DVB_MHP: DVBServiceMetatype.OTHER,
-    DVBServiceType.MPEG2_HD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_SD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_SD_NVOD: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_SD_TIME_SHIFTED: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_HD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_HD_NVOD: DVBServiceMetatype.TV,
-    DVBServiceType.ADVANCED_CODEC_HD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.DVB_MULTIMEDIA_HOME_PLATFORM: DVBServiceMetatype.OTHER,
+    DVBServiceType.HD_DIGITAL_TELEVISION: DVBServiceMetatype.TV,
+    DVBServiceType.RESERVED_0x12: DVBServiceMetatype.OTHER,
+    DVBServiceType.RESERVED_0x13: DVBServiceMetatype.OTHER,
+    DVBServiceType.RESERVED_0x14: DVBServiceMetatype.OTHER,
+    DVBServiceType.RESERVED_0x15: DVBServiceMetatype.OTHER,
+    DVBServiceType.H264_AVC_SD_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_SD_NVOD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_SD_NVOD_REFERENCE: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_HD_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_HD_NVOD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_HD_NVOD_REFERENCE: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_STEREOSCOPIC_HD_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_STEREOSCOPIC_HD_NVOD_TIME_SHIFTED: DVBServiceMetatype.TV,
+    DVBServiceType.H264_AVC_STEREOSCOPIC_HD_NVOD_REFERENCE: DVBServiceMetatype.TV,
+    DVBServiceType.HEVC_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.HEVC_UHD_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.VVC_DTV: DVBServiceMetatype.TV,
+    DVBServiceType.AVS3_DTV: DVBServiceMetatype.TV,
 }
 
 
@@ -189,18 +211,52 @@ class DVBService:
             )
         )
 
+@dataclass
+class DVBServiceSummary:
+    """Summary information for a DVB service."""
+    service_id: int                             # From DVBService
+    logical_channel_number: int | None = None   # From DVBService
+    name: str | None = None                     # From DVBService
+    original_network_id: int | None = None      # From DVBScanResult
+    network_name: str | None = None             # From DVBScanResult
+    service_type: DVBServiceType | int | None = None # From DVBService
+    service_metatype: DVBServiceMetatype = DVBServiceMetatype.OTHER # From DVBService
+    current_event: DVBEvent | None = None       # From DVBService
+    pids: Iterable[int] = frozenset()           # From DVBService
+
 
 @dataclass
 class DVBScanResult:
     """Accumulated result of scanning a DVB transport stream."""
-    transport_stream_id: int | None
-    original_network_id: int | None
-    network_name: str | None
-    services: tuple[DVBService, ...]
-    packets_seen: int
-    complete: bool
+    transport_stream_id: int | None = None
+    original_network_id: int | None = None
+    network_name: str | None = None
+    services: tuple[DVBService, ...] = ()
+    packets_seen: int = 0
+    complete: bool = False
     warnings: tuple[str, ...] = ()
 
+    def summarise(self) -> list[DVBServiceSummary]:
+        # Returns a flattened list of service summaries, sorted by logical channel number.
+        return sorted([DVBServiceSummary(
+                service_id=service.service_id,
+                logical_channel_number=service.logical_channel_number,
+                name=service.name,
+                original_network_id=self.original_network_id,
+                network_name=self.network_name,
+                service_type=service.service_type,
+                service_metatype=service.service_metatype,
+                current_event=None if service.current_event is None else DVBEvent(
+                    # Subset of DVBEvent fields
+                    event_id=service.current_event.event_id,
+                    start_time=service.current_event.start_time,
+                    duration=service.current_event.duration,
+                    name=service.current_event.name,
+                ),
+                pids=service.pids(),
+            )
+            for service in self.services
+        ], key=lambda s: (s.logical_channel_number if s.logical_channel_number is not None else float('inf')))
 
 class DVBScanner:
     """Incrementally discover services and programme metadata from TS bytes.

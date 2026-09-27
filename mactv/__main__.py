@@ -270,7 +270,9 @@ def _run_device(device: AF9015Device, args) -> int:
             return 1
         device.bridge.transport.log_stats()
         del result.warnings
-        pprint.pprint(result, underscore_numbers=True)
+        for s in result.summarise():
+            print(f"{s.logical_channel_number:3} {s.name:30} {s.network_name:15} {s.service_type:3} {s.service_metatype}")
+        # pprint.pprint(result.summarise(), underscore_numbers=True)
 
     if args.command == "serve" and args.serve is not None:
         if tuning_status is None or not tuning_status.lock:
