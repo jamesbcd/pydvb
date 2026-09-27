@@ -9,7 +9,7 @@ from threading import Event, Lock, Thread
 from typing import cast
 
 from mactv.driver_api.adapter import DVBAdapter
-from .scanner import DVBScanner, ScanPolicy
+from .stream_scanner import DVBScanner, ScanPolicy
 
 
 class LocalTS_HTTPServer:

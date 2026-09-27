@@ -4,7 +4,7 @@ import pytest
 
 from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
-from mactv.scanner import DVBScanResult
+from mactv.stream_scanner import DVBScanResult
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 

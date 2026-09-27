@@ -20,7 +20,7 @@ from .drivers.af9015.demux import AF9015Demuxer
 from .drivers.af9015.device import AF9015Device
 from .drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
 from .drivers.af9015.tuner import TDA18271Tuner
-from .scanner import (
+from .stream_scanner import (
     DVBDescriptor,
     DVBElementaryStream,
     DVBEvent,

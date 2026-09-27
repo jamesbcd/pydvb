@@ -8,7 +8,7 @@ from typing import Any, Callable, cast
 
 
 from .scan_tables import known_dvb_t_scan_tables, parse_scan
-from .scanner import DVBScanResult, DVBScanner, ScanPolicy
+from .stream_scanner import DVBScanResult, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from .drivers.af9015.device import AF9015Device

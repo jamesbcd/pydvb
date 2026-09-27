@@ -4,7 +4,7 @@ import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
 from mactv.scan_tables import parse_scan
-from mactv.scanner import (
+from mactv.stream_scanner import (
     DVBScanner,
     DVBService,
     DVBServiceMetatype,
@@ -20,7 +20,7 @@ from mactv.driver_api.tuner import (
     TransmissionMode,
 )
 import mactv.scan_tables as scan_tables_module
-import mactv.scanner as scanner_module
+import mactv.stream_scanner as scanner_module
 
 
 def mpeg_crc(data):
