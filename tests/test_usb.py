@@ -425,6 +425,21 @@ def test_memory_helpers_encode_af9013_address_and_command_byte():
     assert transport.writes[1][1] == bytes((Command.WRITE_MEMORY, 1, 0x38, 0xD3, 0xC0, 0x0B, 3, 3, 0, 0x14, 0))
 
 
+def test_frequency_control_write_uses_linux_af9013_frame():
+    transport = FakeTransport()
+    bridge = AF9015Bridge(transport)
+
+    bridge.write_memory(
+        0xD140,
+        bytes.fromhex("39 8e 0f"),
+        address_length=3,
+        mailbox=0x0B,
+        i2c_address=0x1C,
+    )
+
+    assert transport.writes[0][1] == bytes.fromhex("21 00 38 d1 40 0b 03 03 39 8e 0f")
+
+
 def test_i2c_helpers_use_bridge_protocol():
     transport = FakeTransport()
     bridge = AF9015Bridge(transport)

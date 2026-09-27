@@ -12,7 +12,7 @@ class FakeFrontend:
 
     def gated_read_register(self, address, register, length):
         self.gated_reads += 1
-        return bytes((self.chip_id,)) + bytes(length - 1)
+        return (bytes((self.chip_id,)) if register == 0 else b"\x00") + bytes(length - 1)
 
     def gated_write_register(self, address, register, data):
         self.writes.append((address, register, bytes(data)))
@@ -107,7 +107,6 @@ def test_tda18271_tune_programs_pll_and_dvb_t_registers():
         register == tuner.REG_MPD and len(data) == 4 and data[0] & 0x80
         for _, register, data in frontend.writes
     )
-    assert any(register == tuner.REG_EB13 for _, register, _ in frontend.writes)
     assert any(register == tuner.REG_TM and len(data) == 7 for _, register, data in frontend.writes)
     assert all(len(data) <= tuner.I2C_WRITE_CHUNK_SIZE for _, _, data in frontend.writes)
 

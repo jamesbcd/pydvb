@@ -144,13 +144,18 @@ def print_tuning_hardware_diagnostics(device, adapter_index: int) -> None:
         f"{register:02x}:{value:02x}" for register, value in enumerate(tuner_registers)
     )
     print("TDA18271 cached registers 08-0f: " + cached_registers[8:16].hex(" "))
+    frequency_registers = (3, 4, 5, 6, 7, 28, 29, 37, 12, 13, 14, 15)
+    print("TDA18271 cached frequency registers: " + " ".join(
+        f"{register:02x}:{cached_registers[register]:02x}" for register in frequency_registers
+    ))
     mpd = tuner_registers[tuner.REG_MPD]
     print(f"TDA18271 physical registers: {register_dump}")
     print(f"TDA18271 physical MPD (0x{tuner.REG_MPD:02x}): 0x{mpd:02x}; "
           f"digital IF notch={'on' if mpd & 0x80 else 'off'}")
     print(f"TDA18271 direct MPD read (0x{tuner.REG_MPD:02x}): 0x{direct_mpd:02x}")
     print("AF9013 physical registers: " + " ".join(
-        f"0x{register:04x}=0x{value:02x}" for register, value in frontend_registers.items()
+        f"0x{register:04x}={value.hex(' ') if isinstance(value, bytes) else f'{value:02x}'}"
+        for register, value in frontend_registers.items()
     ))
 
 

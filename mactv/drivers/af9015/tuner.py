@@ -441,7 +441,7 @@ class TDA18271Tuner(DVBTuner):
         return self._read_extended()
 
     def read_hardware_register(self, register: int) -> int:
-        """Read one physical TDA18271 register from a Linux-style extended dump."""
+        """Read one physical TDA18271 register from the extended register dump."""
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         return self._read_extended()[register]
@@ -838,11 +838,16 @@ class TDA18271Tuner(DVBTuner):
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
 
+        self._registers[self.REG_EP3] &= 0x1F
+        self._write_cached(self.REG_EP3, 1)
+
         if_frequency, agc_mode, standard, if_level, rfagc_top = self.STANDARD_MAP[self._chip_id][tuning.bandwidth_hz]
         self._calibrate_rf_tracking_filter(tuning.frequency_hz, tuning.bandwidth_hz)
-        self._apply_rf_maps(tuning.frequency_hz)
+        # HDC2 correction reads back registers, so you must apply RF maps *after* HDC2 correction
+        # to protect the cache.
         if self._chip_id == self.CHIP_ID_HDC2:
             self._apply_hdc2_calibration(tuning.frequency_hz)
+        self._apply_rf_maps(tuning.frequency_hz)
         self._registers[self.REG_EP3] = (self._registers[self.REG_EP3] & 0xE0) | (agc_mode << 3) | standard
         if self._chip_id == self.CHIP_ID_HDC2:
             self._registers[self.REG_EP3] &= ~0x04
@@ -859,8 +864,6 @@ class TDA18271Tuner(DVBTuner):
 
         self._write_cached(self.REG_EB22, 1)
         self._write_cached(self.REG_EB1, 1)
-        self._write_cached(self.REG_EP1, 1)
-        self._write_cached(self.REG_EB13, 1)
         self._write_cached(self.REG_MPD, self.REG_MD3 - self.REG_MPD + 1)
         self._write_cached(self.REG_TM, self.REG_EP5 - self.REG_TM + 1)
         self._registers[self.REG_EB4] |= 0x20
