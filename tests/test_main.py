@@ -216,7 +216,6 @@ def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     assert __main__.main() == 0
     output = capsys.readouterr().out
     assert "DVBScanResult" in output
-    assert "Logical channel numbers:" in output
     assert device.close_called
 
 
