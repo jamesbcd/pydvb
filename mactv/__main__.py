@@ -229,7 +229,8 @@ def _run_device(device: AF9015Device, args) -> int:
             print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
                   f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
             status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=False)
-            print_tuning_hardware_diagnostics(device, args.adapter_index)
+            if args.hardware_diagnostics:
+                print_tuning_hardware_diagnostics(device, args.adapter_index)
             if hasattr(device, "read_status"):
                 status = wait_for_lock_with_diagnostics(device, args.adapter_index)
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
@@ -337,6 +338,11 @@ def main() -> int:
         "--usb-stats",
         action="store_true",
         help="Log stream USB read timing and returned byte counts",
+    )
+    parser.add_argument(
+        "--hardware-diagnostics",
+        action="store_true",
+        help="Print tuner and demodulator register diagnostics after tuning",
     )
     parser.add_argument(
         "--frequency",
