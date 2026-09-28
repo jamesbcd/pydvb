@@ -303,66 +303,20 @@ def _run_device(device: AF9015Device, args) -> int:
 
 
 def main() -> int:
-    device_id = argparse.ArgumentParser(add_help=False)
-    device_id.add_argument(
+    needs_device = argparse.ArgumentParser(add_help=False)
+    needs_device.add_argument(
         "--vendor-id",
         type=lambda value: int(value, 0),
         default=argparse.SUPPRESS,
+        help="Vendor ID of the DVB-T device (default: auto-detected)",
     )
-    device_id.add_argument(
+    needs_device.add_argument(
         "--product-id",
         type=lambda value: int(value, 0),
         default=argparse.SUPPRESS,
+        help="Product ID of the DVB-T device (default: auto-detected)",
     )
-    tunable = argparse.ArgumentParser(add_help=False)
-    tunable.add_argument(
-        "--use-scan",
-        type=str,
-        metavar="scan-table-name-or-path",
-        help="Use a known or local DVB-T scan table",
-    )
-    parser = argparse.ArgumentParser(
-        description="Test an AF9015 device",
-        epilog=(
-            "stream commands:\n"
-            "  record OUTPUT_PATH  Capture transport-stream data to this file\n"
-            "  serve [HOST:PORT]   Serve the transport stream over HTTP\n"
-            "  scan-stream         Scan a live transport stream until complete"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        parents=[device_id],
-    )
-    parser.add_argument(
-        "--usb-log",
-        action="store_true",
-        help="Log USB bulk transfers",
-    )
-    parser.add_argument(
-        "--usb-stats",
-        action="store_true",
-        help="Log stream USB read timing and returned byte counts",
-    )
-    parser.add_argument(
-        "--hardware-diagnostics",
-        action="store_true",
-        help="Print tuner and demodulator register diagnostics after tuning",
-    )
-    parser.add_argument(
-        "--frequency",
-        type=parse_frequency,
-        default=226_500_000,    # ABC
-        #default=177_500_000,    # Seven Network
-        help="DVB-T centre frequency in MHz (default: 177.5)",
-    )
-    parser.add_argument(
-        "--bandwidth",
-        type=int,
-        choices=(6, 7, 8),
-        default=7,
-        metavar="MHZ",
-        help="DVB-T channel bandwidth in MHz (default: 7)",
-    )
-    parser.add_argument(
+    needs_device.add_argument(
         "--adapter",
         "--adapter-index",
         dest="adapter_index",
@@ -370,55 +324,107 @@ def main() -> int:
         default=0,
         help="Adapter index to tune (default: 0)",
     )
-    subparsers = parser.add_subparsers(
+
+    needs_tuning = argparse.ArgumentParser(add_help=False)
+    needs_tuning.add_argument(
+        "--use-scan",
+        type=str,
+        metavar="scan-table-name-or-path",
+        help="Use a known or local DVB-T scan table",
+    )
+    needs_tuning.add_argument(
+        "--frequency",
+        type=parse_frequency,
+        default=226_500_000,    # ABC
+        #default=177_500_000,    # Seven Network
+        help="DVB-T centre frequency in MHz (default: 177.5)",
+    )
+    needs_tuning.add_argument(
+        "--bandwidth",
+        type=int,
+        choices=(6, 7, 8),
+        default=7,
+        metavar="MHZ",
+        help="DVB-T channel bandwidth in MHz (default: 7)",
+    )
+
+    global_options = argparse.ArgumentParser(add_help=False)
+    global_options.add_argument(
+        "--usb-log",
+        action="store_true",
+        help="Log USB bulk transfers",
+    )
+    global_options.add_argument(
+        "--usb-stats",
+        action="store_true",
+        help="Log stream USB read timing and returned byte counts",
+    )
+    global_options.add_argument(
+        "--hardware-diagnostics",
+        action="store_true",
+        help="Print tuner and demodulator register diagnostics after tuning",
+    )
+
+    main_parser = argparse.ArgumentParser(
+        description="Test an AF9015 device",
+   )
+    subparsers = main_parser.add_subparsers(
         dest="command",
         title="commands",
+        help="Available commands",
     )
 
     subparsers.add_parser(
         "device",
-        help="Only check device state; do not initialize or upload firmware",
-        parents=[device_id],
+        help="Detect if a known DVB-T device is connected, without initializing it.",
+        parents=[needs_device, global_options],
     )
     subparsers.add_parser(
         "init",
         help="Initialize the device without tuning",
-        parents=[device_id],
+        parents=[needs_device, global_options],
     )
     subparsers.add_parser(
         "status",
         help="Initialize the device, print status information, and exit",
-        parents=[device_id],
+        parents=[needs_device, global_options],
     )
     subparsers.add_parser(
         "sleep",
         help="Initialize the device, put it into its low-power state, and exit",
-        parents=[device_id],
+        parents=[needs_device, global_options],
     )
     subparsers.add_parser(
         "tune",
         help="Initialize the device, tune it, and exit with the lock result",
-        parents=[device_id, tunable],
+        parents=[needs_device, needs_tuning, global_options],
     )
     subparsers.add_parser(
         "known-scans",
-        help="Print known LinuxTV DVB-T scan-table filenames",
+        help="Print known LinuxTV DVB-T scan-table names (from online repository)",
+        parents=[global_options],
     )
     parse_scan_parser = subparsers.add_parser(
         "parse-scan",
         help="Parse a known DVB scan name or local scan file",
+        parents=[global_options],
+    )
+    subparsers.add_parser(
+        "scan-stream",
+        help="Tune and scan live MPEG-TS stream for its metadata",
+        parents=[needs_device, needs_tuning, global_options],
     )
     parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
     record_parser = subparsers.add_parser(
         "record",
-        help="Capture transport-stream data to a file",
-        parents=[tunable],
+        help="Record a live MPEG-TS stream data to a file",
+        parents=[needs_device, needs_tuning, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
     serve_parser = subparsers.add_parser(
         "serve",
-        help="Serve the transport stream over HTTP",
-        parents=[tunable],
+        help="Serve live MPEG-TS streams over HTTP",
+        parents=[needs_device, needs_tuning, global_options],
     )
     serve_parser.add_argument(
         "serve",
@@ -427,13 +433,8 @@ def main() -> int:
         metavar="HOST:PORT",
         default=DEFAULT_SERVER_ADDRESS,
     )
-    subparsers.add_parser(
-        "scan-stream",
-        help="Scan a live transport stream until complete",
-        parents=[tunable],
-    )
 
-    args = parser.parse_args()
+    args = main_parser.parse_args()
     args.vendor_id = getattr(args, "vendor_id", 0x0413)
     args.product_id = getattr(args, "product_id", 0x6029)
     args.record = getattr(args, "record", None)
@@ -457,7 +458,7 @@ def main() -> int:
         ) if enabled
     ]
     if len(stream_actions) > 1:
-        parser.error(f"{', '.join(stream_actions)} cannot be used together")
+        main_parser.error(f"{', '.join(stream_actions)} cannot be used together")
     usb.LOG = args.usb_log
     usb.RECORD_STATS = args.usb_stats
 
