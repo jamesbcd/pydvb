@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from html.parser import HTMLParser
 from pathlib import Path
 
 import requests
+from requests import Response
 
 from mactv.driver_api.tuner import (
     CodeRate,
@@ -17,8 +20,16 @@ from mactv.driver_api.tuner import (
 )
 
 
-DVB_T_SCAN_TABLES_URL = "https://git.linuxtv.org/dtv-scan-tables.git/tree/dvb-t"
-DVB_T_SCAN_TABLE_URL = "https://git.linuxtv.org/dtv-scan-tables.git/plain/dvb-t/{name}"
+DVB_T_SCAN_TABLES_URL = [
+    "https://git.linuxtv.org/dtv-scan-tables.git/tree/dvb-t",
+    "https://api.github.com/repos/tvheadend/dtv-scan-tables/contents/dvb-t"
+    "?ref=tvheadend",
+]
+DVB_T_SCAN_TABLE_URL = [
+    "https://git.linuxtv.org/dtv-scan-tables.git/plain/dvb-t/{name}",
+    "https://raw.githubusercontent.com/tvheadend/dtv-scan-tables/"
+    "tvheadend/dvb-t/{name}",
+]
 
 
 class _ScanTableLinkParser(HTMLParser):
@@ -46,19 +57,30 @@ class _ScanTableLinkParser(HTMLParser):
 
 
 def known_dvb_t_scan_tables() -> list[str]:
-    """Download and return known LinuxTV DVB-T scan-table filenames."""
+    """Download LinuxTV DVB-T filenames, falling back to the Tvheadend mirror."""
+    response = _get_from_urls(DVB_T_SCAN_TABLES_URL)
+    content = response.content.lstrip()
+    if content.startswith(b"["):
+        entries = json.loads(content)
+        if not isinstance(entries, list):
+            raise ValueError("invalid DVB-T scan-table listing")
+        return sorted(
+            entry["name"]
+            for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("type") == "file"
+            and isinstance(entry.get("name"), str)
+        )
     parser = _ScanTableLinkParser()
-    response = requests.get(DVB_T_SCAN_TABLES_URL, timeout=15)
-    response.raise_for_status()
     parser.feed(response.content.decode("utf-8"))
     return sorted(parser.file_names)
 
 
 def parse_scan(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
-    """Read a local or known LinuxTV scan table into DVB tuning values.
+    """Read a local or known LinuxTV/mirror scan table into DVB tuning values.
 
     Args:
-        scan: Path to a local scan table file or the name of a known LinuxTV scan table.
+        scan: Local path or name of a known LinuxTV DVB-T scan table.
         prefer_auto: Whether to prefer 'auto' values when parsing.
 
     Returns:
@@ -68,11 +90,9 @@ def parse_scan(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
     if scan_path.is_file():
         contents = scan_path.read_text(encoding="utf-8")
     else:
-        response = requests.get(
-            DVB_T_SCAN_TABLE_URL.format(name=scan_path.name),
-            timeout=15,
+        response = _get_from_urls(
+            url.format(name=scan_path.name) for url in DVB_T_SCAN_TABLE_URL
         )
-        response.raise_for_status()
         contents = response.content.decode("utf-8")
 
     tunings: list[DVBTuning] = []
@@ -121,6 +141,21 @@ def parse_scan(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
     if tuning is not None:
         tunings.append(tuning)
     return tunings
+
+
+def _get_from_urls(urls: Iterable[str]) -> Response:
+    """Return the first successful HTTP response from an ordered URL sequence."""
+    last_error: requests.RequestException | None = None
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=15)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    raise ValueError("no DVB-T scan-table URLs configured")
 
 
 def _parse_channel(

@@ -150,13 +150,20 @@ def map_from_tunings(tunings: Iterable[DVBTuning], adapter: DVBAdapter):
         status = adapter.tune(tuning, wait_for_lock=True)
         print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
 
-        scanner = DVBScanner()
-        try:
-            adapter.start()
-            stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
-            channel_map.add_stream_info(tuning, stream_info)
-        finally:
-            adapter.stop()
+        if status and status.lock:
+            scanner = DVBScanner()
+            try:
+                print("\tStarting stream...", end="", flush=True)
+                adapter.start()
+                print("Done.")
+                print("\tScanning for services...", end="", flush=True)
+                stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
+                print("Done.")
+                channel_map.add_stream_info(tuning, stream_info)
+            finally:
+                print("\tStopping stream...", end="", flush=True)
+                adapter.stop()
+                print("Done.")
 
     adapter.sleep()
     return channel_map

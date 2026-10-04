@@ -312,6 +312,32 @@ def test_scanner_lists_known_dvb_t_scan_tables(monkeypatch):
     assert scan_tables_module.known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
 
 
+def test_scanner_lists_known_tables_from_mirror_when_linux_tv_fails(monkeypatch):
+    class Response:
+        content = (
+            b'[{"name":"au-Brisbane","type":"file"},'
+            b'{"name":"subdir","type":"dir"},'
+            b'{"name":"au-Adelaide","type":"file"}]'
+        )
+
+        def raise_for_status(self):
+            pass
+
+    def get(url, timeout):
+        assert timeout == 15
+        if url == scan_tables_module.DVB_T_SCAN_TABLES_URL[0]:
+            raise scan_tables_module.requests.ConnectionError("LinuxTV unavailable")
+        assert url == scan_tables_module.DVB_T_SCAN_TABLES_URL[1]
+        return Response()
+
+    monkeypatch.setattr(scan_tables_module.requests, "get", get)
+
+    assert scan_tables_module.known_dvb_t_scan_tables() == [
+        "au-Adelaide",
+        "au-Brisbane",
+    ]
+
+
 def test_scanner_parses_local_scan_table(tmp_path):
     scan_path = tmp_path / "au-Brisbane"
     scan_path.write_text(
@@ -366,6 +392,31 @@ def test_scanner_parses_known_scan_table(monkeypatch):
             CodeRate.RATE_3_4,
             CodeRate.RATE_1_2,
         )
+    ]
+
+
+def test_scanner_parses_known_table_from_mirror_when_linux_tv_fails(monkeypatch):
+    class Response:
+        content = b"T 177500000 7MHz 3/4 1/2 QAM64 8K 1/32 NONE\n"
+
+        def raise_for_status(self):
+            pass
+
+    def get(url, timeout):
+        assert timeout == 15
+        if url == scan_tables_module.DVB_T_SCAN_TABLE_URL[0].format(
+            name="au-Brisbane"
+        ):
+            raise scan_tables_module.requests.ConnectionError("LinuxTV unavailable")
+        assert url == scan_tables_module.DVB_T_SCAN_TABLE_URL[1].format(
+            name="au-Brisbane"
+        )
+        return Response()
+
+    monkeypatch.setattr(scan_tables_module.requests, "get", get)
+
+    assert parse_scan("au-Brisbane") == [
+        scan_tables_module.DVBTuning(177_500_000, 7_000_000)
     ]
 
 
