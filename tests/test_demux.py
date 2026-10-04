@@ -9,12 +9,20 @@ from mactv.drivers.af9015.demux import AF9015Demuxer
 class FakeTransport:
     def __init__(self):
         self.writes = []
+        self.stream_events = []
 
     def bulk_write(self, endpoint, data, timeout):
         self.writes.append((endpoint, bytes(data)))
+        self.stream_events.append("device-write")
 
     def bulk_read(self, endpoint, length, timeout):
         return b"\x00\x00\x00"
+
+    def begin_stream_stop(self, endpoint):
+        self.stream_events.append("host-quiesce")
+
+    def stop_stream(self, endpoint, drain_timeout=0.1):
+        self.stream_events.append("host-cleanup")
 
     def close(self):
         pass
@@ -177,6 +185,19 @@ def test_full_speed_stream_uses_five_packets():
 
     buffer_writes = [packet for _, packet in transport.writes if packet[3:5] == b"\xdd\x0c"]
     assert buffer_writes[-1][8:] == b"\x10"
+
+
+def test_stop_quiesces_host_before_device_and_cleans_host_after_device():
+    transport = FakeTransport()
+    demuxer = AF9015Demuxer(AF9015Bridge(transport))
+    demuxer.start()
+    transport.stream_events.clear()
+
+    demuxer.stop()
+
+    assert transport.stream_events[0] == "host-quiesce"
+    assert transport.stream_events[-1] == "host-cleanup"
+    assert "device-write" in transport.stream_events[1:-1]
 
 
 def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():

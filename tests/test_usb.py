@@ -32,8 +32,11 @@ class FakeAsyncTransfer:
         self.submit_count += 1
 
     def cancel(self):
-        self.submitted = False
         self.cancel_count += 1
+        if self.submitted:
+            self.submitted = False
+            self.status = 1
+            self.callback(self)
 
     def close(self):
         assert not self.submitted
@@ -219,6 +222,51 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch
     transport.close()
     assert all(transfer.cancel_count == 1 for transfer in handle.transfers)
     assert all(transfer.close_count == 1 for transfer in handle.transfers)
+
+
+def test_libusb_stream_stop_drains_cancels_and_releases_endpoint_state(monkeypatch):
+    handle = FakeLibUSBHandle()
+    context = FakeUSBContext(handle)
+    monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
+    transport = LibUSB1Transport(
+        context, handle, async_transfer_count=3, async_endpoints=(0x84,)
+    )
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 0)
+    first_pool = tuple(handle.transfers)
+
+    transport.begin_stream_stop(0x84)
+    completed_transfer = first_pool[0]
+    completed_transfer.buffer[:] = b"data"
+    completed_transfer.submitted = False
+    completed_transfer.callback(completed_transfer)
+    assert completed_transfer.submit_count == 1
+
+    transport.stop_stream(0x84, drain_timeout=0)
+
+    assert all(transfer.close_count == 1 for transfer in first_pool)
+    assert completed_transfer.cancel_count == 0
+    assert all(transfer.cancel_count == 1 for transfer in first_pool[1:])
+    assert not transport._stream_queues
+    assert not transport._stream_queue_bytes
+    assert not transport._paused_transfers
+    assert not transport._stream_errors
+    assert not transport._stream_lengths
+    assert not transport._stream_transfers
+    assert not transport._stream_inflight
+    assert not transport._stream_callbacks
+    assert not transport._stream_stopping
+
+    with pytest.raises(TimeoutError):
+        transport.bulk_read(0x84, 4, 0)
+    second_pool = tuple(handle.transfers[3:])
+    assert len(second_pool) == 3
+    assert all(transfer.close_count == 0 for transfer in second_pool)
+
+    transport.stop_stream(0x84, drain_timeout=0)
+    assert all(transfer.close_count == 1 for transfer in second_pool)
+    transport.close()
 
 
 def test_libusb_stream_pauses_and_resumes_transfers_at_queue_byte_limit(monkeypatch):

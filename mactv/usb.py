@@ -6,7 +6,7 @@ from collections.abc import Collection
 from enum import IntEnum
 from math import isfinite
 from queue import Empty, Queue
-from threading import Event, RLock, Thread, current_thread
+from threading import Condition, Event, RLock, Thread, current_thread
 from time import monotonic, sleep
 from typing import Any, Protocol
 
@@ -18,6 +18,8 @@ LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable logging of stream read statistics.
 
 DEFAULT_MAX_QUEUE_SIZE = 16 # Default maximum size of the asynchronous transfer queue in MiB.
+STREAM_DRAIN_TIMEOUT = 0.1
+STREAM_CANCEL_TIMEOUT = 2.0
 
 class USBSpeed(IntEnum):
     """USB link-speed values reported by the transport backends."""
@@ -42,6 +44,16 @@ class USBTransport(Protocol):
 
     def bulk_read(self, endpoint: int, length: int, timeout: int) -> bytes:
         """Read bytes from a USB bulk endpoint."""
+        ...
+
+    def begin_stream_stop(self, endpoint: int) -> None:
+        """Prevent an asynchronous stream endpoint from resubmitting transfers."""
+        ...
+
+    def stop_stream(
+        self, endpoint: int, drain_timeout: float = STREAM_DRAIN_TIMEOUT
+    ) -> None:
+        """Drain and release asynchronous transfers for a stream endpoint."""
         ...
 
     def close(self) -> None:
@@ -238,6 +250,7 @@ class _LibUSB1Transport:
         self._claimed_interface: Any | None = None  # Optional interface context manager.
         self._is_interface_claimed = False  # Whether the interface must be released on close.
         self._stream_lock = RLock()     # Protects stream endpoint state.
+        self._stream_condition = Condition(self._stream_lock)
         self._closed = False            # Prevents new I/O and repeated cleanup.
         self._event_stop = Event()      # Signals the libusb event thread to stop.
         self._event_thread: Thread | None = None  # Processes asynchronous transfer events.
@@ -248,6 +261,9 @@ class _LibUSB1Transport:
         self._stream_errors: dict[int, BaseException] = {} # Stores the last error encountered for each endpoint.
         self._stream_lengths: dict[int, int] = {}  # Fixed transfer length by initialized endpoint.
         self._stream_transfers: dict[int, list[Any]] = {}  # Pending asynchronous transfers by endpoint.
+        self._stream_stopping: set[int] = set()
+        self._stream_inflight: dict[int, int] = {}
+        self._stream_callbacks: dict[int, int] = {}
         self._stats = _AsynchronousReadStats()
 
     @classmethod
@@ -340,6 +356,8 @@ class _LibUSB1Transport:
                 self._start_stream_endpoint(endpoint, length)
             elif self._stream_lengths[endpoint] != length:
                 raise ValueError("stream endpoint read length cannot change after initialization")
+            if endpoint in self._stream_stopping:
+                raise RuntimeError("stream endpoint is stopping")
             queue = self._stream_queues[endpoint]
             stream_error = self._stream_errors.get(endpoint)
 
@@ -368,16 +386,25 @@ class _LibUSB1Transport:
         self._paused_transfers[endpoint] = []
         self._stream_lengths[endpoint] = length
         self._stream_transfers[endpoint] = transfers
+        self._stream_inflight[endpoint] = 0
+        self._stream_callbacks[endpoint] = 0
         if self._event_thread is None:
             # Start the event thread if it hasn't been started yet. It will handle USB events asynchronously
             self._event_thread = Thread(target=self._run_events, name="mactv-libusb-events", daemon=True)
             self._event_thread.start()
-        for _ in range(self.async_transfer_count):
-            # Allocate and configure an asynchronous transfer for the endpoint.
-            transfer = self.usb_handle.getTransfer()
-            transfer.setBulk(endpoint, length, callback=self._make_callback(endpoint))
-            transfers.append(transfer)
-            transfer.submit()
+        try:
+            for _ in range(self.async_transfer_count):
+                transfer = self.usb_handle.getTransfer()
+                transfer.setBulk(endpoint, length, callback=self._make_callback(endpoint))
+                transfers.append(transfer)
+                self._submit_stream_transfer(endpoint, transfer)
+        except Exception as start_error:
+            self.begin_stream_stop(endpoint)
+            try:
+                self.stop_stream(endpoint, drain_timeout=0)
+            except Exception as cleanup_error:
+                raise cleanup_error from start_error
+            raise
 
     def _make_callback(self, endpoint: int):
         """Create the callback that queues and resubmits endpoint transfers."""
@@ -391,41 +418,53 @@ class _LibUSB1Transport:
                 for name in ("TRANSFER_ERROR", "TRANSFER_TIMED_OUT", "TRANSFER_OVERFLOW")
                 if (candidate_status := getattr(usb1, name, None)) is not None
             }
-            queue = self._stream_queues.get(endpoint)
-            if queue is None:
-                return
-            if status == completed:
-                # Transfer completed successfully; queue the data for consumption.
-                data = bytes(transfer.getBuffer()[: transfer.getActualLength()])
-                queue.put(data)
-                with self._stream_lock:
-                    # We've added data to the stream queue, so increment the queued byte count.
-                    self._stream_queue_bytes[endpoint] += len(data)
-                    queue_bytes = self._stream_queue_bytes[endpoint]
-                self._stats.record_completion(endpoint, len(data), queue.qsize(), queue_bytes)
-                self._resubmit_or_pause(endpoint, transfer)
-            elif status != cancelled:
-                self._stats.record_transfer_error(endpoint, status)
-                error = RuntimeError(f"asynchronous USB transfer failed with status {status}")
-                if status in recoverable and not self._closed:
+            with self._stream_condition:
+                if endpoint not in self._stream_queues:
+                    return
+                self._stream_inflight[endpoint] -= 1
+                self._stream_callbacks[endpoint] += 1
+                queue = self._stream_queues[endpoint]
+
+            try:
+                if status == completed:
+                    data = bytes(transfer.getBuffer()[: transfer.getActualLength()])
+                    queue.put(data)
+                    with self._stream_lock:
+                        self._stream_queue_bytes[endpoint] += len(data)
+                        queue_bytes = self._stream_queue_bytes[endpoint]
+                    self._stats.record_completion(endpoint, len(data), queue.qsize(), queue_bytes)
                     self._resubmit_or_pause(endpoint, transfer)
+                elif status != cancelled:
+                    self._stats.record_transfer_error(endpoint, status)
+                    error = RuntimeError(f"asynchronous USB transfer failed with status {status}")
+                    if status in recoverable and not self._closed:
+                        self._resubmit_or_pause(endpoint, transfer)
+                    else:
+                        self._fail_stream_endpoint(endpoint, error)
                 else:
-                    self._fail_stream_endpoint(endpoint, error)
-            else:
-                self._stats.record_cancelled_transfer()
+                    self._stats.record_cancelled_transfer()
+            finally:
+                with self._stream_condition:
+                    self._stream_callbacks[endpoint] -= 1
+                    self._stream_condition.notify_all()
 
         return callback
+
+    def _submit_stream_transfer(self, endpoint: int, transfer: Any) -> None:
+        """Submit a transfer and account for its callback under the stream lock."""
+        transfer.submit()
+        self._stream_inflight[endpoint] += 1
 
     def _resubmit_or_pause(self, endpoint: int, transfer: Any) -> None:
         """Resubmit a transfer when its endpoint queue is below the byte limit."""
         with self._stream_lock:
-            if self._closed:
+            if self._closed or endpoint in self._stream_stopping:
                 return
             if self._stream_queue_bytes[endpoint] >= self.async_queue_bytes:
                 self._paused_transfers[endpoint].append(transfer)
                 return
             try:
-                transfer.submit()
+                self._submit_stream_transfer(endpoint, transfer)
             except Exception as error:
                 self._stats.record_resubmit_error()
                 self._fail_stream_endpoint(endpoint, error)
@@ -439,22 +478,86 @@ class _LibUSB1Transport:
         ):
             transfer = self._paused_transfers[endpoint].pop()
             try:
-                transfer.submit()
+                self._submit_stream_transfer(endpoint, transfer)
             except Exception as error:
                 self._stats.record_resubmit_error()
                 self._fail_stream_endpoint(endpoint, error)
                 return
 
+    def begin_stream_stop(self, endpoint: int) -> None:
+        """Stop resubmitting transfers before disabling the device-side stream."""
+        with self._stream_condition:
+            if endpoint in self._stream_queues:
+                self._stream_stopping.add(endpoint)
+
+    def stop_stream(
+        self, endpoint: int, drain_timeout: float = STREAM_DRAIN_TIMEOUT
+    ) -> None:
+        """Drain completed transfers, cancel pending reads, and release endpoint state."""
+        if not isfinite(drain_timeout) or drain_timeout < 0:
+            raise ValueError("drain_timeout must be finite and non-negative")
+        with self._stream_condition:
+            if endpoint not in self._stream_queues:
+                return
+            self._stream_stopping.add(endpoint)
+            drain_deadline = monotonic() + drain_timeout
+            while self._stream_inflight[endpoint] or self._stream_callbacks[endpoint]:
+                remaining = drain_deadline - monotonic()
+                if remaining <= 0:
+                    break
+                self._stream_condition.wait(remaining)
+            transfers = tuple(self._stream_transfers[endpoint])
+
+        cancel_error: Exception | None = None
+        for transfer in transfers:
+            if transfer.isSubmitted():
+                try:
+                    transfer.cancel()
+                except Exception as error:
+                    if transfer.isSubmitted() and cancel_error is None:
+                        cancel_error = error
+
+        cancel_deadline = monotonic() + STREAM_CANCEL_TIMEOUT
+        with self._stream_condition:
+            while self._stream_inflight[endpoint] or self._stream_callbacks[endpoint]:
+                remaining = cancel_deadline - monotonic()
+                if remaining <= 0:
+                    break
+                self._stream_condition.wait(remaining)
+            still_submitted = any(transfer.isSubmitted() for transfer in transfers)
+            if self._stream_inflight[endpoint] or self._stream_callbacks[endpoint] or still_submitted:
+                raise TimeoutError(
+                    f"timed out cancelling asynchronous USB reads on endpoint 0x{endpoint:02x}"
+                ) from cancel_error
+
+            for transfer in transfers:
+                transfer.close()
+            for mapping in (
+                self._stream_queues,
+                self._stream_queue_bytes,
+                self._paused_transfers,
+                self._stream_errors,
+                self._stream_lengths,
+                self._stream_transfers,
+                self._stream_inflight,
+                self._stream_callbacks,
+            ):
+                mapping.pop(endpoint, None)
+            self._stream_stopping.discard(endpoint)
+
     def _fail_stream_endpoint(self, endpoint: int, error: BaseException) -> None:
         """Stop an endpoint after a fatal transfer or resubmission failure."""
-        if endpoint in self._stream_errors:
-            # If the endpoint has already failed, do not attempt to fail it again.
-            return
-        self._stream_errors[endpoint] = error
-        queue = self._stream_queues.get(endpoint)
-        if queue is not None:
-            queue.put(error)
-        for transfer in self._stream_transfers.get(endpoint, []):
+        with self._stream_lock:
+            if (
+                endpoint in self._stream_errors
+                or endpoint in self._stream_stopping
+                or endpoint not in self._stream_queues
+            ):
+                return
+            self._stream_errors[endpoint] = error
+            self._stream_queues[endpoint].put(error)
+            transfers = tuple(self._stream_transfers[endpoint])
+        for transfer in transfers:
             if transfer.isSubmitted():
                 try:
                     transfer.cancel()

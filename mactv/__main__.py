@@ -192,8 +192,9 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0
 
     if not device.is_warm:
-        print("Device is cold; initializing and downloading firmware to device...")
+        print("Device is cold; initializing and downloading firmware to device...", end="", flush=True)
         device.init_hardware()
+        print("Done.")
         print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     else:
         print("Device is warm; reinitializing hardware...")
@@ -213,9 +214,11 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0
 
     if args.use_scan is not None:
+        print(f"Parsing scan table from {args.use_scan}...", end="", flush=True)
         tunings = parse_scan(args.use_scan, prefer_auto=True)
         if not tunings:
             raise ValueError(f"scan table contains no DVB-T channels: {args.use_scan}")
+        print("Done.")
     else:
         tunings = [DVBTuning(frequency_hz=args.frequency,
                              bandwidth_hz=args.bandwidth * 1_000_000,
