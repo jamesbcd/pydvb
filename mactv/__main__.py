@@ -5,15 +5,18 @@ import pprint
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Callable, cast
+from unittest import result
+
+from mactv.channel_map import map_from_scan, map_from_tunings, ChannelMap
 
 
-from .scan_tables import known_dvb_t_scan_tables, parse_scan
-from .stream_scanner import DVBStreamInfo, DVBScanner, ScanPolicy
+from mactv.scan_tables import known_dvb_t_scan_tables, parse_scan
+from mactv.stream_scanner import DVBStreamInfo, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
-from .drivers.af9015.device import AF9015Device
-from . import usb
-from .server import LocalTS_HTTPServer
+from mactv.drivers.af9015.device import AF9015Device
+from mactv import usb
+from mactv.server import LocalTS_HTTPServer
 
 
 TS_PACKET_SIZE = 188
@@ -238,6 +241,12 @@ def _run_device(device: AF9015Device, args) -> int:
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
+    elif args.command == "scan-stream":
+        channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
+        for stream_info, service in channel_map.iter_streams_and_services():
+            print(f"{service.logical_channel_number:3} {service.name:30} {stream_info.network_name:15}" +
+                  f"{service.service_type:3} {service.service_metatype}")
+        device.bridge.transport.log_stats()
     else:
         print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
                 f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
@@ -257,22 +266,6 @@ def _run_device(device: AF9015Device, args) -> int:
             return 1
         device.bridge.transport.log_stats()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
-
-    if args.scan_stream:
-        if tuning_status is None or not tuning_status.lock:
-            print("Scan failed: frontend did not lock; no transport stream is available")
-            return 2
-        adapter = device.adapters[args.adapter_index]
-        try:
-            result = scan_stream(adapter)
-        except (OSError, RuntimeError, TimeoutError, ValueError) as error:
-            print(f"Scan failed: {error}")
-            return 1
-        device.bridge.transport.log_stats()
-        del result.warnings
-        for s in result.summarise():
-            print(f"{s.logical_channel_number:3} {s.name:30} {s.network_name:15} {s.service_type:3} {s.service_metatype}")
-        # pprint.pprint(result.summarise(), underscore_numbers=True)
 
     if args.command == "serve" and args.serve is not None:
         if tuning_status is None or not tuning_status.lock:
@@ -439,7 +432,6 @@ def main() -> int:
     args.product_id = getattr(args, "product_id", 0x6029)
     args.record = getattr(args, "record", None)
     args.serve = getattr(args, "serve", None)
-    args.scan_stream = args.command == "scan-stream"
 
     if args.command == "known-scans":
         for table_name in known_dvb_t_scan_tables():
