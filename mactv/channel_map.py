@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBScanResult, DVBService
+from mactv.stream_scanner import DVBStreamInfo, DVBService
 
 
 class ChannelMap:
@@ -12,9 +12,9 @@ class ChannelMap:
         self._tunings = []
         self._stream_infos = []
 
-        self._stream_infos_by_lcn: dict[int, DVBScanResult] = {}
-        self._stream_infos_by_service_id: dict[int, DVBScanResult] = {}
-        self._stream_infos_by_service_name: dict[str, DVBScanResult] = {}
+        self._stream_infos_by_lcn: dict[int, DVBStreamInfo] = {}
+        self._stream_infos_by_service_id: dict[int, DVBStreamInfo] = {}
+        self._stream_infos_by_service_name: dict[str, DVBStreamInfo] = {}
         self._tunings_by_lcn: dict[int, DVBTuning] = {}
         self._tunings_by_service_id: dict[int, DVBTuning] = {}
         self._tunings_by_service_name: dict[str, DVBTuning] = {}
@@ -22,7 +22,7 @@ class ChannelMap:
         self._services_by_id: dict[int, DVBService] = {}
         self._services_by_name: dict[str, DVBService] = {}
 
-    def add_stream_info(self, tuning: DVBTuning, stream_info: DVBScanResult):
+    def add_stream_info(self, tuning: DVBTuning, stream_info: DVBStreamInfo):
         '''Add a stream info and its corresponding tuning to the channel map.
         
         Raises ValueError if either is None.
@@ -52,7 +52,7 @@ class ChannelMap:
                 self._services_by_name[service_name] = service
 
     def stream_info(self, *, lcn: int | None = None, service_id: int | None = None,
-                    service_name: str | None = None) -> DVBScanResult | None:
+                    service_name: str | None = None) -> DVBStreamInfo | None:
         if [lcn, service_id, service_name].count(None) != 2:
             raise ValueError("Exactly one of lcn, service_id, or service_name must be provided.")
         if lcn is not None:

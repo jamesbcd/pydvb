@@ -8,7 +8,7 @@ from typing import Any, Callable, cast
 
 
 from .scan_tables import known_dvb_t_scan_tables, parse_scan
-from .stream_scanner import DVBScanResult, DVBScanner, ScanPolicy
+from .stream_scanner import DVBStreamInfo, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from .drivers.af9015.device import AF9015Device
@@ -78,7 +78,7 @@ def capture_stream(
 def scan_stream(
     adapter,
     read_timeout: float = READ_TIMEOUT_SECONDS,
-) -> DVBScanResult:
+) -> DVBStreamInfo:
     """Feed a live transport stream to the scanner until its tables are complete."""
     if read_timeout < 0:
         raise ValueError("read_timeout must be non-negative")

@@ -4,7 +4,7 @@ import pytest
 
 from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBScanResult
+from mactv.stream_scanner import DVBStreamInfo
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
@@ -208,14 +208,14 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
 
 def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
-    result = DVBScanResult(1, 2, "network", (), 3, True)
+    result = DVBStreamInfo(1, 2, "network", (), 3, True)
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
     monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
     monkeypatch.setattr(sys, "argv", ["mactv", "scan-stream"])
 
     assert __main__.main() == 0
     output = capsys.readouterr().out
-    assert "DVBScanResult" in output
+    assert "DVBStreamInfo" in output
     assert device.close_called
 
 
@@ -354,7 +354,7 @@ def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
     scanner = type("Scanner", (), {
         "scan": lambda _scanner, source, policy, read_timeout_ms: (
             scan_calls.append((source, policy, read_timeout_ms))
-            or DVBScanResult(1, 2, "network", (), 1, True)
+            or DVBStreamInfo(1, 2, "network", (), 1, True)
         ),
     })()
     monkeypatch.setattr(__main__, "DVBScanner", lambda: scanner)

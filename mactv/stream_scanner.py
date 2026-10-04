@@ -217,8 +217,8 @@ class DVBServiceSummary:
     service_id: int                             # From DVBService
     logical_channel_number: int | None = None   # From DVBService
     name: str | None = None                     # From DVBService
-    original_network_id: int | None = None      # From DVBScanResult
-    network_name: str | None = None             # From DVBScanResult
+    original_network_id: int | None = None      # From DVBStreamInfo
+    network_name: str | None = None             # From DVBStreamInfo
     service_type: DVBServiceType | int | None = None # From DVBService
     service_metatype: DVBServiceMetatype = DVBServiceMetatype.OTHER # From DVBService
     current_event: DVBEvent | None = None       # From DVBService
@@ -226,7 +226,7 @@ class DVBServiceSummary:
 
 
 @dataclass
-class DVBScanResult:
+class DVBStreamInfo:
     """Accumulated result of scanning a DVB transport stream."""
     transport_stream_id: int | None = None
     original_network_id: int | None = None
@@ -286,7 +286,7 @@ class DVBScanner:
         source: Iterable[bytes] | DVBAdapter,
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
         read_timeout_ms: int = 2000,
-    ) -> DVBScanResult:
+    ) -> DVBStreamInfo:
         """Consume a transport-stream source and return the accumulated result.
 
         Args:
@@ -295,7 +295,7 @@ class DVBScanner:
             read_timeout_ms: The timeout in milliseconds for adapter reads.
 
         Returns:
-            A DVBScanResult object containing the accumulated scan results.
+            A DVBStreamInfo object containing the accumulated scan results.
 
         Raises:
             ValueError: If ``read_timeout_ms`` is negative.
@@ -350,7 +350,7 @@ class DVBScanner:
     def result(
         self,
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
-    ) -> DVBScanResult:
+    ) -> DVBStreamInfo:
         """Return a snapshot of the scanner state."""
         services = tuple(
             DVBService(
@@ -377,7 +377,7 @@ class DVBScanner:
             )
             for service in sorted(self._services.values(), key=lambda item: item.service_id)
         )
-        return DVBScanResult(
+        return DVBStreamInfo(
             transport_stream_id=self._transport_stream_id,
             original_network_id=self._original_network_id,
             network_name=self._network_name,
