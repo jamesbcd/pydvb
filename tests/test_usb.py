@@ -196,7 +196,7 @@ def test_libusb_transport_uses_synchronous_reads_without_async_endpoints(monkeyp
     transport.close()
 
 
-def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch):
+def test_libusb_async_bulk_read_primes_transfer_pool_and_resubmits(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
@@ -224,7 +224,7 @@ def test_libusb_stream_read_primes_async_transfer_pool_and_resubmits(monkeypatch
     assert all(transfer.close_count == 1 for transfer in handle.transfers)
 
 
-def test_libusb_stream_stop_drains_cancels_and_releases_endpoint_state(monkeypatch):
+def test_libusb_async_read_stop_drains_cancels_and_releases_endpoint_state(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
@@ -236,27 +236,27 @@ def test_libusb_stream_stop_drains_cancels_and_releases_endpoint_state(monkeypat
         transport.bulk_read(0x84, 4, 0)
     first_pool = tuple(handle.transfers)
 
-    transport.begin_stream_stop(0x84)
+    transport.pause_async_reads(0x84)
     completed_transfer = first_pool[0]
     completed_transfer.buffer[:] = b"data"
     completed_transfer.submitted = False
     completed_transfer.callback(completed_transfer)
     assert completed_transfer.submit_count == 1
 
-    transport.stop_stream(0x84, drain_timeout=0)
+    transport.stop_async_reads(0x84, drain_timeout=0)
 
     assert all(transfer.close_count == 1 for transfer in first_pool)
     assert completed_transfer.cancel_count == 0
     assert all(transfer.cancel_count == 1 for transfer in first_pool[1:])
-    assert not transport._stream_queues
-    assert not transport._stream_queue_bytes
-    assert not transport._paused_transfers
-    assert not transport._stream_errors
-    assert not transport._stream_lengths
-    assert not transport._stream_transfers
-    assert not transport._stream_inflight
-    assert not transport._stream_callbacks
-    assert not transport._stream_stopping
+    assert not transport._async_read_queues
+    assert not transport._async_read_queue_bytes
+    assert not transport._paused_async_reads
+    assert not transport._async_read_errors
+    assert not transport._async_read_lengths
+    assert not transport._async_read_transfers
+    assert not transport._async_read_inflight
+    assert not transport._async_read_callbacks
+    assert not transport._async_read_stopping
 
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 0)
@@ -264,12 +264,12 @@ def test_libusb_stream_stop_drains_cancels_and_releases_endpoint_state(monkeypat
     assert len(second_pool) == 3
     assert all(transfer.close_count == 0 for transfer in second_pool)
 
-    transport.stop_stream(0x84, drain_timeout=0)
+    transport.stop_async_reads(0x84, drain_timeout=0)
     assert all(transfer.close_count == 1 for transfer in second_pool)
     transport.close()
 
 
-def test_libusb_stream_pauses_and_resumes_transfers_at_queue_byte_limit(monkeypatch):
+def test_libusb_async_read_pauses_and_resumes_transfers_at_queue_byte_limit(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
@@ -341,7 +341,7 @@ def test_libusb_async_summary_reports_callback_statistics(capsys, monkeypatch):
     transport.close()
 
 
-def test_libusb_stream_endpoint_length_is_stable(monkeypatch):
+def test_libusb_async_read_endpoint_length_is_stable(monkeypatch):
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
     monkeypatch.setattr(usb_module, "usb1", fake_usb1(context))
@@ -399,7 +399,7 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     with pytest.raises(TimeoutError):
         transport.bulk_read(0x84, 4, 100)
     assert transfer.submit_count == 2
-    assert transport._stream_errors == {}
+    assert transport._async_read_errors == {}
 
     transfer.status = usb_module.usb1.TRANSFER_COMPLETED
     transfer.buffer[:] = b"data"

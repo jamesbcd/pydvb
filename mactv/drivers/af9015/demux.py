@@ -93,7 +93,7 @@ class AF9015Demuxer(DVBDemuxer):
 
     def _stop_stream(self) -> None:
         transport = self.bridge.transport
-        transport.begin_stream_stop(self.endpoint)
+        transport.pause_async_reads(self.endpoint)
         try:
             if self.adapter_index == 0:
                 self.bridge.update_memory_bits(0xD507, 0x04, 0x04)
@@ -104,7 +104,7 @@ class AF9015Demuxer(DVBDemuxer):
                 self.bridge.update_memory_bits(0xDD11, 0x40, 0)
                 self.bridge.update_memory_bits(0xDD13, 0x40, 0x40)
         finally:
-            transport.stop_stream(self.endpoint)
+            transport.stop_async_reads(self.endpoint)
 
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)

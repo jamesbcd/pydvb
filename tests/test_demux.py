@@ -18,10 +18,10 @@ class FakeTransport:
     def bulk_read(self, endpoint, length, timeout):
         return b"\x00\x00\x00"
 
-    def begin_stream_stop(self, endpoint):
+    def pause_async_reads(self, endpoint):
         self.stream_events.append("host-quiesce")
 
-    def stop_stream(self, endpoint, drain_timeout=0.1):
+    def stop_async_reads(self, endpoint, drain_timeout=0.1):
         self.stream_events.append("host-cleanup")
 
     def close(self):
