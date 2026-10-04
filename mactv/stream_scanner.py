@@ -212,20 +212,6 @@ class DVBService:
         )
 
 @dataclass
-class DVBServiceSummary:
-    """Summary information for a DVB service."""
-    service_id: int                             # From DVBService
-    logical_channel_number: int | None = None   # From DVBService
-    name: str | None = None                     # From DVBService
-    original_network_id: int | None = None      # From DVBStreamInfo
-    network_name: str | None = None             # From DVBStreamInfo
-    service_type: DVBServiceType | int | None = None # From DVBService
-    service_metatype: DVBServiceMetatype = DVBServiceMetatype.OTHER # From DVBService
-    current_event: DVBEvent | None = None       # From DVBService
-    pids: Iterable[int] = frozenset()           # From DVBService
-
-
-@dataclass
 class DVBStreamInfo:
     """Accumulated result of scanning a DVB transport stream."""
     transport_stream_id: int | None = None
@@ -236,27 +222,6 @@ class DVBStreamInfo:
     complete: bool = False
     warnings: tuple[str, ...] = ()
 
-    def summarise(self) -> list[DVBServiceSummary]:
-        # Returns a flattened list of service summaries, sorted by logical channel number.
-        return sorted([DVBServiceSummary(
-                service_id=service.service_id,
-                logical_channel_number=service.logical_channel_number,
-                name=service.name,
-                original_network_id=self.original_network_id,
-                network_name=self.network_name,
-                service_type=service.service_type,
-                service_metatype=service.service_metatype,
-                current_event=None if service.current_event is None else DVBEvent(
-                    # Subset of DVBEvent fields
-                    event_id=service.current_event.event_id,
-                    start_time=service.current_event.start_time,
-                    duration=service.current_event.duration,
-                    name=service.current_event.name,
-                ),
-                pids=service.pids(),
-            )
-            for service in self.services
-        ], key=lambda s: (s.logical_channel_number if s.logical_channel_number is not None else float('inf')))
 
 class DVBScanner:
     """Incrementally discover services and programme metadata from TS bytes.
