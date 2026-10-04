@@ -247,8 +247,8 @@ def _run_device(device: AF9015Device, args) -> int:
     elif args.command == "scan-stream":
         channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
         for stream_info, service in channel_map.iter_streams_and_services():
-            print(f"{service.logical_channel_number:3} {service.name:30} {stream_info.network_name:15}" +
-                  f"{service.service_type:3} {service.service_metatype}")
+            print(f"Ch {service.logical_channel_number:3} {service.name:25} ID={service.service_id:5} " +
+                  f"{stream_info.network_name:25} Type: {service.service_type:3} {service.service_metatype}")
         device.bridge.transport.log_stats()
     else:
         print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
