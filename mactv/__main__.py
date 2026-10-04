@@ -446,7 +446,7 @@ def main() -> int:
         name for name, enabled in (
             ("--record", args.record is not None),
             ("--serve", args.serve is not None),
-            ("--scan-stream", args.scan_stream),
+            ("--scan-stream", args.command == "scan-stream"),
         ) if enabled
     ]
     if len(stream_actions) > 1:

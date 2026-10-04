@@ -151,7 +151,7 @@ def test_scanner_discovers_service_metadata_from_split_packets():
 def test_dvb_service_type_uses_int_compatible_standard_codes():
     assert DVBServiceType.DIGITAL_TELEVISION == 0x01
     assert DVBServiceType.DIGITAL_RADIO_SOUND == 0x02
-    assert DVBServiceType.DVB_MHP == 0x10
+    assert DVBServiceType.DVB_MULTIMEDIA_HOME_PLATFORM == 0x10
     assert DVBServiceType(0x01) is DVBServiceType.DIGITAL_TELEVISION
 
 

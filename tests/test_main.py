@@ -4,7 +4,7 @@ import pytest
 
 from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBStreamInfo
+from mactv.stream_scanner import DVBService, DVBStreamInfo
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
@@ -206,16 +206,38 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     assert device.close_called
 
 
-def test_scan_stream_prints_result_and_closes_device(monkeypatch, capsys):
+def test_scan_stream_maps_tunings_and_prints_services(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
     result = DVBStreamInfo(1, 2, "network", (), 3, True)
+    service = DVBService(
+        service_id=10,
+        name="Example TV",
+        logical_channel_number=7,
+        service_type=1,
+    )
+    channel_map = type("ChannelMap", (), {
+        "iter_streams_and_services": lambda _self: iter([(result, service)]),
+    })()
+    calls = []
+
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(__main__, "scan_stream", lambda adapter: result)
+    monkeypatch.setattr(
+        __main__,
+        "map_from_tunings",
+        lambda tunings, adapter: (calls.append((tunings, adapter)) or channel_map),
+    )
     monkeypatch.setattr(sys, "argv", ["mactv", "scan-stream"])
 
     assert __main__.main() == 0
+    assert len(calls) == 1
+    tunings, adapter = calls[0]
+    assert len(tunings) == 1
+    assert isinstance(tunings[0], DVBTuning)
+    assert tunings[0].frequency_hz == 226_500_000
+    assert adapter is device.adapters[0]
     output = capsys.readouterr().out
-    assert "DVBStreamInfo" in output
+    assert "Example TV" in output
+    assert "network" in output
     assert device.close_called
 
 
@@ -261,16 +283,22 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize(
-    ("arguments", "expected"),
-    [([], False), (["--usb-log"], True)],
+    ("arguments", "expected_log", "expected_stats"),
+    [
+        ([], False, False),
+        (["--usb-log"], True, False),
+        (["--usb-stats"], False, True),
+        (["--usb-log", "--usb-stats"], True, True),
+    ],
 )
-def test_usb_logging_is_opt_in(monkeypatch, arguments, expected):
+def test_usb_options_are_opt_in(monkeypatch, arguments, expected_log, expected_stats):
     device = FakeDevice()
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
-    monkeypatch.setattr(sys, "argv", ["mactv", *arguments, "device"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "device", *arguments])
 
     assert __main__.main() == 0
-    assert __main__.usb.LOG is expected
+    assert __main__.usb.LOG is expected_log
+    assert __main__.usb.RECORD_STATS is expected_stats
 
 
 @pytest.mark.parametrize(
