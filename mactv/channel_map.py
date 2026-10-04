@@ -1,16 +1,18 @@
 
 from dataclasses import dataclass
-from typing import Iterable
+from pathlib import Path
 
+from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBStreamInfo, DVBService
+from mactv.scan_tables import parse_scan
+from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, ScanPolicy
 
 
 class ChannelMap:
 
     def __init__(self):
-        self._tunings = []
-        self._stream_infos = []
+        self._tunings: list[DVBTuning] = []
+        self._stream_infos: list[DVBStreamInfo] = []
 
         self._stream_infos_by_lcn: dict[int, DVBStreamInfo] = {}
         self._stream_infos_by_service_id: dict[int, DVBStreamInfo] = {}
@@ -86,3 +88,29 @@ class ChannelMap:
         if service_name is not None:
             return self._services_by_name.get(service_name)
         return None
+
+
+def scan_for_map(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True,
+                 read_timeout: float = 5.0):
+    tunings = parse_scan(scan_table, prefer_auto=prefer_auto)
+    channel_map = ChannelMap()
+
+    for tuning in tunings:
+        print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
+                f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+        status = adapter.tune(tuning, wait_for_lock=True)
+        print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
+
+        scanner = DVBScanner()
+        try:
+            adapter.start()
+            stream_info = scanner.scan(
+                adapter,
+                policy=ScanPolicy.ALL_SERVICE_METADATA,
+            )
+            channel_map.add_stream_info(tuning, stream_info)
+        finally:
+            adapter.stop()
+
+    adapter.sleep()
+    return channel_map
