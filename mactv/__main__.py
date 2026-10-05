@@ -222,7 +222,7 @@ def _run_device(device: AF9015Device, args) -> int:
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
     
-    elif args.command == "scan-stream":
+    if args.command == "scan-stream":
         channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
         for service in channel_map.services_sorted():
             network_name = None if service is None or service.triplet_id is None else \
@@ -232,11 +232,12 @@ def _run_device(device: AF9015Device, args) -> int:
             print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
                   f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
         device.bridge.transport.log_stats()
-    else:
-        print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
-                f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
-        tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
-        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
+        return 0
+    
+    print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
+            f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+    tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
+    print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
 
     if args.record is not None:
         if tuning_status is None or not tuning_status.lock:
