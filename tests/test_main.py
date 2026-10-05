@@ -4,7 +4,7 @@ import pytest
 
 from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBService, DVBStreamInfo
+from mactv.stream_scanner import DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
@@ -145,7 +145,7 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     assert device.initialize_called
     assert device.sleep_called
     assert not device.tune_called
-    assert "Device is sleeping" in capsys.readouterr().out
+    assert "Putting device to sleep" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -208,16 +208,23 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
 
 def test_scan_stream_maps_tunings_and_prints_services(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
-    result = DVBStreamInfo(1, 2, "network", (), 3, True)
+    triplet_id = DVBTripletID(1, 2, 10)
     service = DVBService(
         service_id=10,
+        triplet_id=triplet_id,
         name="Example TV",
         logical_channel_number=7,
-        service_type=1,
+        service_type=DVBServiceType.DIGITAL_TELEVISION,
     )
-    channel_map = type("ChannelMap", (), {
-        "iter_streams_and_services": lambda _self: iter([(result, service)]),
-    })()
+    result = DVBStreamInfo(1, 2, "network", (service,), 3, True)
+    channel_map = type(
+        "ChannelMap",
+        (),
+        {
+            "services_sorted": lambda _self: [service],
+            "stream_infos": {triplet_id: result},
+        },
+    )()
     calls = []
 
     monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
@@ -374,24 +381,6 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
     assert adapter.events.count("read") >= 2
-
-
-def test_scan_stream_stops_after_scanner_is_complete(monkeypatch):
-    adapter = FakeStreamAdapter([b"first", b"second"])
-    scan_calls = []
-    scanner = type("Scanner", (), {
-        "scan": lambda _scanner, source, policy, read_timeout_ms: (
-            scan_calls.append((source, policy, read_timeout_ms))
-            or DVBStreamInfo(1, 2, "network", (), 1, True)
-        ),
-    })()
-    monkeypatch.setattr(__main__, "DVBScanner", lambda: scanner)
-
-    result = __main__.scan_stream(adapter)
-
-    assert result.complete
-    assert scan_calls == [(adapter, __main__.ScanPolicy.ALL_SERVICE_METADATA, 5000)]
-    assert adapter.events == ["start", "stop", "sleep"]
 
 
 def test_capture_stream_fails_after_read_timeout(tmp_path):

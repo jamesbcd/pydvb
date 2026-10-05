@@ -10,7 +10,7 @@ from mactv.channel_map import map_from_scan, map_from_tunings
 
 
 from mactv.scan_tables import known_dvb_t_scan_tables, parse_scan
-from mactv.stream_scanner import DVBStreamInfo, DVBScanner, ScanPolicy
+from mactv.stream_scanner import DVBServiceType, DVBStreamInfo, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from mactv.drivers.af9015.device import AF9015Device
@@ -75,28 +75,6 @@ def capture_stream(
         if hasattr(adapter, "sleep"):
             adapter.sleep()
     return bytes_written, monotonic() - start_time
-
-
-def scan_stream(
-    adapter,
-    read_timeout: float = READ_TIMEOUT_SECONDS,
-) -> DVBStreamInfo:
-    """Feed a live transport stream to the scanner until its tables are complete."""
-    if read_timeout < 0:
-        raise ValueError("read_timeout must be non-negative")
-
-    scanner = DVBScanner()
-    try:
-        adapter.start()
-        return scanner.scan(
-            adapter,
-            policy=ScanPolicy.ALL_SERVICE_METADATA,
-            read_timeout_ms=max(0, int(read_timeout * 1000)),
-        )
-    finally:
-        adapter.stop()
-        if hasattr(adapter, "sleep"):
-            adapter.sleep()
 
 
 def wait_for_lock_with_diagnostics(device, adapter_index: int, timeout: float = 20.0):
@@ -243,14 +221,16 @@ def _run_device(device: AF9015Device, args) -> int:
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
+    
     elif args.command == "scan-stream":
         channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
         for service in channel_map.services_sorted():
             network_name = None if service is None or service.triplet_id is None else \
-                           channel_map.stream_infos[service.triplet_id].network_name            
+                           channel_map.stream_infos[service.triplet_id].network_name
+            service_type = DVBServiceType(service.service_type).name \
+                           if service.service_type in DVBServiceType else service.service_type
             print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
-                  f"ID={service.triplet_id:17} " +
-                  f"{network_name:25} Type: {service.service_type.name}")
+                  f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
         device.bridge.transport.log_stats()
     else:
         print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
