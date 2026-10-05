@@ -9,6 +9,7 @@ from mactv.stream_scanner import (
     DVBService,
     DVBServiceMetatype,
     DVBServiceType,
+    DVBTripletID,
     ScanPolicy,
 )
 from mactv.driver_api.adapter import DVBAdapter
@@ -117,6 +118,7 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert result.network_name == "Brisbane"
     assert len(result.services) == 1
     service = result.services[0]
+    assert service.triplet_id == DVBTripletID(1, 0x1234, 1)
     assert service.name == "ExampleTV"
     assert service.service_type is DVBServiceType.DIGITAL_TELEVISION
     assert service.service_metatype is DVBServiceMetatype.TV
@@ -146,6 +148,31 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.current_event is not None
     assert service.current_event.name == "News!"
     assert service.current_event.text == "Live"
+
+
+def test_result_sets_triplet_ids_for_each_service():
+    pat = section(
+        0x00,
+        b"\x12\x34\xC1\x00\x00"
+        + b"\x00\x01\xE1\x00"
+        + b"\x00\x02\xE1\x01",
+    )
+    sdt = section(
+        0x42,
+        b"\x12\x34\xC1\x00\x00\x00\x01\xff"
+        + b"\x00\x01\xff\xf0\x00"
+        + b"\x00\x02\xff\xf0\x00",
+    )
+    scanner = DVBScanner()
+    scanner.feed(table_packet(0x0000, pat))
+    scanner.feed(table_packet(0x0011, sdt))
+
+    result = scanner.result()
+
+    assert [service.triplet_id for service in result.services] == [
+        DVBTripletID(1, 0x1234, 1),
+        DVBTripletID(1, 0x1234, 2),
+    ]
 
 
 def test_dvb_service_type_uses_int_compatible_standard_codes():

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
 from enum import Enum, IntEnum, auto
-from typing import Any
+from typing import Any, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
 
@@ -50,6 +50,13 @@ SECTION_HEADER: Any = BitStruct(
     "section_length" / BitsInteger(12),
 )
 
+class ScanPolicy(Enum):
+    """Define the amount of metadata required for a scan to be complete."""
+
+    MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
+    ALL_SERVICE_METADATA = auto() # Require all service PIDs and logical channel numbers
+
+
 @dataclass
 class DVBEvent:
     """Metadata for a single DVB event (programme)."""
@@ -83,13 +90,6 @@ class DVBElementaryStream:
     pid: int
     stream_type: int
     descriptors: tuple[DVBDescriptor, ...] = ()
-
-
-class ScanPolicy(Enum):
-    """Define the amount of metadata required for a scan to be complete."""
-
-    MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
-    ALL_SERVICE_METADATA = auto() # Require all service PIDs and logical channel numbers
 
 
 class DVBServiceType(IntEnum):
@@ -182,10 +182,60 @@ _DVB_SERVICE_METATYPES = {
 }
 
 
+class DVBTripletID(NamedTuple):
+    '''Represents a DVB triplet that globally and uniquely identifies a DVB service (i.e. channel).'''
+    original_network_id: int
+    transport_stream_id: int
+    service_id: int
+
+    @classmethod
+    def from_int(cls, value: int) -> "DVBTripletID":
+        """Create a DVBTripletID from a single integer."""
+        onid = (value >> 32) & 0xFFFF
+        tsid = (value >> 16) & 0xFFFF
+        sid = value & 0xFFFF
+        return cls(original_network_id=onid, transport_stream_id=tsid, service_id=sid)
+
+    @classmethod
+    def from_dotted(cls, value: str) -> "DVBTripletID":
+        """Create a DVBTripletID from a dotted string in the format ONID.TSID.SID."""
+        onid, tsid, sid = map(int, value.split("."))
+        return cls(original_network_id=onid, transport_stream_id=tsid, service_id=sid)
+
+    # Compact aliases for convenience
+    @property
+    def onid(self) -> int:
+        return self.original_network_id
+
+    @property
+    def tsid(self) -> int:
+        return self.transport_stream_id
+
+    @property
+    def sid(self) -> int:
+        return self.service_id
+
+    def __int__(self) -> int:
+        '''Converts the DVBTriplet to a single integer.'''
+        return (self.original_network_id << 32) | (self.transport_stream_id << 16) | self.service_id
+
+    def __index__(self) -> int:
+        '''Allows bin(), hex(), oct() and other functions that require a number to work with this object.'''
+        return int(self)
+
+    def dotted(self) -> str:
+        '''Return the DVB triplet as a dotted string in the format ONID.TSID.SID.'''
+        return f"{self.original_network_id}.{self.transport_stream_id}.{self.service_id}"
+
+    def __str__(self) -> str:
+        return self.dotted()
+
+
 @dataclass
 class DVBService:
     """Metadata for a single DVB service (channel)."""
     service_id: int
+    triplet_id: DVBTripletID | None = None
     name: str | None = None
     provider_name: str | None = None
     logical_channel_number: int | None = None
@@ -211,11 +261,12 @@ class DVBService:
             )
         )
 
+
 @dataclass
 class DVBStreamInfo:
     """Accumulated result of scanning a DVB transport stream."""
-    transport_stream_id: int | None = None
     original_network_id: int | None = None
+    transport_stream_id: int | None = None
     network_name: str | None = None
     services: tuple[DVBService, ...] = ()
     packets_seen: int = 0
@@ -317,9 +368,20 @@ class DVBScanner:
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
     ) -> DVBStreamInfo:
         """Return a snapshot of the scanner state."""
+        original_network_id = self._original_network_id
+        transport_stream_id = self._transport_stream_id
         services = tuple(
             DVBService(
                 service_id=service.service_id,
+                triplet_id=(
+                    DVBTripletID(
+                        original_network_id=original_network_id,
+                        transport_stream_id=transport_stream_id,
+                        service_id=service.service_id,
+                    )
+                    if original_network_id is not None and transport_stream_id is not None
+                    else None
+                ),
                 name=service.name,
                 provider_name=service.provider_name,
                 logical_channel_number=service.logical_channel_number,
@@ -343,8 +405,8 @@ class DVBScanner:
             for service in sorted(self._services.values(), key=lambda item: item.service_id)
         )
         return DVBStreamInfo(
-            transport_stream_id=self._transport_stream_id,
-            original_network_id=self._original_network_id,
+            transport_stream_id=transport_stream_id,
+            original_network_id=original_network_id,
             network_name=self._network_name,
             services=services,
             packets_seen=self._packets_seen,
