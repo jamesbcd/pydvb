@@ -6,7 +6,7 @@ from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Callable, cast
 
-from mactv.channel_map import map_from_scan, map_from_tunings
+from mactv.service_map import map_from_scan, map_from_tunings
 
 
 from mactv.scan_tables import known_table_names, parse_table
