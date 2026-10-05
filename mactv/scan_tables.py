@@ -56,7 +56,7 @@ class _ScanTableLinkParser(HTMLParser):
             self.file_names.append(file_name)
 
 
-def known_dvb_t_scan_tables() -> list[str]:
+def known_table_names() -> list[str]:
     """Download LinuxTV DVB-T filenames, falling back to the Tvheadend mirror."""
     response = _get_from_urls(DVB_T_SCAN_TABLES_URL)
     content = response.content.lstrip()
@@ -76,7 +76,7 @@ def known_dvb_t_scan_tables() -> list[str]:
     return sorted(parser.file_names)
 
 
-def parse_scan(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
+def parse_table(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
     """Read a local or known LinuxTV/mirror scan table into DVB tuning values.
 
     Args:

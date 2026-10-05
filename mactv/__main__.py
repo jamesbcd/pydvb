@@ -9,7 +9,7 @@ from typing import Any, Callable, cast
 from mactv.channel_map import map_from_scan, map_from_tunings
 
 
-from mactv.scan_tables import known_dvb_t_scan_tables, parse_scan
+from mactv.scan_tables import known_table_names, parse_table
 from mactv.stream_scanner import DVBServiceType, DVBStreamInfo, DVBScanner, ScanPolicy
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
@@ -190,11 +190,11 @@ def _run_device(device: AF9015Device, args) -> int:
         print("Done.")
         return 0
 
-    if args.use_scan is not None:
-        print(f"Parsing scan table from {args.use_scan}...", end="", flush=True)
-        tunings = parse_scan(args.use_scan, prefer_auto=True)
+    if args.use_table is not None:
+        print(f"Parsing scan table from {args.use_table}...", end="", flush=True)
+        tunings = parse_table(args.use_table, prefer_auto=True)
         if not tunings:
-            raise ValueError(f"scan table contains no DVB-T channels: {args.use_scan}")
+            raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
         print("Done.")
     else:
         tunings = [DVBTuning(frequency_hz=args.frequency,
@@ -306,7 +306,7 @@ def main() -> int:
 
     needs_tuning = argparse.ArgumentParser(add_help=False)
     needs_tuning.add_argument(
-        "--use-scan",
+        "--use-table",
         type=str,
         metavar="scan-table-name-or-path",
         help="Use a known or local DVB-T scan table",
@@ -379,18 +379,18 @@ def main() -> int:
         parents=[needs_device, needs_tuning, global_options],
     )
     subparsers.add_parser(
-        "known-scans",
+        "known-tables",
         help="Print known LinuxTV DVB-T scan-table names (from online repository)",
         parents=[global_options],
     )
     parse_scan_parser = subparsers.add_parser(
-        "parse-scan",
-        help="Parse a known DVB scan name or local scan file",
+        "parse-table",
+        help="Parse a known DVB scan-table name or local scan-table file",
         parents=[global_options],
     )
     subparsers.add_parser(
         "scan-stream",
-        help="Tune and scan live MPEG-TS stream for its metadata",
+        help="Tune and scan live MPEG-TS stream for its service metadata (ie. channels)",
         parents=[needs_device, needs_tuning, global_options],
     )
     parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
@@ -419,13 +419,13 @@ def main() -> int:
     args.record = getattr(args, "record", None)
     args.serve = getattr(args, "serve", None)
 
-    if args.command == "known-scans":
-        for table_name in known_dvb_t_scan_tables():
+    if args.command == "known-tables":
+        for table_name in known_table_names():
             print(table_name)
         return 0
 
-    if args.command == "parse-scan":
-        pprint.pprint(parse_scan(args.scan), underscore_numbers=True)
+    if args.command == "parse-table":
+        pprint.pprint(parse_table(args.scan), underscore_numbers=True)
         return 0
 
     stream_actions = [

@@ -6,7 +6,7 @@ from typing import Collection
 
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
-from mactv.scan_tables import parse_scan
+from mactv.scan_tables import parse_table
 from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
 
 
@@ -78,7 +78,7 @@ class DVBChannelMap:
 
 def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True):
     print(f"Parsing scan table from {scan_table}...", end="", flush=True)
-    tunings = parse_scan(scan_table, prefer_auto=prefer_auto)
+    tunings = parse_table(scan_table, prefer_auto=prefer_auto)
     print("Done.")
     return map_from_tunings(tunings, adapter)
 

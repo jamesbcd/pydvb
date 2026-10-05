@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from mactv import DVBDescriptor, DVBElementaryStream
-from mactv.scan_tables import parse_scan
+from mactv.scan_tables import parse_table
 from mactv.stream_scanner import (
     DVBScanner,
     DVBService,
@@ -336,7 +336,7 @@ def test_scanner_lists_known_dvb_t_scan_tables(monkeypatch):
 
     monkeypatch.setattr(scan_tables_module.requests, "get", lambda url, timeout: Response())
 
-    assert scan_tables_module.known_dvb_t_scan_tables() == ["au-Adelaide", "au-Brisbane"]
+    assert scan_tables_module.known_table_names() == ["au-Adelaide", "au-Brisbane"]
 
 
 def test_scanner_lists_known_tables_from_mirror_when_linux_tv_fails(monkeypatch):
@@ -359,7 +359,7 @@ def test_scanner_lists_known_tables_from_mirror_when_linux_tv_fails(monkeypatch)
 
     monkeypatch.setattr(scan_tables_module.requests, "get", get)
 
-    assert scan_tables_module.known_dvb_t_scan_tables() == [
+    assert scan_tables_module.known_table_names() == [
         "au-Adelaide",
         "au-Brisbane",
     ]
@@ -374,7 +374,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_scan(scan_path, prefer_auto=False) == [
+    assert parse_table(scan_path, prefer_auto=False) == [
         scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -392,7 +392,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
             modulation=Modulation.QPSK,
         ),
     ]
-    assert parse_scan(scan_path) == [
+    assert parse_table(scan_path) == [
         scan_tables_module.DVBTuning(177_500_000, 7_000_000),
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
@@ -408,7 +408,7 @@ def test_scanner_parses_known_scan_table(monkeypatch):
     requests_get = lambda url, timeout: Response()
     monkeypatch.setattr(scan_tables_module.requests, "get", requests_get)
 
-    assert parse_scan("au-Brisbane", prefer_auto=False) == [
+    assert parse_table("au-Brisbane", prefer_auto=False) == [
         scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -442,7 +442,7 @@ def test_scanner_parses_known_table_from_mirror_when_linux_tv_fails(monkeypatch)
 
     monkeypatch.setattr(scan_tables_module.requests, "get", get)
 
-    assert parse_scan("au-Brisbane") == [
+    assert parse_table("au-Brisbane") == [
         scan_tables_module.DVBTuning(177_500_000, 7_000_000)
     ]
 
@@ -463,7 +463,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_scan(scan_path, prefer_auto=False) == [
+    assert parse_table(scan_path, prefer_auto=False) == [
         scan_tables_module.DVBTuning(
             226_500_000,
             7_000_000,
@@ -475,6 +475,6 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
             CodeRate.NONE,
         )
     ]
-    assert parse_scan(scan_path) == [
+    assert parse_table(scan_path) == [
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]

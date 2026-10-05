@@ -175,10 +175,10 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
         "_run_device",
         lambda _device, args: (parsed_args.append(args) or 0),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--use-scan", str(scan_path)])
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--use-table", str(scan_path)])
 
     assert __main__.main() == 0
-    assert parsed_args[0].use_scan == str(scan_path)
+    assert parsed_args[0].use_table == str(scan_path)
 
 
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
@@ -253,7 +253,7 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
 
     monkeypatch.setattr(
         __main__,
-        "known_dvb_t_scan_tables",
+        "known_table_names",
         lambda: (calls.append(True) or ["au-Adelaide", "au-Brisbane"]),
     )
     monkeypatch.setattr(
@@ -261,7 +261,7 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
         "open",
         lambda *_args: pytest.fail("known scan tables should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "known-scans"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "known-tables"])
 
     assert __main__.main() == 0
     assert calls == [True]
@@ -274,7 +274,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 
     monkeypatch.setattr(
         __main__,
-        "parse_scan",
+        "parse_table",
         lambda scan: (calls.append(scan) or tunings),
     )
     monkeypatch.setattr(
@@ -282,7 +282,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
         "open",
         lambda *_args: pytest.fail("parse scan should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "parse-scan", "au-Brisbane"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "parse-table", "au-Brisbane"])
 
     assert __main__.main() == 0
     assert calls == ["au-Brisbane"]
