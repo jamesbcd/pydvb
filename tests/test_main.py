@@ -206,7 +206,7 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     assert device.close_called
 
 
-def test_scan_stream_maps_tunings_and_prints_services(monkeypatch, capsys):
+def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
     device = FakeLockedRecordingDevice()
     triplet_id = DVBTripletID(1, 2, 10)
     service = DVBService(
@@ -233,7 +233,7 @@ def test_scan_stream_maps_tunings_and_prints_services(monkeypatch, capsys):
         "map_from_tunings",
         lambda tunings, adapter: (calls.append((tunings, adapter)) or channel_map),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "scan-stream"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "scan"])
 
     assert __main__.main() == 0
     assert len(calls) == 1

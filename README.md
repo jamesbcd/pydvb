@@ -43,10 +43,10 @@ also accept `--use-table` with a known scan-table name or local table path.
 python3 -m mactv known-tables
 python3 -m mactv parse-table au-Brisbane
 python3 -m mactv tune --use-table au-Brisbane
-python3 -m mactv scan-stream --use-table au-Brisbane
+python3 -m mactv scan --use-table au-Brisbane
 ```
 
-`scan-stream` scans the live transport stream for service/channel metadata.
+`scan` scans the live transport stream for service/channel metadata.
 For a single frequency it uses the same default tuning parameters as `tune`.
 
 To capture up to 35 MiB of transport-stream data after tuning:

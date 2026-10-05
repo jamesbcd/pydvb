@@ -222,7 +222,7 @@ def _run_device(device: AF9015Device, args) -> int:
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
     
-    if args.command == "scan-stream":
+    if args.command == "scan":
         channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
         for service in channel_map.services_sorted():
             network_name = None if service is None or service.triplet_id is None else \
@@ -389,7 +389,7 @@ def main() -> int:
         parents=[global_options],
     )
     subparsers.add_parser(
-        "scan-stream",
+        "scan",
         help="Tune and scan live MPEG-TS stream for its service metadata (ie. channels)",
         parents=[needs_device, needs_tuning, global_options],
     )
@@ -432,7 +432,7 @@ def main() -> int:
         name for name, enabled in (
             ("--record", args.record is not None),
             ("--serve", args.serve is not None),
-            ("--scan-stream", args.command == "scan-stream"),
+            ("--scan", args.command == "scan"),
         ) if enabled
     ]
     if len(stream_actions) > 1:
