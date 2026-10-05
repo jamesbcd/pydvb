@@ -10,7 +10,7 @@ from mactv.scan_tables import parse_table
 from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
 
 
-class DVBChannelMap:
+class DVBServiceMap:
     def __init__(self):
         self._tunings: dict[DVBTripletID, DVBTuning] = {}
         self._stream_infos: dict[DVBTripletID, DVBStreamInfo] = {}
@@ -70,7 +70,7 @@ class DVBChannelMap:
 
     @property
     def service_names(self) -> list[str | None]:
-        '''Return a sorted list of all DVBservice names in the channel map.'''
+        '''Return a sorted list of all DVB service names in the channel map.'''
         return sorted([service.name for service in self._services.values()],
                       key=lambda name: (name is None, name))
 
@@ -83,7 +83,7 @@ def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool
     return map_from_tunings(tunings, adapter)
 
 def map_from_tunings(tunings: Collection[DVBTuning], adapter: DVBAdapter):
-    channel_map = DVBChannelMap()
+    channel_map = DVBServiceMap()
 
     for index, tuning in enumerate(tunings):
         print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
