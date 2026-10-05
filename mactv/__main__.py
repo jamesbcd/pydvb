@@ -461,7 +461,7 @@ def main() -> int:
 
     try:
         with AF9015Device.open(args.vendor_id, args.product_id) as device:
-            return _run_device(device, args)
+            return _run_device(cast(AF9015Device, device), args)
     except (ValueError) as error:
         print(f"Error: {error}")
         return 1
