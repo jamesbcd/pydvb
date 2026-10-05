@@ -5,9 +5,8 @@ import pprint
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Callable, cast
-from unittest import result
 
-from mactv.channel_map import map_from_scan, map_from_tunings, ChannelMap
+from mactv.channel_map import map_from_scan, map_from_tunings
 
 
 from mactv.scan_tables import known_dvb_t_scan_tables, parse_scan
@@ -186,19 +185,19 @@ def _print_status(device) -> None:
 
 
 def _run_device(device: AF9015Device, args) -> int:
-    print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     # 'device' command stops at device discovery
     if args.command == "device":
+        print(f"Device state: {'warm' if device.is_warm else 'cold'}")
         return 0
 
     if not device.is_warm:
         print("Device is cold; initializing and downloading firmware to device...", end="", flush=True)
         device.init_hardware()
         print("Done.")
-        print(f"Device state: {'warm' if device.is_warm else 'cold'}")
     else:
-        print("Device is warm; reinitializing hardware...")
+        print("Device is warm; reinitializing hardware...", end="", flush=True)
         device.init_hardware()
+        print("Done.")
 
     if args.command == "init":
         return 0
@@ -208,9 +207,9 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0
 
     if args.command == "sleep":
-        print("Putting device to sleep...")
+        print("Putting device to sleep...", end="", flush=True)
         device.sleep()
-        print("Device is sleeping")
+        print("Done.")
         return 0
 
     if args.use_scan is not None:
@@ -232,8 +231,8 @@ def _run_device(device: AF9015Device, args) -> int:
     tuning_status = None
     if args.command == "tune":
         locks_acquired = []
-        for tuning in tunings:
-            print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
+        for index, tuning in enumerate(tunings):
+            print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
                   f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
             status = device.tune(tuning, adapter_index=args.adapter_index,
                                  wait_for_lock=not args.hardware_diagnostics)
@@ -246,9 +245,12 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0 if all(locks_acquired) else 2
     elif args.command == "scan-stream":
         channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
-        for stream_info, service in channel_map.iter_streams_and_services():
-            print(f"Ch {service.logical_channel_number:3} {service.name:25} ID={service.service_id:5} " +
-                  f"{stream_info.network_name:25} Type: {service.service_type:3} {service.service_metatype}")
+        for service in channel_map.services_sorted():
+            network_name = None if service is None or service.triplet_id is None else \
+                           channel_map.stream_infos[service.triplet_id].network_name            
+            print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
+                  f"ID={service.triplet_id:17} " +
+                  f"{network_name:25} Type: {service.service_type.name}")
         device.bridge.transport.log_stats()
     else:
         print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +

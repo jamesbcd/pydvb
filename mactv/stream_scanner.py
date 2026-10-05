@@ -230,6 +230,9 @@ class DVBTripletID(NamedTuple):
     def __str__(self) -> str:
         return self.dotted()
 
+    def __format__(self, format_spec: str) -> str:
+        return format(self.dotted(), format_spec)
+
 
 @dataclass
 class DVBService:
