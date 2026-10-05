@@ -233,7 +233,10 @@ def _run_device(device: AF9015Device, args) -> int:
                   f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
         device.bridge.transport.log_stats()
         return 0
-    
+
+    ## TODO: Prevent race conditions when stopping the stream. In particular, don't
+    ##       write to device registers when it doesn't like it.
+
     print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
             f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
     tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
