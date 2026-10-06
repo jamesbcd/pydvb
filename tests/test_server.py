@@ -1,9 +1,10 @@
 import http.client
+from http.server import BaseHTTPRequestHandler
 from queue import Queue
 from threading import Event, Thread
 from time import monotonic, sleep
 
-from mactv.server import LocalTS_HTTPServer
+from mactv.server import LocalTS_HTTPServer, _StreamRequestHandler
 from mactv.service_map import DVBServiceMap
 from mactv.stream_scanner import DVBElementaryStream, DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
 from mactv.driver_api.tuner import DVBTuning
@@ -112,15 +113,71 @@ def test_server_streams_requested_service_and_releases_adapter(capsys):
     assert "Client disconnected:" in output
 
 
+def test_server_root_returns_sorted_m3u8_playlist():
+    first = DVBService(
+        service_id=6,
+        triplet_id=DVBTripletID(4, 5, 6),
+        name="Unnumbered",
+    )
+    second = DVBService(
+        service_id=3,
+        triplet_id=DVBTripletID(1, 2, 3),
+        name="Second TV",
+        logical_channel_number=20,
+    )
+    third = DVBService(
+        service_id=4,
+        triplet_id=DVBTripletID(1, 2, 4),
+        name="First TV",
+        logical_channel_number=2,
+    )
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        TUNING,
+        DVBStreamInfo(services=(first, second, third)),
+    )
+    server = LocalTS_HTTPServer([], service_map, port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    connection = http.client.HTTPConnection(*server.address, timeout=2)
+    base_url = f"http://{server.address[0]}:{server.address[1]}"
+    expected_playlist = (
+        "#EXTM3U\n"
+        "#EXTINF:-1,2 First TV\n"
+        f"{base_url}/service/1.2.4\n"
+        "#EXTINF:-1,20 Second TV\n"
+        f"{base_url}/service/1.2.3\n"
+        "#EXTINF:-1,- Unnumbered\n"
+        f"{base_url}/service/4.5.6\n"
+    )
+    try:
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "application/vnd.apple.mpegurl; charset=utf-8"
+        assert response.read().decode("utf-8") == expected_playlist
+        connection.request("GET", "/playlist.m3u8")
+        playlist_response = connection.getresponse()
+        assert playlist_response.status == 200
+        assert playlist_response.getheader("Content-Type") == (
+            "application/vnd.apple.mpegurl; charset=utf-8"
+        )
+        assert playlist_response.read().decode("utf-8") == expected_playlist
+    finally:
+        connection.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
 def test_server_returns_not_found_for_unknown_endpoint():
     server = LocalTS_HTTPServer([], make_service_map(), port=0)
     serving = Thread(target=server.serve_forever)
     serving.start()
     connection = http.client.HTTPConnection(*server.address, timeout=2)
     try:
-        connection.request("GET", "/")
-        response = connection.getresponse()
-        assert response.status == 404
+        connection.request("GET", "/unknown")
+        assert connection.getresponse().status == 404
     finally:
         connection.close()
         server.shutdown()
@@ -163,6 +220,16 @@ def test_server_returns_unavailable_when_all_adapters_are_leased():
         server.shutdown()
         server.close()
         serving.join(timeout=2)
+
+
+def test_server_ignores_disconnect_while_sending_error(monkeypatch):
+    def raise_broken_pipe(*args, **kwargs):
+        raise BrokenPipeError
+
+    monkeypatch.setattr(BaseHTTPRequestHandler, "send_error", raise_broken_pipe)
+    handler = object.__new__(_StreamRequestHandler)
+    handler.send_error(503, "no adapter is currently available")
+
 
 def test_server_reuses_adapter_after_client_disconnect():
     adapter = FakeAdapter()

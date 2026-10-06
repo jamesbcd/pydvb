@@ -294,7 +294,7 @@ def _run_device(device: AF9015Device, args) -> int:
             port=port,
         )
         bound_host, bound_port = server.address
-        print(f"Serving http://{bound_host}:{bound_port}/service/X.Y.Z")
+        print(f"Serving playlist at http://{bound_host}:{bound_port}/playlist.m3u8")
         try:
             server.start()
             server.serve_forever()

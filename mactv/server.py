@@ -100,6 +100,17 @@ class LocalTS_HTTPServer:
         except (RuntimeError, OSError):
             pass
 
+    def _playlist(self, base_url: str) -> bytes:
+        lines = ["#EXTM3U"]
+        for service in self.service_map.services_sorted():
+            if service.triplet_id is None:
+                continue
+            lcn = "-" if service.logical_channel_number is None else str(service.logical_channel_number)
+            name = service.name or "Unnamed service"
+            lines.append(f"#EXTINF:-1,{lcn} {name}")
+            lines.append(f"{base_url}/service/{service.triplet_id.dotted()}")
+        return ("\n".join(lines) + "\n").encode("utf-8")
+
 
 class _HTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
@@ -113,9 +124,54 @@ class _HTTPServer(ThreadingHTTPServer):
 class _StreamRequestHandler(BaseHTTPRequestHandler):
     server: BaseServer
 
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        """Send an HTTP error unless the client has already disconnected."""
+        try:
+            super().send_error(code, message, explain)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def do_GET(self) -> None:
         owner = cast(_HTTPServer, self.server).owner
         path = urlsplit(self.path).path
+        if path in ("/", "/playlist.m3u8"):
+            authority = self.headers.get("Host")
+            if authority is None:
+                host, port = self.connection.getsockname()[:2]
+                host = f"[{host}]" if ":" in host else host
+                authority = f"{host}:{port}"
+            parsed_authority = urlsplit(f"http://{authority}")
+            try:
+                parsed_authority.port
+            except ValueError:
+                self.send_error(400, "invalid Host header")
+                return
+            if (
+                not authority
+                or parsed_authority.netloc != authority
+                or parsed_authority.hostname is None
+                or parsed_authority.username is not None
+                or parsed_authority.password is not None
+                or parsed_authority.path
+                or parsed_authority.query
+                or parsed_authority.fragment
+                or any(character.isspace() for character in authority)
+            ):
+                self.send_error(400, "invalid Host header")
+                return
+            body = owner._playlist(f"http://{authority}")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         prefix = "/service/"
         if not path.startswith(prefix):
             self.send_error(404, "stream endpoint is /service/X.Y.Z")

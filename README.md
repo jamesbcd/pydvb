@@ -65,9 +65,11 @@ python3 -m mactv serve --frequency 177.5 --bandwidth 7
 ```
 
 The server defaults to `127.0.0.1:8080`; open
-`http://127.0.0.1:8080/stream.ts` in VLC. Pass an optional `HOST:PORT` after
-`serve` to choose another bind address. The server requires a frontend lock,
-and Ctrl-C stops the server and adapter.
+`http://127.0.0.1:8080/playlist.m3u8` in VLC to see the available DVB services.
+Pass an optional `HOST:PORT` after `serve` to choose another bind address. To
+connect from another device, bind to `0.0.0.0:8080` and open the playlist using
+the server machine's LAN address. The server requires a frontend lock, and
+Ctrl-C stops the server and adapter.
 
 Use `--usb-log` to log USB bulk transfers, `--usb-stats` to log stream-read
 timing and byte counts, and `--hardware-diagnostics` with `tune` to print
