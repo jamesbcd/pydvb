@@ -22,6 +22,7 @@ class FakeAdapter:
         self.calls = []
 
     def start(self):
+        self.stopped.clear()
         self.calls.append(("start",))
 
     def tune(self, tuning, wait_for_lock=True):
@@ -35,6 +36,8 @@ class FakeAdapter:
         self.calls.append(("set_pid_filter_enabled", enabled))
 
     def read_stream(self, timeout_ms=2000):
+        if self.stopped.is_set():
+            raise RuntimeError("demuxer is not started")
         try:
             return self.chunks.get(timeout=0.1)
         except Exception as error:
@@ -204,7 +207,12 @@ def test_server_rejects_malformed_and_unknown_services():
 
 def test_server_returns_unavailable_when_all_adapters_are_leased():
     adapter = FakeAdapter()
-    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map(),
+        port=0,
+        evict_oldest_on_exhaustion=False,
+    )
     serving = Thread(target=server.serve_forever)
     serving.start()
     first = http.client.HTTPConnection(*server.address, timeout=2)
@@ -214,6 +222,65 @@ def test_server_returns_unavailable_when_all_adapters_are_leased():
         assert first.getresponse().status == 200
         second.request("GET", "/service/1.2.3")
         assert second.getresponse().status == 503
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_evicts_oldest_stream_and_reuses_same_tuning_without_sleeping():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+
+        second.request("GET", "/service/1.2.3")
+        response = second.getresponse()
+        assert response.status == 200
+        assert [call[0] for call in adapter.calls] == [
+            "tune",
+            "start",
+            "configure_pid_filter",
+            "set_pid_filter_enabled",
+            "stop",
+            "start",
+            "configure_pid_filter",
+            "set_pid_filter_enabled",
+        ]
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_retunes_evicted_adapter_for_different_tuning():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        service = server.service_map.services[TRIPLET]
+        server.service_map.add_stream_info(
+            DVBTuning(666_000_000),
+            DVBStreamInfo(services=(service,)),
+        )
+
+        second.request("GET", "/service/1.2.3")
+        assert second.getresponse().status == 200
+        assert [call[0] for call in adapter.calls].count("tune") == 2
     finally:
         first.close()
         second.close()

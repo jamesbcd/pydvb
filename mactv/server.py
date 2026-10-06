@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from queue import Empty
 import select
@@ -17,6 +18,14 @@ from .service_map import DVBServiceMap
 from .stream_scanner import DVBTripletID
 
 
+@dataclass
+class _AdapterLease:
+    adapter: DVBAdapter
+    tuning: object | None = None
+    handoff_requested: bool = False
+    stopped: bool = False
+
+
 class LocalTS_HTTPServer:
     """Serve mapped DVB services using a pool of available adapters."""
 
@@ -28,6 +37,7 @@ class LocalTS_HTTPServer:
         port: int = 8080,
         client_queue_size: int = 20,
         buffer_log: bool = False,
+        evict_oldest_on_exhaustion: bool = True,
     ) -> None:
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
@@ -35,11 +45,11 @@ class LocalTS_HTTPServer:
             raise ValueError("client_queue_size must be positive")
         self.service_map = service_map
         self._available_adapters = list(adapters)
-        self._leased_adapters: list[DVBAdapter] = []
+        self._leased_adapters: list[_AdapterLease] = []
         self._adapters_condition = Condition(Lock())
-        self._stopped_adapter_ids: set[int] = set()
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
+        self.evict_oldest_on_exhaustion = evict_oldest_on_exhaustion
         self._stop_event = Event()
         self.httpd = _HTTPServer((host, port), _StreamRequestHandler, self)
 
@@ -65,9 +75,9 @@ class LocalTS_HTTPServer:
         self._stop_event.set()
         self.httpd.server_close()
         with self._adapters_condition:
-            active_adapters = tuple(self._leased_adapters)
-        for adapter in active_adapters:
-            self._stop_adapter_once(adapter)
+            active_leases = tuple(self._leased_adapters)
+        for lease in active_leases:
+            self._stop_lease_once(lease)
         deadline = monotonic() + 2.0
         with self._adapters_condition:
             while self._leased_adapters:
@@ -76,29 +86,55 @@ class LocalTS_HTTPServer:
                     break
                 self._adapters_condition.wait(remaining)
 
-    def _lease_adapter(self) -> DVBAdapter | None:
+    def _lease_adapter(self) -> _AdapterLease | None:
         with self._adapters_condition:
-            if not self._available_adapters:
+            if self._available_adapters:
+                lease = _AdapterLease(self._available_adapters.pop())
+                self._leased_adapters.append(lease)
+                return lease
+            if not self.evict_oldest_on_exhaustion or not self._leased_adapters:
                 return None
-            adapter = self._available_adapters.pop()
-            self._leased_adapters.append(adapter)
-            return adapter
 
-    def _release_adapter(self, adapter: DVBAdapter) -> None:
+            victim = self._leased_adapters[0]
+            victim.handoff_requested = True
+
+        self._stop_lease_once(victim)
         with self._adapters_condition:
-            self._leased_adapters.remove(adapter)
-            self._available_adapters.append(adapter)
+            self._leased_adapters.remove(victim)
+            replacement = _AdapterLease(victim.adapter, victim.tuning)
+            self._leased_adapters.append(replacement)
             self._adapters_condition.notify_all()
+            return replacement
 
-    def _stop_adapter_once(self, adapter: DVBAdapter) -> None:
+    def _set_lease_tuning(self, lease: _AdapterLease, tuning: object) -> None:
         with self._adapters_condition:
-            if id(adapter) in self._stopped_adapter_ids:
+            lease.tuning = tuning
+
+    def _stop_lease_once(self, lease: _AdapterLease) -> None:
+        with self._adapters_condition:
+            if lease.stopped:
                 return
-            self._stopped_adapter_ids.add(id(adapter))
+            lease.stopped = True
         try:
-            adapter.stop()
+            lease.adapter.stop()
         except (RuntimeError, OSError):
             pass
+
+    def _finish_lease(self, lease: _AdapterLease) -> None:
+        self._stop_lease_once(lease)
+        with self._adapters_condition:
+            if lease.handoff_requested:
+                self._adapters_condition.notify_all()
+                return
+            self._leased_adapters.remove(lease)
+            self._adapters_condition.notify_all()
+        try:
+            lease.adapter.sleep()
+        except (RuntimeError, OSError):
+            pass
+        with self._adapters_condition:
+            self._available_adapters.append(lease.adapter)
+            self._adapters_condition.notify_all()
 
     def _playlist(self, base_url: str) -> bytes:
         lines = ["#EXTM3U"]
@@ -206,11 +242,12 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             flush=True,
         )
 
-        adapter = owner._lease_adapter()
-        if adapter is None:
+        lease = owner._lease_adapter()
+        if lease is None:
             print("No adapter available for service request", flush=True)
             self.send_error(503, "no adapter is currently available")
             return
+        adapter = lease.adapter
 
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
         print(f"Client connected: {client_address}", flush=True)
@@ -218,15 +255,19 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         byte_count = 0
         timeout_count = 0
         try:
-            print("Tuning adapter and waiting for frontend lock", flush=True)
-            status = adapter.tune(tuning, wait_for_lock=True)
-            print(f"Frontend tune returned status: {status!r}", flush=True)
-            if status is not None and not status.lock:
-                print("Frontend did not lock requested service", flush=True)
-                self.send_error(503, "adapter did not lock the requested service")
-                return
-            if status and status.lock:
-                print("Adapter successfully locked the requested service", flush=True)
+            if lease.tuning == tuning:
+                print("Reusing adapter tuning for requested service", flush=True)
+            else:
+                print("Tuning adapter and waiting for frontend lock", flush=True)
+                status = adapter.tune(tuning, wait_for_lock=True)
+                print(f"Frontend tune returned status: {status!r}", flush=True)
+                if status is not None and not status.lock:
+                    print("Frontend did not lock requested service", flush=True)
+                    self.send_error(503, "adapter did not lock the requested service")
+                    return
+                owner._set_lease_tuning(lease, tuning)
+                if status and status.lock:
+                    print("Adapter successfully locked the requested service", flush=True)
             adapter.start()
             print("Started adapter for streaming", flush=True)
             adapter.configure_pid_filter(service.pids())
@@ -271,12 +312,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         except (TimeoutError, RuntimeError, OSError) as error:
             print(f"Streaming request failed: {type(error).__name__}: {error}", flush=True)
         finally:
-            owner._stop_adapter_once(adapter)
-            try:
-                adapter.sleep()
-            except (RuntimeError, OSError) as error:
-                print(f"Adapter sleep failed during cleanup: {error!r}", flush=True)
-            owner._release_adapter(adapter)
+            owner._finish_lease(lease)
             print(
                 f"Client disconnected: {client_address}; "
                 f"chunks={chunk_count} bytes={byte_count} read_timeouts={timeout_count}",
