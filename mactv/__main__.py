@@ -162,6 +162,29 @@ def _print_status(device) -> None:
         print()
 
 
+def _report_scan_failure_diagnostics(
+    device: AF9015Device, adapter_index: int, error: Exception
+) -> None:
+    """Report frontend state and optional USB transfer statistics after a scan error."""
+    print(
+        f"Scan failed with {type(error).__name__}: {error}; collecting diagnostics.",
+        flush=True,
+    )
+    adapter = device.adapters[adapter_index]
+    try:
+        print(f"Frontend status at scan failure: {adapter.read_status()}", flush=True)
+    except Exception as diagnostic_error:
+        print(f"Frontend status read failed: {diagnostic_error}", flush=True)
+
+    if usb.RECORD_STATS:
+        try:
+            device.bridge.transport.log_stats()
+        except Exception as diagnostic_error:
+            print(f"USB transfer statistics failed: {diagnostic_error}", flush=True)
+    else:
+        print("USB transfer statistics are disabled; rerun with --usb-stats to collect them.")
+
+
 def _run_device(device: AF9015Device, args) -> int:
     # 'device' command stops at device discovery
     if args.command == "device":
@@ -223,7 +246,13 @@ def _run_device(device: AF9015Device, args) -> int:
         return 0 if all(locks_acquired) else 2
     
     if args.command == "scan":
-        channel_map = map_from_tunings(tunings, device.adapters[args.adapter_index])
+        channel_map = map_from_tunings(
+            tunings,
+            device.adapters[args.adapter_index],
+            on_scan_error=lambda error: _report_scan_failure_diagnostics(
+                device, args.adapter_index, error
+            ),
+        )
         for service in channel_map.services_sorted():
             network_name = None if service is None or service.triplet_id is None else \
                            channel_map.stream_infos[service.triplet_id].network_name

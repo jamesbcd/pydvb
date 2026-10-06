@@ -231,7 +231,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
     monkeypatch.setattr(
         __main__,
         "map_from_tunings",
-        lambda tunings, adapter: (calls.append((tunings, adapter)) or channel_map),
+        lambda tunings, adapter, **_kwargs: (calls.append((tunings, adapter)) or channel_map),
     )
     monkeypatch.setattr(sys, "argv", ["mactv", "scan"])
 

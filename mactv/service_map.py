@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Collection
+from typing import Callable, Collection
 
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
@@ -82,29 +82,53 @@ def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool
     print("Done.")
     return map_from_tunings(tunings, adapter)
 
-def map_from_tunings(tunings: Collection[DVBTuning], adapter: DVBAdapter):
+def map_from_tunings(
+    tunings: Collection[DVBTuning],
+    adapter: DVBAdapter,
+    *,
+    on_scan_error: Callable[[Exception], None] | None = None,
+) -> DVBServiceMap:
+    """Tune each channel, scan locked streams, and put the adapter to sleep.
+
+    ``on_scan_error`` is called with a scanning exception before stream cleanup,
+    allowing callers to collect diagnostics while the frontend remains awake.
+    """
     channel_map = DVBServiceMap()
 
-    for index, tuning in enumerate(tunings):
-        print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
-                f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
-        status = adapter.tune(tuning, wait_for_lock=True)
-        print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
+    try:
+        for index, tuning in enumerate(tunings):
+            print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
+                    f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+            status = adapter.tune(tuning, wait_for_lock=True)
+            print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
 
-        if status and status.lock:
-            scanner = DVBScanner()
-            try:
-                print("\tStarting stream...", end="", flush=True)
-                adapter.start()
-                print("Done.")
-                print("\tScanning for services...", end="", flush=True)
-                stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
-                print("Done.")
-                channel_map.add_stream_info(tuning, stream_info)
-            finally:
-                print("\tStopping stream...", end="", flush=True)
-                adapter.stop()
-                print("Done.")
-
-    adapter.sleep()
+            if status and status.lock:
+                scanner = DVBScanner()
+                try:
+                    print("\tStarting stream...", end="", flush=True)
+                    adapter.start()
+                    print("Done.")
+                    print("\tScanning for services...", end="", flush=True)
+                    stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
+                    print("Done.")
+                    channel_map.add_stream_info(tuning, stream_info)
+                except Exception as error:
+                    if on_scan_error is not None:
+                        try:
+                            on_scan_error(error)
+                        except Exception as diagnostic_error:
+                            raise error from diagnostic_error
+                    raise
+                finally:
+                    print("\tStopping stream...", end="", flush=True)
+                    adapter.stop()
+                    print("Done.")
+    except BaseException as scan_error:
+        try:
+            adapter.sleep()
+        except Exception as sleep_error:
+            raise scan_error from sleep_error
+        raise
+    else:
+        adapter.sleep()
     return channel_map

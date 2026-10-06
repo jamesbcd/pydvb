@@ -74,6 +74,8 @@ timing and byte counts, and `--hardware-diagnostics` with `tune` to print
 tuner/demodulator register diagnostics while checking for lock. The CLI
 initializes the device for `init`, `status`, `sleep`, tuning, recording, and
 streaming, uploading bundled firmware when needed.
+When a scan fails, it prints the frontend status before cleanup; add
+`--usb-stats` to also print asynchronous USB transfer statistics for that run.
 
 The Leadtek device's USB IDs can be passed to `Af9015Device.open` after
 checking them with `system_profiler SPUSBHostDataType`:
