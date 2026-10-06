@@ -196,6 +196,23 @@ def test_frontend_sleep_stops_tuner():
     assert tuner.sleep_calls == 1
 
 
+def test_frontend_reinitializes_hardware_when_tuning_after_sleep():
+    tuner = FakeTuner()
+    bus = FakeBus()
+    frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
+    tuning = DVBTuning(177_500_000, 7_000_000)
+
+    frontend.init_hardware()
+    bus.registers[frontend.REG_RESET] = b"\x02"
+    frontend.sleep()
+    bus.writes.clear()
+
+    frontend.tune(tuning, wait_for_lock=False)
+
+    assert any(register == frontend.REG_API_VERSION for _, register, _, _, _ in bus.writes)
+    assert tuner.tunings == [tuning]
+
+
 def test_frontend_opens_and_closes_af9013_gate_for_tuner_access():
     bus = FakeBus()
     frontend = AF9013Frontend(bus, 0x1C, None, 28_800_000, 4_570_000, False)

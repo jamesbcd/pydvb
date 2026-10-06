@@ -412,7 +412,7 @@ class AF9013Frontend(DVBFrontend):
     def tune(self, tuning: DVBTuning, wait_for_lock: bool = True) -> DVBFrontendStatus:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
-        if not self._initialized:
+        if not self._initialized or self._sleeping:
             self.init_hardware()
         if self.clock_hz <= 0 or self.intermediate_frequency_hz <= 0:
             raise ValueError("AF9013 clock and IF must be configured")

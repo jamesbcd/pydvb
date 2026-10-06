@@ -139,6 +139,11 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         owner = cast(_HTTPServer, self.server).owner
         path = urlsplit(self.path).path
+        print(
+            f"HTTP GET from {self.client_address[0]}:{self.client_address[1]} "
+            f"path={self.path!r}",
+            flush=True,
+        )
         if path in ("/", "/playlist.m3u8"):
             authority = self.headers.get("Host")
             if authority is None:
@@ -162,9 +167,11 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 or parsed_authority.fragment
                 or any(character.isspace() for character in authority)
             ):
+                print(f"Rejecting playlist request with invalid Host header: {authority!r}", flush=True)
                 self.send_error(400, "invalid Host header")
                 return
             body = owner._playlist(f"http://{authority}")
+            print(f"Serving playlist with {len(body)} bytes", flush=True)
             self.send_response(200)
             self.send_header("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -174,65 +181,107 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
         prefix = "/service/"
         if not path.startswith(prefix):
+            print(f"Rejecting unknown HTTP path: {path!r}", flush=True)
             self.send_error(404, "stream endpoint is /service/X.Y.Z")
             return
 
         try:
             triplet = DVBTripletID.from_dotted(path.removeprefix(prefix))
         except (TypeError, ValueError):
+            print(f"Rejecting malformed service path: {path!r}", flush=True)
             self.send_error(400, "service path must be /service/X.Y.Z")
             return
+        print(f"Resolved service triplet: {triplet}", flush=True)
 
         try:
             tuning = owner.service_map.tunings[triplet]
             service = owner.service_map.services[triplet]
         except KeyError:
+            print(f"Service triplet not found in service map: {triplet}", flush=True)
             self.send_error(404, "service was not found")
             return
+        print(
+            f"Service lookup succeeded: name={service.name!r} "
+            f"frequency_hz={tuning.frequency_hz} bandwidth_hz={tuning.bandwidth_hz}",
+            flush=True,
+        )
 
         adapter = owner._lease_adapter()
         if adapter is None:
+            print("No adapter available for service request", flush=True)
             self.send_error(503, "no adapter is currently available")
             return
 
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
         print(f"Client connected: {client_address}", flush=True)
+        chunk_count = 0
+        byte_count = 0
+        timeout_count = 0
         try:
+            print("Tuning adapter and waiting for frontend lock", flush=True)
             status = adapter.tune(tuning, wait_for_lock=True)
+            print(f"Frontend tune returned status: {status!r}", flush=True)
             if status is not None and not status.lock:
+                print("Frontend did not lock requested service", flush=True)
                 self.send_error(503, "adapter did not lock the requested service")
                 return
+            if status and status.lock:
+                print("Adapter successfully locked the requested service", flush=True)
             adapter.start()
+            print("Started adapter for streaming", flush=True)
             adapter.configure_pid_filter(service.pids())
             adapter.set_pid_filter_enabled(True)
-
+            print("Configured PID filter for streaming", flush=True)
+            
             self.protocol_version = "HTTP/1.1"
             self.send_response(200)
             self.send_header("Content-Type", "video/mp2t")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
+            print("Sent HTTP 200 video/mp2t response headers", flush=True)
             while not owner._stop_event.is_set():
                 if self._client_disconnected():
+                    print("Client disconnected before next stream read", flush=True)
                     break
                 try:
                     chunk = adapter.read_stream(1000)
                 except TimeoutError:
+                    timeout_count += 1
+                    if timeout_count == 1 or timeout_count % 10 == 0:
+                        print(
+                            f"Transport-stream read timed out ({timeout_count} timeouts)",
+                            flush=True,
+                        )
                     continue
+                chunk_count += 1
+                byte_count += len(chunk)
+                if chunk_count == 1 or chunk_count % 100 == 0:
+                    print(
+                        f"Read stream chunk {chunk_count}: {len(chunk)} bytes "
+                        f"({byte_count} bytes total)",
+                        flush=True,
+                    )
                 self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
                 self.wfile.write(chunk)
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError, TimeoutError, RuntimeError, OSError):
-            pass
+        except (BrokenPipeError, ConnectionResetError) as error:
+            print(f"Client connection closed while streaming: {error!r}", flush=True)
+        except (TimeoutError, RuntimeError, OSError) as error:
+            print(f"Streaming request failed: {type(error).__name__}: {error}", flush=True)
         finally:
             owner._stop_adapter_once(adapter)
             try:
                 adapter.sleep()
-            except (RuntimeError, OSError):
-                pass
+            except (RuntimeError, OSError) as error:
+                print(f"Adapter sleep failed during cleanup: {error!r}", flush=True)
             owner._release_adapter(adapter)
-            print(f"Client disconnected: {client_address}", flush=True)
+            print(
+                f"Client disconnected: {client_address}; "
+                f"chunks={chunk_count} bytes={byte_count} read_timeouts={timeout_count}",
+                flush=True,
+            )
 
     def _client_disconnected(self) -> bool:
         try:
