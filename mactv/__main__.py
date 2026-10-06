@@ -10,7 +10,7 @@ from mactv.service_map import map_from_scan, map_from_tunings
 
 
 from mactv.scan_tables import known_table_names, parse_table
-from mactv.stream_scanner import DVBServiceType, DVBStreamInfo, DVBScanner, ScanPolicy
+from mactv.stream_scanner import DVBServiceType, DVBStreamInfo
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from mactv.drivers.af9015.device import AF9015Device
@@ -244,34 +244,13 @@ def _run_device(device: AF9015Device, args) -> int:
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
-    
-    if args.command == "scan":
-        channel_map = map_from_tunings(
-            tunings,
-            device.adapters[args.adapter_index],
-            on_scan_error=lambda error: _report_scan_failure_diagnostics(
-                device, args.adapter_index, error
-            ),
-        )
-        for service in channel_map.services_sorted():
-            network_name = None if service is None or service.triplet_id is None else \
-                           channel_map.stream_infos[service.triplet_id].network_name
-            service_type = DVBServiceType(service.service_type).name \
-                           if service.service_type in DVBServiceType else service.service_type
-            print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
-                  f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
-        device.bridge.transport.log_stats()
-        return 0
-
-    ## TODO: Prevent race conditions when stopping the stream. In particular, don't
-    ##       write to device registers when it doesn't like it.
-
-    print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
-            f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
-    tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
-    print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
 
     if args.record is not None:
+        print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
+                f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+        tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
+        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
+
         if tuning_status is None or not tuning_status.lock:
             print("Capture failed: frontend did not lock; no transport stream is available")
             return 2
@@ -284,18 +263,38 @@ def _run_device(device: AF9015Device, args) -> int:
             return 1
         device.bridge.transport.log_stats()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
+        return 0
+
+    # Scan and serve build a channel map and display the services.
+    channel_map = map_from_tunings(
+        tunings,
+        device.adapters[args.adapter_index],
+        on_scan_error=lambda error: _report_scan_failure_diagnostics(
+            device, args.adapter_index, error
+        ),
+    )
+    for service in channel_map.services_sorted():
+        network_name = None if service is None or service.triplet_id is None else \
+                        channel_map.stream_infos[service.triplet_id].network_name
+        service_type = DVBServiceType(service.service_type).name \
+                        if service.service_type in DVBServiceType else service.service_type
+        print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
+                f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
+    device.bridge.transport.log_stats()
+
+    if args.command == "scan":
+        return 0
 
     if args.command == "serve" and args.serve is not None:
-        if tuning_status is None or not tuning_status.lock:
-            print("Server failed: frontend did not lock; no transport stream is available")
-            return 2
         host, port = args.serve
-        adapter = device.adapters[args.adapter_index]
         server = LocalTS_HTTPServer(
-            adapter, host=host, port=port
+            device.adapters,
+            channel_map,
+            host=host,
+            port=port,
         )
         bound_host, bound_port = server.address
-        print(f"Frontend lock acquired. Serving http://{bound_host}:{bound_port}/stream.ts")
+        print(f"Serving http://{bound_host}:{bound_port}/service/X.Y.Z")
         try:
             server.start()
             server.serve_forever()
@@ -307,8 +306,6 @@ def _run_device(device: AF9015Device, args) -> int:
         finally:
             server.close()
             device.bridge.transport.log_stats()
-            if hasattr(adapter, "sleep"):
-                adapter.sleep()
 
     return 0
 
