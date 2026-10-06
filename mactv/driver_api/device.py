@@ -58,10 +58,13 @@ class DVBDevice(ABC):
             return len(self.adapters) or 1
 
     def close(self) -> None:
+        """Stop streams, sleep initialized frontends, then release the transport."""
         with self._control_lock:
             try:
                 for adapter in self.adapters:
                     adapter.stop()
+                if self._hardware_initialized:
+                    self.sleep()
             finally:
                 self.transport.close()
 

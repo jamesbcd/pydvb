@@ -145,6 +145,40 @@ def test_device_close_stops_adapters_before_closing_transport():
     adapter.stop = original_stop
 
 
+def test_device_close_stops_then_sleeps_before_closing_transport():
+    transport = OrderedTransport()
+    device = AF9015Device(transport)
+    adapter = FakeAdapter()
+    device.adapters = [adapter]
+    device._hardware_initialized = True
+    adapter.stop = lambda: transport.events.append("stop")
+    adapter.sleep = lambda: transport.events.append("sleep")
+
+    device.close()
+
+    assert transport.events == ["stop", "sleep", "close"]
+
+
+def test_device_close_closes_transport_if_sleep_fails():
+    transport = OrderedTransport()
+    device = AF9015Device(transport)
+    adapter = FakeAdapter()
+    device.adapters = [adapter]
+    device._hardware_initialized = True
+    adapter.stop = lambda: transport.events.append("stop")
+
+    def fail_sleep():
+        transport.events.append("sleep")
+        raise RuntimeError("sleep failed")
+
+    adapter.sleep = fail_sleep
+
+    with pytest.raises(RuntimeError, match="sleep failed"):
+        device.close()
+
+    assert transport.events == ["stop", "sleep", "close"]
+
+
 def test_device_wrappers_default_to_first_adapter_and_select_requested_adapter():
     device = AF9015Device(FakeTransport())
     first = FakeAdapter()
