@@ -19,6 +19,10 @@ class JSONMapping:
         self._json_name_to_cls[json_name] = cls
         self._cls_to_json_name[cls] = json_name
 
+    # TODO: Implement methods to register external serializers and deserializers for custom types.
+    # TODO: Check logic
+    # TODO: Review names, and improve clarity
+
 json_mapping = JSONMapping()
 
 custom_serialization = {pathlib.Path, datetime.datetime, datetime.date, datetime.time}
