@@ -309,7 +309,13 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError) as error:
             print(f"Client connection closed while streaming: {error!r}", flush=True)
-        except (TimeoutError, RuntimeError, OSError) as error:
+        except RuntimeError as error:
+            if not (lease.stopped and str(error) == "demuxer is not started"):
+                print(
+                    f"Streaming request failed: {type(error).__name__}: {error}",
+                    flush=True,
+                )
+        except (TimeoutError, OSError) as error:
             print(f"Streaming request failed: {type(error).__name__}: {error}", flush=True)
         finally:
             owner._finish_lease(lease)

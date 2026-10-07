@@ -116,6 +116,26 @@ def test_server_streams_requested_service_and_releases_adapter(capsys):
     assert "Client disconnected:" in output
 
 
+def test_server_suppresses_demuxer_error_when_stopping_stream(capsys):
+    adapter = ShutdownRaceAdapter()
+    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    connection = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        connection.request("GET", "/service/1.2.3")
+        assert connection.getresponse().status == 200
+    finally:
+        connection.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+    output = capsys.readouterr().out
+    assert "Client disconnected:" in output
+    assert "Streaming request failed:" not in output
+
+
 def test_server_root_returns_sorted_m3u8_playlist():
     first = DVBService(
         service_id=6,
