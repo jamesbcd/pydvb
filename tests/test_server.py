@@ -157,13 +157,13 @@ def test_server_root_returns_sorted_m3u8_playlist():
         connection.request("GET", "/")
         response = connection.getresponse()
         assert response.status == 200
-        assert response.getheader("Content-Type") == "application/vnd.apple.mpegurl; charset=utf-8"
+        assert response.getheader("Content-Type") == "audio/x-mpegurl"
         assert response.read().decode("utf-8") == expected_playlist
         connection.request("GET", "/playlist.m3u8")
         playlist_response = connection.getresponse()
         assert playlist_response.status == 200
         assert playlist_response.getheader("Content-Type") == (
-            "application/vnd.apple.mpegurl; charset=utf-8"
+            "audio/x-mpegurl"
         )
         assert playlist_response.read().decode("utf-8") == expected_playlist
     finally:

@@ -143,7 +143,7 @@ class LocalTS_HTTPServer:
                 continue
             lcn = "-" if service.logical_channel_number is None else str(service.logical_channel_number)
             name = service.name or "Unnamed service"
-            lines.append(f"#EXTINF:-1,{lcn} {name}")
+            lines.append(f"#EXTINF:-1,{lcn:0>3} — {name}")
             lines.append(f"{base_url}/service/{service.triplet_id.dotted()}")
         return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -209,7 +209,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             body = owner._playlist(f"http://{authority}")
             print(f"Serving playlist with {len(body)} bytes", flush=True)
             self.send_response(200)
-            self.send_header("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+            self.send_header("Content-Type", "audio/x-mpegurl")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
