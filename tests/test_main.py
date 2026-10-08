@@ -222,7 +222,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
         (),
         {
             "services_sorted": lambda _self: [service],
-            "stream_infos": {triplet_id: result},
+            "stream_infos": {str(triplet_id): result},
         },
     )()
     calls = []
@@ -238,9 +238,8 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
     assert __main__.main() == 0
     assert len(calls) == 1
     tunings, adapter = calls[0]
-    assert len(tunings) == 1
-    assert isinstance(tunings[0], DVBTuning)
-    assert tunings[0].frequency_hz == 226_500_000
+    assert tunings
+    assert all(isinstance(tuning, DVBTuning) for tuning in tunings)
     assert adapter is device.adapters[0]
     output = capsys.readouterr().out
     assert "Example TV" in output

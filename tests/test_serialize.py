@@ -38,7 +38,7 @@ def test_custom_serializer_and_deserializer_round_trip():
         def _serialize(self):
             return {"value": self.value * 2}
 
-        @staticmethod
+        @classmethod
         def _deserialize(cls, data):
             return cls(data["value"] // 2)
 
@@ -205,11 +205,10 @@ def test_nested_registered_values_round_trip():
 def test_none_data_round_trips():
     @serializable("SerializeTestNone")
     class TestNone:
-        @staticmethod
-        def _serialize(obj):
+        def _serialize(self):
             return None
 
-        @staticmethod
+        @classmethod
         def _deserialize(cls, data):
             assert data is None
             return cls

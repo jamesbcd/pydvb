@@ -2,6 +2,7 @@
 import enum
 import base64
 from dataclasses import is_dataclass
+import inspect
 import json
 import os
 import pathlib
@@ -31,12 +32,16 @@ class _Registry:
         '''Find the serializer for an object, preferring the most specific registered type.'''
         obj_type = type(obj)
         registered = self._serializers.get(obj_type)
+        # First, try to find a serializer registered for the exact type of the object.
         if registered is not None:
             return registered
+        # If no exact match is found, check the base classes in the method resolution order (MRO).
         for base_type in obj_type.__mro__[1:]:
             registered = self._serializers.get(base_type)
             if registered is not None:
                 return registered
+        # Finally, as a last resort, check all registered types to see if the object is an instance
+        # of any of them.
         for registered_cls, registered in self._serializers.items():
             if isinstance(obj, registered_cls):
                 return registered
@@ -46,6 +51,7 @@ class _Registry:
                  serializer: Serializer,
                  deserializer: Deserializer,
                  json_name: str | None = None):
+        '''Register a class with its serializer and deserializer.'''
         if json_name is None:
             json_name = cls.__name__
         if not callable(serializer):
@@ -73,6 +79,19 @@ def register(cls: type,
     This is useful to allowing classes you don't control to be serializable.
     For classes you do control, you may find it more convenient to use the
     @serializable decorator instead.
+
+    Args:
+      - cls: The class to register.
+      - serializer: A callable that takes an instance of the class and returns a
+        JSON-serializable representation.
+      - deserializer: A callable that takes the class and JSON data and returns an
+        instance of the class.
+      - json_name: Optional custom name to use for the class in the JSON representation.
+      If not provided, the class's __name__ is used.
+    
+    Raises:
+      - TypeError: If the serializer or deserializer is not callable.
+      - ValueError: If the class or JSON name is already registered.
     '''
     _registry.register(cls, serializer, deserializer, json_name)
 
@@ -129,10 +148,11 @@ def _prepare_for_json(
     obj: object,
     active_ids: set[int] | None = None,
 ) -> object:
-    '''Prepare registered objects and nested containers for JSON encoding.
+    '''Recursively prepare registered objects and nested containers for JSON encoding.
     
     This is necessary to handle subtypes of basic Python types like dict, list, and tuple,
-    and in particular Enums such as IntEnum.
+    and in particular Enums such as IntEnum. If we don't intercept them here, the JSONEncoder
+    will not call our custom serialization handlers for them.
     '''
     if active_ids is None:
         active_ids = set()
@@ -182,7 +202,7 @@ def _prepare_for_json(
     return obj
 
 def _serialize_handler(obj: object):
-    '''Called by json.dumps() as the default serialization handler for registered objects.'''
+    '''Called by json.dumps() as the default serialization handler for unrecognised objects.'''
     registered = _registry.serializer_for(obj)
     if registered is None:
         raise TypeError(f"Object of type {type(obj).__name__} is not registered as serializable")
@@ -193,23 +213,27 @@ def _serialize_handler(obj: object):
     }
 
 def _deserialize_handler(input_dict: dict) -> object:
-    '''Called by json.loads() as the object hook for deserializing registered objects.'''
+    '''Called by json.loads() as the object hook for deserializing JSON objects.'''
     if TYPE_KEY not in input_dict:
+        # This is a regular dictionary, so return it as-is.
         return input_dict
     json_name = input_dict[TYPE_KEY]
-    (registered_cls, deserializer) = _registry._deserializers.get(json_name, (object, None))
+    (cls, deserializer) = _registry._deserializers.get(json_name, (object, None))
     if deserializer is None:
         raise TypeError(f"No deserializer registered for JSON type {json_name}")
     if DATA_KEY not in input_dict:
         raise TypeError(f"No {DATA_KEY} key found for JSON type {json_name}")
     data = input_dict[DATA_KEY]
-    return deserializer(registered_cls, data)
+    return deserializer(cls, data)
 
 #
 # Decorator for easiest way to register serializable classes
 #
 
-# Create a generic type variable that represents a class
+# We have to do some type overloading to support both usage patterns of the decorator:
+# 1. Used directly as @serializable (without parentheses)
+# 2. Used with parentheses and optional arguments, e.g., @serializable("CustomName")
+# First, create a generic type variable that represents a class
 T = TypeVar("T", bound=type)
 
 # Case 1: Used directly as @serializable (without parentheses)
@@ -224,21 +248,21 @@ def serializable(cls_or_json_name: str, *args: Any, **kwargs: Any) -> Callable[[
 def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
     '''Decorator to register a class as serializable.
 
-    Can be used as @serializable or @serializable("CustomName"). Class can define custom serialization
-    behavior, by adding the following methods:
+    Can be used as @serializable or @serializable("CustomName"). The decorated class can
+    customise serialization behavior by optionally implementing the following methods:
 
         def _serialize(self) -> dict:
             # Should return a dictionary representation of the object.
             # If you only need to modify the standard dictionary representation,
-            # you may find it useful to call serialize.standard_serialize(self)
+            # you may find it useful to call serialize.standard_serializer(self)
             # and then modify the resulting dictionary.
     
-        @staticmethod
-        def _deserialize(registered_cls: type, data: dict) -> object:
+        @classmethod
+        def _deserialize(cls, data: dict) -> object:
             # Should return an instance of the class from the given dictionary.
-            # You can for example, modify the dictionary and then call
-            # serialize.standard_deserialize(registered_cls, data) to create the instance
-            # as normal, and then modify the instance before returning it
+            # For example, you could modify the dictionary and then call
+            # serialize.standard_deserializer(cls, data) to create the instance
+            # as normal, then modify the instance before returning it.
     '''
     if isinstance(cls_or_json_name, str):
         # Decorator was called with a custom JSON name e.g. @serializable("CustomName")
@@ -261,8 +285,8 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
 def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deserializer]:
     '''Obtain a serializer and deserializer for a class decorated with @serializable.
     
-    If no custom _serialize() or _deserialize() methods are defined, the standard serializers
-    will be used.
+    If the _serialize() or _deserialize() methods are not implemented, standard
+    serializers will be used.
     '''
     serializer = getattr(cls, "_serialize", None)
     if serializer is not None and not callable(serializer):
@@ -284,11 +308,19 @@ def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deseria
             deserializer = dataclass_deserializer
         else:
             deserializer = standard_deserializer
+    else:
+        # The decorated class implemented _deserialize()
+        if inspect.ismethod(deserializer) and inspect.isclass(deserializer.__self__):
+            # If the deserializer is a class method, we extract the underlying
+            # unbound function, as it will be called with the class as the first
+            # argument anyway.
+            deserializer = deserializer.__func__
     return serializer, deserializer
 
 #
 # Standard serializers and deserializers
 #
+
 def standard_serializer(obj: object) -> Any:
     '''Standard serializer for objects that do not define a custom _serialize() method.'''
     try:
@@ -297,13 +329,13 @@ def standard_serializer(obj: object) -> Any:
         raise TypeError(f"Failed to serialize object of type {type(obj).__name__}")
     return new_obj
 
-def standard_deserializer(registered_cls: type, data: dict) -> object:
+def standard_deserializer(cls: type, data: dict) -> object:
     '''Standard deserializer for objects that do not define a custom _deserialize() method.'''
     try:
-        instance = registered_cls()
+        instance = cls()
         instance.__dict__.update(data)
     except Exception as e:
-        raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
+        raise TypeError(f"Failed to deserialize object of type {cls.__name__}: {e}")
     return instance
 
 def enum_serializer(obj: object) -> dict:
@@ -313,9 +345,9 @@ def enum_serializer(obj: object) -> dict:
         "value": obj.value
     }
 
-def enum_deserializer(registered_cls: type, data: Any) -> enum.Enum:
+def enum_deserializer(cls: type, data: Any) -> enum.Enum:
     '''Deserializer for enum.Enum objects.'''
-    return registered_cls(data["value"])
+    return cls(data["value"])
 
 def dataclass_serializer(obj: object) -> dict:
     '''Serializer for dataclass objects.'''
@@ -324,14 +356,16 @@ def dataclass_serializer(obj: object) -> dict:
         raise TypeError(f"Object of type {type(obj).__name__} is not a dataclass")
     return {field.name: getattr(obj, field.name) for field in obj.__dataclass_fields__.values()}
 
-def dataclass_deserializer(registered_cls: type, data: dict) -> object:
+def dataclass_deserializer(cls: type, data: dict) -> object:
     '''Deserializer for dataclass objects.'''
-    if not is_dataclass(registered_cls):
-        raise TypeError(f"Registered class {registered_cls.__name__} is not a dataclass")
+    if not is_dataclass(cls):
+        raise TypeError(f"Registered class {cls.__name__} is not a dataclass")
     try:
-        instance = registered_cls(**data)
+        # In case the dataclass is frozen, it's more reliable to construct the instance
+        # by passing all the data as keyword arguments to the constructor.
+        instance = cls(**data)
     except Exception as e:
-        raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
+        raise TypeError(f"Failed to deserialize object of type {cls.__name__}: {e}")
     return instance
 
 #
@@ -347,7 +381,7 @@ def _bytes_serializer(obj: object) -> dict[str, str]:
         "value": base64.b64encode(obj).decode("ascii"),
     }
 
-def _bytes_deserializer(registered_cls: type, data: Any) -> bytes:
+def _bytes_deserializer(cls: type, data: Any) -> bytes:
     data = cast(dict, data)
     if data.get("encoding") != "base64":
         raise ValueError("Unsupported bytes encoding")
@@ -361,7 +395,7 @@ def _path_serializer(obj: object) -> str:
     obj = cast(pathlib.Path, obj)
     return obj.as_posix()
 
-def _path_deserializer(registered_cls: type, data: Any) -> pathlib.Path:
+def _path_deserializer(cls: type, data: Any) -> pathlib.Path:
     # When we don't know whether a path string was created on Windows or POSIX, and whether it
     # was converted to a string in POSIX form or not, the most reliable conversion method is
     # to create a Windows path, then convert to POSIX string form, then convert to the current
@@ -372,38 +406,24 @@ _registry.register(pathlib.Path, _path_serializer, _path_deserializer)
 
 # Datetime serializers and deserializers
 
-def _datetime_serializer(obj: object) -> str:
-    obj = cast(datetime.datetime, obj)
+def _isoformat_serializer(obj: datetime.datetime | datetime.date | datetime.time) -> str:
     return obj.isoformat()
 
-def _datetime_deserializer(registered_cls: type, data: Any) -> datetime.datetime:
-    return datetime.datetime.fromisoformat(str(data))
+def _isoformat_deserializer(cls: datetime.datetime | datetime.date | datetime.time, data: Any) -> Any:
+    return cls.fromisoformat(str(data))
 
-_registry.register(datetime.datetime, _datetime_serializer, _datetime_deserializer)
-
-def _date_serializer(obj: object) -> str:
-        obj = cast(datetime.date, obj)
-        return obj.isoformat()
-
-def _date_deserializer(registered_cls: type, data: Any) -> datetime.date:
-        return datetime.date.fromisoformat(str(data))
-
-_registry.register(datetime.date, _date_serializer, _date_deserializer)
-
-def _time_serializer(obj: object) -> str:
-        obj = cast(datetime.time, obj)
-        return obj.isoformat()
-
-def _time_deserializer(registered_cls: type, data: Any) -> datetime.time:
-    return datetime.time.fromisoformat(str(data))
-
-_registry.register(datetime.time, _time_serializer, _time_deserializer)
+_registry.register(datetime.datetime, cast(Serializer, _isoformat_serializer),
+                                      cast(Deserializer, _isoformat_deserializer))
+_registry.register(datetime.date,     cast(Serializer, _isoformat_serializer),
+                                      cast(Deserializer, _isoformat_deserializer))
+_registry.register(datetime.time,     cast(Serializer, _isoformat_serializer),
+                                      cast(Deserializer, _isoformat_deserializer))
 
 def _timedelta_serializer(obj: object) -> float:
     obj = cast(datetime.timedelta, obj)
     return obj.total_seconds()
 
-def _timedelta_deserializer(registered_cls: type, data: Any) -> datetime.timedelta:
+def _timedelta_deserializer(cls: type, data: Any) -> datetime.timedelta:
     return datetime.timedelta(seconds=float(data))
 
 _registry.register(datetime.timedelta, _timedelta_serializer, _timedelta_deserializer)
@@ -420,7 +440,7 @@ def _regex_serializer(obj: object) -> dict:
         "flags": obj.flags
     }
 
-def _regex_deserializer(registered_cls: type, data: Any) -> re.Pattern:
+def _regex_deserializer(cls: type, data: Any) -> re.Pattern:
     data = cast(dict, data)
     pattern = data["pattern"]
     if isinstance(pattern, dict):

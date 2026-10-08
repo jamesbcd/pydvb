@@ -45,9 +45,9 @@ class DVBServiceMap:
         del output["_read_only_services"]
         return output
 
-    @staticmethod
-    def _deserialize(registered_cls: type, data: dict) -> "DVBServiceMap":
-        instance = cast(DVBServiceMap, standard_deserializer(registered_cls, data))
+    @classmethod
+    def _deserialize(cls, data: dict) -> "DVBServiceMap":
+        instance = cast(DVBServiceMap, standard_deserializer(cls, data))
         instance._read_only_tunings = MappingProxyType(instance._tunings)
         instance._read_only_stream_infos = MappingProxyType(instance._stream_infos)
         instance._read_only_services = MappingProxyType(instance._services)

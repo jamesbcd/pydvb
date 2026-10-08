@@ -249,9 +249,9 @@ class DVBTripletID(NamedTuple):
     def _serialize(self) -> str:
         return self.dotted()
 
-    @staticmethod
-    def _deserialize(registered_cls, data: str) -> "DVBTripletID":
-        return registered_cls.from_dotted(data)
+    @classmethod
+    def _deserialize(cls, data: str) -> "DVBTripletID":
+        return cls.from_dotted(data)
 
 
 @serializable
