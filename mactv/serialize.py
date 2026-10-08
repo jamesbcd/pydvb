@@ -228,8 +228,8 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
         def _serialize(self) -> dict:
             # Should return a dictionary representation of the object.
     
-        @classmethod
-        def _deserialize(cls: type, data: dict) -> object`:
+        @staticmethod
+        def _deserialize(registered_cls: type, data: dict) -> object:
             # Should return an instance of the class from the given dictionary.    
     '''
     if isinstance(cls_or_json_name, str):
