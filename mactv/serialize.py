@@ -18,6 +18,18 @@ class Registry:
         self._serializers: dict[type, tuple[str, Serializer]] = {}
         self._deserializers: dict[str, tuple[type, Deserializer]] = {}
 
+    def serializer_for(self, obj: object) -> tuple[str, Serializer] | None:
+        '''Find the serializer for an object, preferring the most specific registered type.'''
+        obj_type = type(obj)
+        registered = self._serializers.get(obj_type)
+        if registered is not None:
+            return registered
+        for base_type in obj_type.__mro__[1:]:
+            registered = self._serializers.get(base_type)
+            if registered is not None:
+                return registered
+        return None
+
     def register(self, cls: type,
                  serializer: Serializer,
                  deserializer: Deserializer,
@@ -51,7 +63,12 @@ def serialize(obj: object) -> str:
     @serializable decorator or the register() function.
     
     Note that __type__ and __data__ keys are reserved for the serialization mechanism.'''
-    return json.dumps(obj, indent=4, ensure_ascii=False, default=_serialize_handler)
+    return json.dumps(
+        _prepare_for_json(obj),
+        indent=4,
+        ensure_ascii=False,
+        default=_serialize_handler,
+    )
 
 def deserialize(json_str: str) -> object:
     '''Deserialize a JSON string back into an object.
@@ -62,19 +79,72 @@ def deserialize(json_str: str) -> object:
     Note that __type__ and __data__ keys are reserved for the serialization mechanism.'''
     return json.loads(json_str, object_hook=_deserialize_handler)
     
+def _prepare_for_json(
+    obj: object,
+    active_ids: set[int] | None = None,
+) -> object:
+    '''Prepare registered objects and nested containers for JSON encoding.
+    
+    This is necessary to handle subtypes of basic Python types like dict, list, and tuple,
+    and in particular Enums such as IntEnum.
+    '''
+    if active_ids is None:
+        active_ids = set()
+
+    registered = registry.serializer_for(obj)
+    if registered is not None:
+        object_id = id(obj)
+        if object_id in active_ids:
+            raise ValueError("Circular reference during serialization")
+        active_ids.add(object_id)
+        try:
+            serialized = _serialize_handler(obj)
+            return _prepare_for_json(serialized, active_ids)
+        finally:
+            active_ids.remove(object_id)
+
+    if isinstance(obj, dict):
+        object_id = id(obj)
+        if object_id in active_ids:
+            raise ValueError("Circular reference during serialization")
+        active_ids.add(object_id)
+        try:
+            prepared: dict[object, object] = {}
+            for key, value in obj.items():
+                if registry.serializer_for(key) is not None:
+                    raise TypeError(
+                        "Registered serializable objects cannot be dictionary keys"
+                    )
+                prepared[key] = _prepare_for_json(value, active_ids)
+            return prepared
+        finally:
+            active_ids.remove(object_id)
+
+    if isinstance(obj, (list, tuple)):
+        object_id = id(obj)
+        if object_id in active_ids:
+            raise ValueError("Circular reference during serialization")
+        active_ids.add(object_id)
+        try:
+            return [
+                _prepare_for_json(value, active_ids)
+                for value in obj
+            ]
+        finally:
+            active_ids.remove(object_id)
+
+    return obj
+
 def _serialize_handler(obj: object):
     '''Called by json.dumps() as the default serialization handler for registered objects.'''
-    for registered_cls, (json_name, serializer) in registry._serializers.items():
-        if isinstance(obj, registered_cls):
-            if json_name is None:
-                json_name = registered_cls.__name__
-            new_dict = {
-                TYPE_KEY: json_name,
-                DATA_KEY: serializer(obj)
-            }
-            return new_dict
-    # If we reach this point, the object type is not registered.
-    raise TypeError(f"Object of type {type(obj).__name__} is not registered as serializable")
+    registered = registry.serializer_for(obj)
+    if registered is None:
+        raise TypeError(f"Object of type {type(obj).__name__} is not registered as serializable")
+    json_name, serializer = registered
+    return {
+        TYPE_KEY: json_name,
+        DATA_KEY: serializer(obj)
+    }
 
 def _deserialize_handler(input_dict: dict) -> object:
     '''Called by json.loads() as the object hook for deserializing registered objects.'''
@@ -209,23 +279,24 @@ registry.register(datetime.time, TimeSerializer._serialize, TimeSerializer._dese
 
 class EnumSerializer:
     @staticmethod
-    def _serialize(obj: object) -> str:
+    def _serialize(obj: object) -> dict:
         obj = cast(enum.Enum, obj)
-        return obj.value
+        return {
+            "value": obj.value
+        }
 
     @staticmethod
     def _deserialize(registered_cls: type, data: Any) -> enum.Enum:
-        return registered_cls(data)
+        return registered_cls(data["value"])
 
 class RegexSerializer:
     @staticmethod
     def _serialize(obj: object) -> dict:
         obj = cast(re.Pattern, obj)
-        new_obj = {
+        return {
             "pattern": obj.pattern,
             "flags": obj.flags
         }
-        return new_obj
 
     @staticmethod
     def _deserialize(registered_cls: type, data: Any) -> re.Pattern:
