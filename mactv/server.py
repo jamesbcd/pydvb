@@ -230,8 +230,8 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         print(f"Resolved service triplet: {triplet}", flush=True)
 
         try:
-            tuning = owner.service_map.tunings[str(triplet)]
-            service = owner.service_map.services[str(triplet)]
+            tuning = owner.service_map.tunings[triplet]
+            service = owner.service_map.services[triplet]
         except KeyError:
             print(f"Service triplet not found in service map: {triplet}", flush=True)
             self.send_error(404, "service was not found")

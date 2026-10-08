@@ -281,7 +281,7 @@ def _run_device(device: AF9015Device, args) -> int:
 
     for service in channel_map.services_sorted():
         network_name = None if service is None or service.triplet_id is None else \
-                        channel_map.stream_infos[str(service.triplet_id)].network_name
+                        channel_map.stream_infos[service.triplet_id].network_name
         service_type = DVBServiceType(service.service_type).name \
                         if service.service_type in DVBServiceType else service.service_type
         print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
@@ -300,7 +300,8 @@ def _run_device(device: AF9015Device, args) -> int:
             port=port,
         )
         bound_host, bound_port = server.address
-        print(f"Serving playlist at http://{bound_host}:{bound_port}/playlist.m3u8")
+        print(f"Serving playlist at http://{bound_host}:{bound_port} and " +
+              f"http://{bound_host}:{bound_port}/playlist.m3u8")
         try:
             server.start()
             server.serve_forever()

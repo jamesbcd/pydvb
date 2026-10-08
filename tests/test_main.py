@@ -222,7 +222,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
         (),
         {
             "services_sorted": lambda _self: [service],
-            "stream_infos": {str(triplet_id): result},
+            "stream_infos": {triplet_id: result},
         },
     )()
     calls = []

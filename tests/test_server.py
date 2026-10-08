@@ -292,7 +292,7 @@ def test_server_retunes_evicted_adapter_for_different_tuning():
     try:
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
-        service = server.service_map.services[str(TRIPLET)]
+        service = server.service_map.services[TRIPLET]
         server.service_map.add_stream_info(
             DVBTuning(666_000_000),
             DVBStreamInfo(services=(service,)),

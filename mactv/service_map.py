@@ -1,5 +1,5 @@
 
-from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Collection, cast
@@ -10,16 +10,84 @@ from mactv.scan_tables import parse_table
 from mactv.serialize import serializable, standard_serializer, standard_deserializer
 from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
 
+
+class TuningMap(Mapping):
+    '''Read-only map of DVBTunings, keyed by service DVBTripletID.'''
+    def __init__(self, tuning_list: list[DVBTuning], tuning_dict: dict[DVBTripletID, int]):
+        super().__init__()
+        self._tuning_list = tuning_list
+        self._tuning_dict = tuning_dict
+
+    def __getitem__(self, key: DVBTripletID) -> DVBTuning:
+        index = self._tuning_dict[key]
+        return self._tuning_list[index]
+
+    def __iter__(self):
+        return iter(self._tuning_dict)
+
+    def __len__(self):
+        return len(self._tuning_dict)
+
+
+class StreamInfoMap(Mapping):
+    '''Read-only map of DVBStreamInfos, keyed by service DVBTripletID.'''
+    def __init__(self, stream_info_list: list[DVBStreamInfo], stream_info_dict: dict[DVBTripletID, int]):
+        super().__init__()
+        self._stream_info_list = stream_info_list
+        self._stream_info_dict = stream_info_dict
+
+    def __getitem__(self, key: DVBTripletID) -> DVBStreamInfo:
+        index = self._stream_info_dict[key]
+        return self._stream_info_list[index]
+
+    def __iter__(self):
+        return iter(self._stream_info_dict)
+
+    def __len__(self):
+        return len(self._stream_info_dict)
+
+
+class ServiceMap(Mapping):
+    '''Read-only map of DVBServices, keyed by service DVBTripletID.'''
+    def __init__(self, stream_info_list: list[DVBStreamInfo], service_dict: dict[DVBTripletID, tuple[int, int]]):
+        super().__init__()
+        self._stream_info_list = stream_info_list
+        self._service_dict = service_dict
+
+    def __getitem__(self, key: DVBTripletID) -> DVBService:
+        stream_info_index, service_index = self._service_dict[key]
+        return self._stream_info_list[stream_info_index].services[service_index]
+
+    def __iter__(self):
+        return iter(self._service_dict)
+
+    def __len__(self):
+        return len(self._service_dict)
+
+
 @serializable
 class DVBServiceMap:
     def __init__(self):
-        self._tunings: dict[str, DVBTuning] = {}
-        self._stream_infos: dict[str, DVBStreamInfo] = {}
-        self._services: dict[str, DVBService] = {}
+        # To keep our serialization footprint minimal, we store lists of tunings and
+        # stream_infos, then use dictionaries of indices into these lists.
+        # (Storing dictionaries of many references to the same objects produces
+        # unnecessary serialization duplication.)
+        self._tuning_list: list[DVBTuning] = []
+        self._stream_info_list: list[DVBStreamInfo] = []
 
-        self._read_only_tunings = MappingProxyType(self._tunings)
-        self._read_only_stream_infos = MappingProxyType(self._stream_infos)
-        self._read_only_services = MappingProxyType(self._services)
+        # Dictionaries mapping triplet IDs to indices in the corresponding lists.
+        self._tuning_dict: dict[DVBTripletID, int] = {}
+        self._stream_info_dict: dict[DVBTripletID, int] = {}
+        self._service_dict: dict[DVBTripletID, tuple[int, int]] = {}
+
+        self._initialize_read_only_views()
+
+    def _initialize_read_only_views(self):
+        # Read-only views of the tunings, stream infos, and services, keyed by
+        # DVBTripletIDs for convenience.
+        self._read_only_tunings = TuningMap(self._tuning_list, self._tuning_dict)
+        self._read_only_stream_infos = StreamInfoMap(self._stream_info_list, self._stream_info_dict)
+        self._read_only_services = ServiceMap(self._stream_info_list, self._service_dict)
 
     def add_stream_info(self, tuning: DVBTuning, stream_info: DVBStreamInfo):
         '''Add a stream info and its corresponding tuning to the channel map.
@@ -28,41 +96,35 @@ class DVBServiceMap:
         '''
         if tuning is None or stream_info is None:
             raise ValueError("Tuning and stream_info must not be None.")
+        
+        tuning_index = len(self._tuning_list)
+        self._tuning_list.append(tuning)
 
-        for service in stream_info.services:
+        stream_info_index = len(self._stream_info_list)
+        self._stream_info_list.append(stream_info)
+
+        for service_index, service in enumerate(stream_info.services):
             triplet_id = service.triplet_id
             if triplet_id is None:
                 print(f"No triplet ID for service {service.name} ID={service.service_id}")
                 continue
-            self._tunings[str(triplet_id)] = tuning
-            self._stream_infos[str(triplet_id)] = stream_info
-            self._services[str(triplet_id)] = service
-
-    def _serialize(self) -> dict:
-        output = standard_serializer(self)
-        del output["_read_only_tunings"]
-        del output["_read_only_stream_infos"]
-        del output["_read_only_services"]
-        return output
-
-    @classmethod
-    def _deserialize(cls, data: dict) -> "DVBServiceMap":
-        instance = cast(DVBServiceMap, standard_deserializer(cls, data))
-        instance._read_only_tunings = MappingProxyType(instance._tunings)
-        instance._read_only_stream_infos = MappingProxyType(instance._stream_infos)
-        instance._read_only_services = MappingProxyType(instance._services)
-        return instance
+            self._tuning_dict[triplet_id] = tuning_index
+            self._stream_info_dict[triplet_id] = stream_info_index
+            self._service_dict[triplet_id] = (stream_info_index, service_index)
 
     @property
-    def tunings(self) -> MappingProxyType[str,DVBTuning]:
+    def tunings(self) -> TuningMap:
+        '''Return a read-only map of all DVBTunings, keyed by service DVBTripletID.'''
         return self._read_only_tunings
 
     @property
-    def stream_infos(self) -> MappingProxyType[str, DVBStreamInfo]:
+    def stream_infos(self) -> StreamInfoMap:
+        '''Return a read-only map of all DVBStreamInfos, keyed by serviceDVBTripletID.'''
         return self._read_only_stream_infos
 
     @property
-    def services(self) -> MappingProxyType[str, DVBService]:
+    def services(self) -> ServiceMap:
+        '''Return a read-only map of all DVBServices, keyed by serviceDVBTripletID.'''
         return self._read_only_services
 
     def services_sorted(self, key=None) -> list[DVBService]:
@@ -74,22 +136,42 @@ class DVBServiceMap:
         if key is None:
             key = lambda service: (service.logical_channel_number is None,
                                    service.logical_channel_number,
-                                   service.triplet_id,
+                                   service.triplet_id is None,
                                    service.triplet_id)
-        return sorted(self._services.values(), key=key)
+        return sorted(self.services.values(), key=key)
 
     @property
     def lcns(self) -> list[int | None]:
         '''Return a sorted list of all DVB logical channel numbers (LCNs) in the channel map.'''
-        return sorted([service.logical_channel_number for service in self._services.values()],
+        return sorted([service.logical_channel_number for service in self.services.values()],
                       key=lambda lcn: (lcn is None, lcn))
 
     @property
     def service_names(self) -> list[str | None]:
         '''Return a sorted list of all DVB service names in the channel map.'''
-        return sorted([service.name for service in self._services.values()],
+        return sorted([service.name for service in self.services.values()],
                       key=lambda name: (name is None, name))
 
+    def _serialize(self) -> dict:
+        output = standard_serializer(self)
+        # Remove internal dictionaries and read-only views from the serialized output.
+        del output["_tuning_dict"]
+        del output["_stream_info_dict"]
+        del output["_service_dict"]
+        del output["_read_only_tunings"]
+        del output["_read_only_stream_infos"]
+        del output["_read_only_services"]
+        return output
+
+    @classmethod
+    def _deserialize(cls, data: dict) -> "DVBServiceMap":
+        instance = cls()
+        # Reconstruct internal dictionaries from the serialized lists.
+        for tuning, stream_info in zip(data["_tuning_list"], data["_stream_info_list"]):
+            instance.add_stream_info(tuning, stream_info)
+        # Reconstruct the read-only views from the internal dictionaries.
+        instance._initialize_read_only_views()
+        return instance
 
 
 def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True):
