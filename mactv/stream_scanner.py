@@ -6,14 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
 from enum import Enum, IntEnum, auto
-import re
 from typing import Any, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
 
 from mactv.driver_api.adapter import DVBAdapter
-from mactv.serialize import serializable, register, standard_serializer, standard_deserializer, \
-                            enum_serializer, enum_deserializer
+from mactv.serialize import serializable, standard_serializer
 
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
@@ -291,6 +289,7 @@ class DVBService:
         output["current_event"] = None
         return output
 
+
 @serializable
 @dataclass
 class DVBStreamInfo:
@@ -308,6 +307,7 @@ class DVBStreamInfo:
         # No need to serialize warnings
         output["warnings"] = []
         return output
+
 
 class DVBScanner:
     """Incrementally discover services and programme metadata from TS bytes.
