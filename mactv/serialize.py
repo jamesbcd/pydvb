@@ -70,7 +70,10 @@ def register(cls: type,
              json_name: str | None = None) -> None:
     '''Register a class as serializable, with a custom serializer and deserializer.
     
-    For classes you '''
+    This is useful to allowing classes you don't control to be serializable.
+    For classes you do control, you may find it more convenient to use the
+    @serializable decorator instead.
+    '''
     _registry.register(cls, serializer, deserializer, json_name)
 
 Pathlike = str | os.PathLike | pathlib.Path
@@ -218,7 +221,6 @@ def serializable(cls_or_json_name: T) -> T: ...
 @overload
 def serializable(cls_or_json_name: str, *args: Any, **kwargs: Any) -> Callable[[T], T]: ...
 
-
 def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
     '''Decorator to register a class as serializable.
 
@@ -227,10 +229,16 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
 
         def _serialize(self) -> dict:
             # Should return a dictionary representation of the object.
+            # If you only need to modify the standard dictionary representation,
+            # you may find it useful to call serialize.standard_serialize(self)
+            # and then modify the resulting dictionary.
     
         @staticmethod
         def _deserialize(registered_cls: type, data: dict) -> object:
-            # Should return an instance of the class from the given dictionary.    
+            # Should return an instance of the class from the given dictionary.
+            # You can for example, modify the dictionary and then call
+            # serialize.standard_deserialize(registered_cls, data) to create the instance
+            # as normal, and then modify the instance before returning it
     '''
     if isinstance(cls_or_json_name, str):
         # Decorator was called with a custom JSON name e.g. @serializable("CustomName")
@@ -253,7 +261,8 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
 def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deserializer]:
     '''Obtain a serializer and deserializer for a class decorated with @serializable.
     
-    If no custom _serialize() or _deserialize() methods are defined, the standard serializers will be used.
+    If no custom _serialize() or _deserialize() methods are defined, the standard serializers
+    will be used.
     '''
     serializer = getattr(cls, "_serialize", None)
     if serializer is not None and not callable(serializer):
