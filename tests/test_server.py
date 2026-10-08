@@ -166,11 +166,11 @@ def test_server_root_returns_sorted_m3u8_playlist():
     base_url = f"http://{server.address[0]}:{server.address[1]}"
     expected_playlist = (
         "#EXTM3U\n"
-        "#EXTINF:-1,2 First TV\n"
+        "#EXTINF:-1,002 — First TV\n"
         f"{base_url}/service/1.2.4\n"
-        "#EXTINF:-1,20 Second TV\n"
+        "#EXTINF:-1,020 — Second TV\n"
         f"{base_url}/service/1.2.3\n"
-        "#EXTINF:-1,- Unnumbered\n"
+        "#EXTINF:-1,--- — Unnumbered\n"
         f"{base_url}/service/4.5.6\n"
     )
     try:

@@ -141,7 +141,7 @@ class LocalTS_HTTPServer:
         for service in self.service_map.services_sorted():
             if service.triplet_id is None:
                 continue
-            lcn = "-" if service.logical_channel_number is None else str(service.logical_channel_number)
+            lcn = "---" if service.logical_channel_number is None else str(service.logical_channel_number)
             name = service.name or "Unnamed service"
             lines.append(f"#EXTINF:-1,{lcn:0>3} — {name}")
             lines.append(f"{base_url}/service/{service.triplet_id.dotted()}")
