@@ -2,19 +2,20 @@
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Callable, Collection
+from typing import Callable, Collection, cast
 
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
 from mactv.scan_tables import parse_table
+from mactv.serialize import serializable, standard_serializer, standard_deserializer
 from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
 
-
+@serializable
 class DVBServiceMap:
     def __init__(self):
-        self._tunings: dict[DVBTripletID, DVBTuning] = {}
-        self._stream_infos: dict[DVBTripletID, DVBStreamInfo] = {}
-        self._services: dict[DVBTripletID, DVBService] = {}
+        self._tunings: dict[str, DVBTuning] = {}
+        self._stream_infos: dict[str, DVBStreamInfo] = {}
+        self._services: dict[str, DVBService] = {}
 
         self._read_only_tunings = MappingProxyType(self._tunings)
         self._read_only_stream_infos = MappingProxyType(self._stream_infos)
@@ -33,20 +34,35 @@ class DVBServiceMap:
             if triplet_id is None:
                 print(f"No triplet ID for service {service.name} ID={service.service_id}")
                 continue
-            self._tunings[triplet_id] = tuning
-            self._stream_infos[triplet_id] = stream_info
-            self._services[triplet_id] = service
+            self._tunings[str(triplet_id)] = tuning
+            self._stream_infos[str(triplet_id)] = stream_info
+            self._services[str(triplet_id)] = service
+
+    def _serialize(self) -> dict:
+        output = standard_serializer(self)
+        del output["_read_only_tunings"]
+        del output["_read_only_stream_infos"]
+        del output["_read_only_services"]
+        return output
+
+    @classmethod
+    def _deserialize(cls, data: dict) -> "DVBServiceMap":
+        instance = cast(DVBServiceMap, standard_deserializer(cls, data))
+        instance._read_only_tunings = MappingProxyType(instance._tunings)
+        instance._read_only_stream_infos = MappingProxyType(instance._stream_infos)
+        instance._read_only_services = MappingProxyType(instance._services)
+        return instance
 
     @property
-    def tunings(self) -> MappingProxyType[DVBTripletID,DVBTuning]:
+    def tunings(self) -> MappingProxyType[str,DVBTuning]:
         return self._read_only_tunings
 
     @property
-    def stream_infos(self) -> MappingProxyType[DVBTripletID, DVBStreamInfo]:
+    def stream_infos(self) -> MappingProxyType[str, DVBStreamInfo]:
         return self._read_only_stream_infos
 
     @property
-    def services(self) -> MappingProxyType[DVBTripletID, DVBService]:
+    def services(self) -> MappingProxyType[str, DVBService]:
         return self._read_only_services
 
     def services_sorted(self, key=None) -> list[DVBService]:

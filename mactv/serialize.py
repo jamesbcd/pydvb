@@ -1,12 +1,13 @@
 
 import enum
 import base64
+from dataclasses import is_dataclass
 import json
 import os
 import pathlib
 import datetime
 import re
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, TypeVar, overload
 
 
 # Constants for the keys used in the serialized JSON representation
@@ -137,7 +138,7 @@ def _prepare_for_json(
     if registered is not None:
         object_id = id(obj)
         if object_id in active_ids:
-            raise ValueError("Circular reference during serialization")
+            raise ValueError(f"Circular reference to {obj} during serialization")
         active_ids.add(object_id)
         try:
             serialized = _serialize_handler(obj)
@@ -148,14 +149,14 @@ def _prepare_for_json(
     if isinstance(obj, dict):
         object_id = id(obj)
         if object_id in active_ids:
-            raise ValueError("Circular reference during serialization")
+            raise ValueError(f"Circular reference to {obj} during serialization")
         active_ids.add(object_id)
         try:
             prepared: dict[object, object] = {}
             for key, value in obj.items():
                 if _registry.serializer_for(key) is not None:
                     raise TypeError(
-                        "Registered serializable objects cannot be dictionary keys"
+                        f"Registered serializable object {key} cannot be dictionary keys"
                     )
                 prepared[key] = _prepare_for_json(value, active_ids)
             return prepared
@@ -165,7 +166,7 @@ def _prepare_for_json(
     if isinstance(obj, (list, tuple)):
         object_id = id(obj)
         if object_id in active_ids:
-            raise ValueError("Circular reference during serialization")
+            raise ValueError(f"Circular reference to {obj} during serialization")
         active_ids.add(object_id)
         try:
             return [
@@ -204,7 +205,21 @@ def _deserialize_handler(input_dict: dict) -> object:
 #
 # Decorator for easiest way to register serializable classes
 #
-def serializable(cls_or_json_name: type | str, *args, **kwargs):
+
+# Create a generic type variable that represents a class
+T = TypeVar("T", bound=type)
+
+# Case 1: Used directly as @serializable (without parentheses)
+@overload
+def serializable(cls_or_json_name: T) -> T: ...
+
+# Case 2: Used with arguments, e.g., @serializable("my_name", config=True)
+# This returns a factory function that takes the class and returns it unchanged.
+@overload
+def serializable(cls_or_json_name: str, *args: Any, **kwargs: Any) -> Callable[[T], T]: ...
+
+
+def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
     '''Decorator to register a class as serializable.
 
     Can be used as @serializable or @serializable("CustomName"). Class can define custom serialization
@@ -213,7 +228,8 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs):
         def _serialize(self) -> dict:
             # Should return a dictionary representation of the object.
     
-        def _deserialize(self, registered_cls: type, data: dict) -> object`:
+        @classmethod
+        def _deserialize(cls: type, data: dict) -> object`:
             # Should return an instance of the class from the given dictionary.    
     '''
     if isinstance(cls_or_json_name, str):
@@ -245,6 +261,8 @@ def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deseria
     if serializer is None:
         if issubclass(cls, enum.Enum):
             serializer = enum_serializer
+        elif is_dataclass(cls):
+            serializer = dataclass_serializer
         else:
             serializer = standard_serializer
     deserializer = getattr(cls, "_deserialize", None)
@@ -253,6 +271,8 @@ def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deseria
     if deserializer is None:
         if issubclass(cls, enum.Enum):
             deserializer = enum_deserializer
+        elif is_dataclass(cls):
+            deserializer = dataclass_deserializer
         else:
             deserializer = standard_deserializer
     return serializer, deserializer
@@ -288,9 +308,43 @@ def enum_deserializer(registered_cls: type, data: Any) -> enum.Enum:
     '''Deserializer for enum.Enum objects.'''
     return registered_cls(data["value"])
 
+def dataclass_serializer(obj: object) -> dict:
+    '''Serializer for dataclass objects.'''
+    obj = cast(object, obj)
+    if not is_dataclass(obj):
+        raise TypeError(f"Object of type {type(obj).__name__} is not a dataclass")
+    return {field.name: getattr(obj, field.name) for field in obj.__dataclass_fields__.values()}
+
+def dataclass_deserializer(registered_cls: type, data: dict) -> object:
+    '''Deserializer for dataclass objects.'''
+    if not is_dataclass(registered_cls):
+        raise TypeError(f"Registered class {registered_cls.__name__} is not a dataclass")
+    try:
+        instance = registered_cls(**data)
+    except Exception as e:
+        raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
+    return instance
+
 #
 # Custom serializers and deserializers for common types
 #
+
+# Bytes serializers and deserializers
+
+def _bytes_serializer(obj: object) -> dict[str, str]:
+    obj = cast(bytes, obj)
+    return {
+        "encoding": "base64",
+        "value": base64.b64encode(obj).decode("ascii"),
+    }
+
+def _bytes_deserializer(registered_cls: type, data: Any) -> bytes:
+    data = cast(dict, data)
+    if data.get("encoding") != "base64":
+        raise ValueError("Unsupported bytes encoding")
+    return base64.b64decode(data["value"], validate=True)
+
+_registry.register(bytes, _bytes_serializer, _bytes_deserializer)
 
 # Path serializers and deserializers
 
@@ -336,16 +390,22 @@ def _time_deserializer(registered_cls: type, data: Any) -> datetime.time:
 
 _registry.register(datetime.time, _time_serializer, _time_deserializer)
 
+def _timedelta_serializer(obj: object) -> float:
+    obj = cast(datetime.timedelta, obj)
+    return obj.total_seconds()
+
+def _timedelta_deserializer(registered_cls: type, data: Any) -> datetime.timedelta:
+    return datetime.timedelta(seconds=float(data))
+
+_registry.register(datetime.timedelta, _timedelta_serializer, _timedelta_deserializer)
+
 # Regex serializers and deserializers
 
 def _regex_serializer(obj: object) -> dict:
     obj = cast(re.Pattern, obj)
     pattern = obj.pattern
     if isinstance(pattern, bytes):
-        pattern = {
-            "encoding": "base64",
-            "value": base64.b64encode(pattern).decode("ascii"),
-        }
+        pattern = _bytes_serializer(pattern)
     return {
         "pattern": pattern,
         "flags": obj.flags
@@ -355,9 +415,7 @@ def _regex_deserializer(registered_cls: type, data: Any) -> re.Pattern:
     data = cast(dict, data)
     pattern = data["pattern"]
     if isinstance(pattern, dict):
-        if pattern.get("encoding") != "base64":
-            raise ValueError("Unsupported regex pattern encoding")
-        pattern = base64.b64decode(pattern["value"], validate=True)
+        pattern = _bytes_deserializer(bytes, pattern)
     flags = data["flags"]
     return re.compile(pattern, flags)
 

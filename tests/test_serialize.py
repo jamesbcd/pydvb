@@ -129,6 +129,13 @@ def test_builtin_value_round_trips(value):
     assert result == value
 
 
+@pytest.mark.parametrize("value", [b"", b"\x00\xff\x80binary", b"utf-8 \xe2\x98\x83"])
+def test_bytes_round_trip(value):
+    result = deserialize(serialize(value))
+
+    assert result == value
+
+
 def test_string_regex_pattern_and_flags_round_trip():
     value = re.compile("a", re.IGNORECASE | re.MULTILINE)
 

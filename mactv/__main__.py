@@ -6,15 +6,15 @@ from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Callable, cast
 
-from mactv.service_map import map_from_scan, map_from_tunings
+from mactv.service_map import DVBServiceMap, map_from_tunings
 
 
 from mactv.scan_tables import known_table_names, parse_table
-from mactv.stream_scanner import DVBServiceType, DVBStreamInfo
+from mactv.stream_scanner import DVBServiceType
 from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
 
 from mactv.drivers.af9015.device import AF9015Device
-from mactv import usb
+from mactv import usb, serialize
 from mactv.server import LocalTS_HTTPServer
 
 
@@ -265,17 +265,23 @@ def _run_device(device: AF9015Device, args) -> int:
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
         return 0
 
-    # Scan and serve build a channel map and display the services.
-    channel_map = map_from_tunings(
-        tunings,
-        device.adapters[args.adapter_index],
-        on_scan_error=lambda error: _report_scan_failure_diagnostics(
-            device, args.adapter_index, error
-        ),
-    )
+    if args.load_services is not None:
+        channel_map = cast(DVBServiceMap, serialize.load(args.load_services))
+    else:
+        # Scan and serve build a channel map and display the services.
+        channel_map = map_from_tunings(
+            tunings,
+            device.adapters[args.adapter_index],
+            on_scan_error=lambda error: _report_scan_failure_diagnostics(
+                device, args.adapter_index, error
+            ),
+        )
+    if args.save_services is not None:
+        serialize.save(channel_map, args.save_services)
+
     for service in channel_map.services_sorted():
         network_name = None if service is None or service.triplet_id is None else \
-                        channel_map.stream_infos[service.triplet_id].network_name
+                        channel_map.stream_infos[str(service.triplet_id)].network_name
         service_type = DVBServiceType(service.service_type).name \
                         if service.service_type in DVBServiceType else service.service_type
         print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +

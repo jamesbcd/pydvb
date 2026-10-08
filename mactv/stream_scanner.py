@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
 from enum import Enum, IntEnum, auto
+import re
 from typing import Any, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
 
 from mactv.driver_api.adapter import DVBAdapter
+from mactv.serialize import serializable, register, enum_serializer, enum_deserializer
 
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
@@ -56,7 +58,7 @@ class ScanPolicy(Enum):
     MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
     ALL_SERVICE_METADATA = auto() # Require all service PIDs and logical channel numbers
 
-
+@serializable
 @dataclass
 class DVBEvent:
     """Metadata for a single DVB event (programme)."""
@@ -68,6 +70,7 @@ class DVBEvent:
     running_status: int | None = None
 
 
+@serializable
 @dataclass
 class DVBDescriptor:
     """Raw descriptor attached to a DVB service or elementary stream.
@@ -80,6 +83,7 @@ class DVBDescriptor:
     data: bytes
 
 
+@serializable
 @dataclass
 class DVBElementaryStream:
     """Elementary stream entry advertised by a service's Program Map Table (PMT).
@@ -92,6 +96,7 @@ class DVBElementaryStream:
     descriptors: tuple[DVBDescriptor, ...] = ()
 
 
+@serializable
 class DVBServiceType(IntEnum):
     """Service type values from the DVB service descriptor."""
     # See p100 of https://www.etsi.org/deliver/etsi_en/300400_300499/300468/01.19.00_20/en_300468v011900a.pdf
@@ -136,6 +141,7 @@ class DVBServiceType(IntEnum):
         return _DVB_SERVICE_METATYPES[self]
 
 
+@serializable
 class DVBServiceMetatype(str, Enum):
     """Broad media category for a DVB service."""
 
@@ -181,7 +187,7 @@ _DVB_SERVICE_METATYPES = {
     DVBServiceType.AVS3_DTV: DVBServiceMetatype.TV,
 }
 
-
+@serializable
 class DVBTripletID(NamedTuple):
     '''Represents a DVB triplet that globally and uniquely identifies a DVB service (i.e. channel).'''
     original_network_id: int
@@ -233,7 +239,15 @@ class DVBTripletID(NamedTuple):
     def __format__(self, format_spec: str) -> str:
         return format(self.dotted(), format_spec)
 
+    def _serialize(self) -> str:
+        return self.dotted()
 
+    @classmethod
+    def _deserialize(cls, data: str) -> "DVBTripletID":
+        return cls.from_dotted(data)
+
+
+@serializable
 @dataclass
 class DVBService:
     """Metadata for a single DVB service (channel)."""
@@ -265,6 +279,7 @@ class DVBService:
         )
 
 
+@serializable
 @dataclass
 class DVBStreamInfo:
     """Accumulated result of scanning a DVB transport stream."""

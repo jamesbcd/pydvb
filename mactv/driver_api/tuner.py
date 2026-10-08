@@ -4,13 +4,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 
+from mactv.serialize import serializable
 
+
+@serializable
 class TransmissionMode(str, Enum):
     AUTO = "auto"
     K2 = "2k"
     K8 = "8k"
 
 
+@serializable
 class GuardInterval(str, Enum):
     AUTO = "auto"
     GI_1_32 = "1/32"
@@ -19,6 +23,7 @@ class GuardInterval(str, Enum):
     GI_1_4 = "1/4"
 
 
+@serializable
 class Hierarchy(str, Enum):
     AUTO = "auto"
     NONE = "none"
@@ -34,6 +39,7 @@ class Modulation(str, Enum):
     QAM64 = "qam64"
 
 
+@serializable
 class CodeRate(str, Enum):
     AUTO = "auto"
     RATE_1_2 = "1/2"
@@ -44,6 +50,7 @@ class CodeRate(str, Enum):
     NONE = "none"
 
 
+@serializable
 @dataclass(frozen=True)
 class DVBTuning:
     frequency_hz: int
