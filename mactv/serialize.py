@@ -1,44 +1,148 @@
 
+import enum
 import json
 import pathlib
 import datetime
-from typing import Any, Callable
+import re
+from typing import Any, Callable, cast
 
-class JSONMapping:
+
+TYPE_KEY = "__type__"
+DATA_KEY = "__data__"
+
+Serializer = Callable[[object], Any]
+Deserializer = Callable[[type, Any], object]
+
+class Registry:
     def __init__(self):
-        self._cls_to_json_name: dict[type, str] = {}
-        self._json_name_to_cls: dict[str, type] = {}
+        self._serializers: dict[type, tuple[str, Serializer]] = {}
+        self._deserializers: dict[str, tuple[type, Deserializer]] = {}
 
-        self._external_serialize: dict[type, Callable[[object], Any]] = {}
-        self._external_cls_to__json_name: dict[type, str] = {}
-        self._external_deserialize: dict[str, Callable[[dict], object]] = {}
-
-    def register(self, cls: type, json_name: str | None = None):
+    def register(self, cls: type,
+                 serializer: Serializer,
+                 deserializer: Deserializer,
+                 json_name: str | None = None):
         if json_name is None:
             json_name = cls.__name__
-        self._json_name_to_cls[json_name] = cls
-        self._cls_to_json_name[cls] = json_name
+        if not callable(serializer):
+            raise TypeError(f"Serializer for object of type {cls.__name__} is not callable")
+        if not callable(deserializer):
+            raise TypeError(f"Deserializer for object of type {cls.__name__} is not callable")
+        if cls in self._serializers:
+            raise ValueError(f"Class {cls.__name__} is already registered")
+        if json_name in self._deserializers:
+            raise ValueError(f"JSON name {json_name} is already registered")
+        self._serializers[cls] = (json_name, serializer)
+        self._deserializers[json_name] = (cls, deserializer)
 
-    # TODO: Implement methods to register external serializers and deserializers for custom types.
-    # TODO: Check logic
-    # TODO: Review names, and improve clarity
+registry = Registry()
 
-json_mapping = JSONMapping()
+def register(cls: type,
+             serializer: Serializer,
+             deserializer: Deserializer,
+             json_name: str | None = None) -> None:
+    '''Register a class as serializable, with a custom serializer and deserializer.'''
+    registry.register(cls, serializer, deserializer, json_name)
 
-custom_serialization = {pathlib.Path, datetime.datetime, datetime.date, datetime.time}
+def serialize(obj: object) -> str:
+    '''Serialize an object to a JSON string.
+     
+    The object type must have been previously registered as serializable, either using the
+    @serializable decorator or the register() function.
+    
+    Note that __type__ and __data__ keys are reserved for the serialization mechanism.'''
+    return json.dumps(obj, indent=4, ensure_ascii=False, default=_serialize_handler)
 
+def deserialize(json_str: str) -> object:
+    '''Deserialize a JSON string back into an object.
+
+    The JSON string must represent an object type that has been previously registered as
+    serializable, either using the @serializable decorator or the register() function.
+    
+    Note that __type__ and __data__ keys are reserved for the serialization mechanism.'''
+    return json.loads(json_str, object_hook=_deserialize_handler)
+    
+def _serialize_handler(obj: object):
+    '''Called by json.dumps() as the default serialization handler for registered objects.'''
+    for registered_cls, (json_name, serializer) in registry._serializers.items():
+        if isinstance(obj, registered_cls):
+            if json_name is None:
+                json_name = registered_cls.__name__
+            new_dict = {
+                TYPE_KEY: json_name,
+                DATA_KEY: serializer(obj)
+            }
+            return new_dict
+    # If we reach this point, the object type is not registered.
+    raise TypeError(f"Object of type {type(obj).__name__} is not registered as serializable")
+
+def _deserialize_handler(input_dict: dict) -> object:
+    '''Called by json.loads() as the object hook for deserializing registered objects.'''
+    if TYPE_KEY not in input_dict:
+        return input_dict
+    json_name = input_dict[TYPE_KEY]
+    (registered_cls, deserializer) = registry._deserializers.get(json_name, (object, None))
+    if deserializer is None:
+        raise TypeError(f"No deserializer registered for JSON type {json_name}")
+    if DATA_KEY not in input_dict:
+        raise TypeError(f"No {DATA_KEY} key found for JSON type {json_name}")
+    data = input_dict[DATA_KEY]
+    return deserializer(registered_cls, data)
+
+
+def _standard_obj_serializer(obj: object) -> Any:
+    '''Standard serializer for objects that do not define a custom _serialize() method.'''
+    try:
+        new_obj = dict(obj.__dict__)
+    except Exception:
+        raise TypeError(f"Failed to serialize object of type {type(obj).__name__}")
+    return new_obj
+
+def _standard_obj_deserializer(registered_cls: type, data: dict) -> object:
+    '''Standard deserializer for objects that do not define a custom _deserialize() method.'''
+    try:
+        instance = registered_cls()
+        instance.__dict__.update(data)
+    except Exception as e:
+        raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
+    return instance
+
+def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deserializer]:
+    '''Obtain a serializer and deserializer for a class decorated with @serializable.
+    
+    If no custom _serialize() or _deserialize() methods are defined, the standard serializers will be used.
+    '''
+    serializer = getattr(cls, "_serialize", None)
+    if serializer is not None and not callable(serializer):
+        raise TypeError(f"_serialize() method for object of type {cls.__name__} is not callable")
+    if serializer is None:
+        serializer = _standard_obj_serializer
+    deserializer = getattr(cls, "_deserialize", None)
+    if deserializer is not None and not callable(deserializer):
+        raise TypeError(f"_deserialize() method for object of type {cls.__name__} is not callable")
+    if deserializer is None:
+        deserializer = _standard_obj_deserializer
+    return serializer, deserializer
 
 def serializable(cls_or_json_name: type | str, *args, **kwargs):
     '''Decorator to register a class as serializable.
 
-    Can be used as @serializable or @serializable("CustomName").
+    Can be used as @serializable or @serializable("CustomName"). Class can define custom serialization
+    behavior, by adding the following methods:
+
+        def _serialize(self) -> dict:
+            # Should return a dictionary representation of the object.
+    
+        def _deserialize(self, registered_cls: type, data: dict) -> object`:
+            # Should return an instance of the class from the given dictionary.    
     '''
     if isinstance(cls_or_json_name, str):
         # Decorator was called with a custom JSON name e.g. @serializable("CustomName")
         # We have to return a wrapper function that will be called with the class itself
         json_name = cls_or_json_name
         def wrapper(cls: type) -> type:
-            json_mapping.register(cls, json_name)
+            serializer, deserializer = _get_serializers_for_decorated_class(cls)
+            registry.register(cls, serializer, deserializer, json_name)
             # We leave the underlying class unchanged
             return cls
         return wrapper
@@ -46,75 +150,88 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs):
         # Decorator was used without arguments e.g. @serializable
         # So this function itself does the decoratorating
         cls = cls_or_json_name
-        json_mapping.register(cls)
+        serializer, deserializer = _get_serializers_for_decorated_class(cls)
+        registry.register(cls, serializer, deserializer, cls.__name__)
         return cls
 
+# Built-in custom serializers and deserializers for common types
+class PathSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> str:
+        obj = cast(pathlib.Path, obj)
+        return obj.as_posix()
 
-def serialize(obj: object) -> str:
-    return json.dumps(obj, indent=4, ensure_ascii=False, default=_serialize_handler)
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> pathlib.Path:
+        # When we don't know whether the path string was created on Windows or POSIX, and whether it
+        # was converted to a string in POSIX form or not, the most reliable conversion method is
+        # to create a Windows path, then convert to POSIX string form, then convert to the current
+        # platform.
+        data = str(data)
+        return pathlib.Path(pathlib.PureWindowsPath(data).as_posix())
+registry.register(pathlib.Path, PathSerializer._serialize, PathSerializer._deserialize)
 
-def _serialize_handler(obj: object):
-    new_obj = None
-    json_name = json_mapping._cls_to_json_name.get(type(obj), None)
-    if json_name is not None:
-        obj_serialize = getattr(obj, "_serialize", None)
-        if obj_serialize is not None:
-            if callable(obj_serialize):
-                new_obj = obj_serialize()
-            else:
-                raise TypeError(f"_serialize attribute of object of type {type(obj).__name__} is not callable")
-        else:
-            new_obj = getattr(obj, "__dict__", None)
-            if new_obj is None:
-                raise TypeError(f"Object of type {type(obj).__name__} needs a _serialize method or " +
-                                f"a __dict__ attribute")
-    else:
-        has_external = False
-        for ext_cls, serializer in json_mapping._external_serialize.items():
-            if isinstance(obj, ext_cls):
-                json_name = json_mapping._external_cls_to__json_name.get(ext_cls)
-                new_obj = serializer(obj)
-                has_external = True
-                break
-        if not has_external:
-            raise TypeError(f"Object of type {type(obj).__name__} is not registered as serializable")
+class DateTimeSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> str:
+        obj = cast(datetime.datetime, obj)
+        return obj.isoformat()
 
-    if new_obj is None:
-        raise TypeError(f"Failed to serialize object of type {type(obj).__name__}")
-    return {
-        "__type__": json_name,
-        "__data__": new_obj
-    }    
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> datetime.datetime:
+        data = str(data)
+        return datetime.datetime.fromisoformat(data)
+registry.register(datetime.datetime, DateTimeSerializer._serialize, DateTimeSerializer._deserialize)
 
-def deserialize(json_str: str) -> object:
-    return json.loads(json_str, object_hook=_deserialize_handler)
-    
+class DateSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> str:
+        obj = cast(datetime.date, obj)
+        return obj.isoformat()
 
-def _deserialize_handler(input_dict: dict) -> object:
-    json_name = input_dict.get("__type__", None)
-    if json_name is None:
-        # It's just a normal dictionary, not a serialized object
-        return input_dict
-    # From this point we have a json_name
-    data = input_dict.get("__data__", None)
-    if data is None:
-        raise ValueError(f"JSON string for class {json_name} does not contain a __data__ field")
-    # From this point we have valid data
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> datetime.date:
+        data = str(data)
+        return datetime.date.fromisoformat(data)
+registry.register(datetime.date, DateSerializer._serialize, DateSerializer._deserialize)
 
-    cls = json_mapping._json_name_to_cls.get(json_name, None)
-    if cls is not None:
-        cls_deserialize = getattr(cls, "_deserialize", None)
-        if cls_deserialize is not None:
-            instance = cls_deserialize(data)
-            return instance
-        else:
-            instance = cls()
-            instance.__dict__.update(data)
-            return instance
-    else:
-        for json_name_ext, deserializer in json_mapping._external_deserialize.items():
-            if json_name == json_name_ext:
-                instance = deserializer(data)
-                return instance
-        raise ValueError(f"External class {json_name} is not registered as serializable")
-    
+class TimeSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> str:
+        obj = cast(datetime.time, obj)
+        return obj.isoformat()
+
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> datetime.time:
+        data = str(data)
+        return datetime.time.fromisoformat(data)
+registry.register(datetime.time, TimeSerializer._serialize, TimeSerializer._deserialize)
+
+class EnumSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> str:
+        obj = cast(enum.Enum, obj)
+        return obj.value
+
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> enum.Enum:
+        return registered_cls(data)
+
+class RegexSerializer:
+    @staticmethod
+    def _serialize(obj: object) -> dict:
+        obj = cast(re.Pattern, obj)
+        new_obj = {
+            "pattern": obj.pattern,
+            "flags": obj.flags
+        }
+        return new_obj
+
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> re.Pattern:
+        data = cast(dict, data)
+        pattern = data["pattern"]
+        flags = data["flags"]
+        return re.compile(pattern, flags)
+registry.register(re.Pattern, RegexSerializer._serialize, RegexSerializer._deserialize)
+registry.register(re.RegexFlag, EnumSerializer._serialize, EnumSerializer._deserialize)
