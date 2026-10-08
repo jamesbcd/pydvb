@@ -2,6 +2,7 @@
 import enum
 import base64
 import json
+import os
 import pathlib
 import datetime
 import re
@@ -71,6 +72,19 @@ def register(cls: type,
     For classes you '''
     _registry.register(cls, serializer, deserializer, json_name)
 
+Pathlike = str | os.PathLike | pathlib.Path
+
+def save(obj: object, path: Pathlike) -> None:
+    '''Save a serializable object to a file in JSON format.
+    
+    The object type must have been previously registered as serializable, either using the
+    @serializable decorator or the register() function.'''
+    path = pathlib.Path(path)
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    json_str = serialize(obj)
+    with path.open('w', encoding='utf-8') as file:
+        file.write(json_str)
+
 def serialize(obj: object) -> str:
     '''Serialize an object to a JSON string.
      
@@ -84,6 +98,16 @@ def serialize(obj: object) -> str:
         ensure_ascii=False,
         default=_serialize_handler,
     )
+
+def load(path: Pathlike) -> object:
+    '''Load a serializable object from a JSON file.
+    
+    The object type must have been previously registered as serializable, either using the
+    @serializable decorator or the register() function.'''
+    path = pathlib.Path(path)
+    with path.open('r', encoding='utf-8') as file:
+        json_str = file.read()
+    return deserialize(json_str)
 
 def deserialize(json_str: str) -> object:
     '''Deserialize a JSON string back into an object.
