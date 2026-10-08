@@ -1,5 +1,6 @@
 
 import enum
+import base64
 import json
 import pathlib
 import datetime
@@ -27,6 +28,9 @@ class Registry:
         for base_type in obj_type.__mro__[1:]:
             registered = self._serializers.get(base_type)
             if registered is not None:
+                return registered
+        for registered_cls, registered in self._serializers.items():
+            if isinstance(obj, registered_cls):
                 return registered
         return None
 
@@ -160,22 +164,37 @@ def _deserialize_handler(input_dict: dict) -> object:
     return deserializer(registered_cls, data)
 
 
-def _standard_obj_serializer(obj: object) -> Any:
+class StandardObjSerializer:
     '''Standard serializer for objects that do not define a custom _serialize() method.'''
-    try:
-        new_obj = dict(obj.__dict__)
-    except Exception:
-        raise TypeError(f"Failed to serialize object of type {type(obj).__name__}")
-    return new_obj
+    @staticmethod
+    def _serialize(obj: object) -> Any:
+        try:
+            new_obj = dict(obj.__dict__)
+        except Exception:
+            raise TypeError(f"Failed to serialize object of type {type(obj).__name__}")
+        return new_obj
 
-def _standard_obj_deserializer(registered_cls: type, data: dict) -> object:
-    '''Standard deserializer for objects that do not define a custom _deserialize() method.'''
-    try:
-        instance = registered_cls()
-        instance.__dict__.update(data)
-    except Exception as e:
-        raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
-    return instance
+    @staticmethod
+    def _deserializer(registered_cls: type, data: dict) -> object:
+        try:
+            instance = registered_cls()
+            instance.__dict__.update(data)
+        except Exception as e:
+            raise TypeError(f"Failed to deserialize object of type {registered_cls.__name__}: {e}")
+        return instance
+
+class EnumSerializer:
+    '''Serializer for enum.Enum objects.'''
+    @staticmethod
+    def _serialize(obj: object) -> dict:
+        obj = cast(enum.Enum, obj)
+        return {
+            "value": obj.value
+        }
+
+    @staticmethod
+    def _deserialize(registered_cls: type, data: Any) -> enum.Enum:
+        return registered_cls(data["value"])
 
 def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deserializer]:
     '''Obtain a serializer and deserializer for a class decorated with @serializable.
@@ -186,12 +205,18 @@ def _get_serializers_for_decorated_class(cls: type) -> tuple[Serializer, Deseria
     if serializer is not None and not callable(serializer):
         raise TypeError(f"_serialize() method for object of type {cls.__name__} is not callable")
     if serializer is None:
-        serializer = _standard_obj_serializer
+        if issubclass(cls, enum.Enum):
+            serializer = EnumSerializer._serialize
+        else:
+            serializer = StandardObjSerializer._serialize
     deserializer = getattr(cls, "_deserialize", None)
     if deserializer is not None and not callable(deserializer):
         raise TypeError(f"_deserialize() method for object of type {cls.__name__} is not callable")
     if deserializer is None:
-        deserializer = _standard_obj_deserializer
+        if issubclass(cls, enum.Enum):
+            deserializer = EnumSerializer._deserialize
+        else:
+            deserializer = StandardObjSerializer._deserializer
     return serializer, deserializer
 
 def serializable(cls_or_json_name: type | str, *args, **kwargs):
@@ -277,24 +302,18 @@ class TimeSerializer:
         return datetime.time.fromisoformat(data)
 registry.register(datetime.time, TimeSerializer._serialize, TimeSerializer._deserialize)
 
-class EnumSerializer:
-    @staticmethod
-    def _serialize(obj: object) -> dict:
-        obj = cast(enum.Enum, obj)
-        return {
-            "value": obj.value
-        }
-
-    @staticmethod
-    def _deserialize(registered_cls: type, data: Any) -> enum.Enum:
-        return registered_cls(data["value"])
-
 class RegexSerializer:
     @staticmethod
     def _serialize(obj: object) -> dict:
         obj = cast(re.Pattern, obj)
+        pattern = obj.pattern
+        if isinstance(pattern, bytes):
+            pattern = {
+                "encoding": "base64",
+                "value": base64.b64encode(pattern).decode("ascii"),
+            }
         return {
-            "pattern": obj.pattern,
+            "pattern": pattern,
             "flags": obj.flags
         }
 
@@ -302,6 +321,10 @@ class RegexSerializer:
     def _deserialize(registered_cls: type, data: Any) -> re.Pattern:
         data = cast(dict, data)
         pattern = data["pattern"]
+        if isinstance(pattern, dict):
+            if pattern.get("encoding") != "base64":
+                raise ValueError("Unsupported regex pattern encoding")
+            pattern = base64.b64decode(pattern["value"], validate=True)
         flags = data["flags"]
         return re.compile(pattern, flags)
 registry.register(re.Pattern, RegexSerializer._serialize, RegexSerializer._deserialize)
