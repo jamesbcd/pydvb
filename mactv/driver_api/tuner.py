@@ -32,6 +32,7 @@ class Hierarchy(str, Enum):
     LEVEL_4 = "4"
 
 
+@serializable
 class Modulation(str, Enum):
     AUTO = "auto"
     QPSK = "qpsk"
