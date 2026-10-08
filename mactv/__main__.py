@@ -335,12 +335,6 @@ def main() -> int:
 
     needs_tuning = argparse.ArgumentParser(add_help=False)
     needs_tuning.add_argument(
-        "--use-table",
-        type=str,
-        metavar="scan-table-name-or-path",
-        help="Use a known or local DVB-T scan table",
-    )
-    needs_tuning.add_argument(
         "--frequency",
         type=parse_frequency,
         default=226_500_000,    # ABC
@@ -355,7 +349,25 @@ def main() -> int:
         metavar="MHZ",
         help="DVB-T channel bandwidth in MHz (default: 7)",
     )
-
+    needs_tuning.add_argument(
+        "--use-table",
+        type=str,
+        metavar="scan-table-name-or-path",
+        help="Use a known or local DVB-T scan table",
+    )
+    needs_tuning.add_argument(
+        "--save-services",
+        type=Path,
+        metavar="path-to-save-services-json",
+        help="Path to save the scanned DVB-T services",
+    )
+    needs_tuning.add_argument(
+        "--load-services",
+        type=Path,
+        metavar="path-to-load-services-json",
+        help="Path to load previously saved DVB-T services",
+    )
+ 
     global_options = argparse.ArgumentParser(add_help=False)
     global_options.add_argument(
         "--usb-log",

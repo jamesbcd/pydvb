@@ -9,7 +9,7 @@ import pytest
 from mactv.serialize import (
     DATA_KEY,
     TYPE_KEY,
-    Registry,
+    _Registry,
     deserialize,
     register,
     serializable,
@@ -49,7 +49,7 @@ def test_custom_serializer_and_deserializer_round_trip():
 
 
 def test_registered_subclass_takes_priority_over_registered_base():
-    registry = Registry()
+    registry = _Registry()
 
     class Base:
         pass
@@ -64,7 +64,7 @@ def test_registered_subclass_takes_priority_over_registered_base():
 
 
 def test_registered_mro_base_is_used_for_unregistered_subclass():
-    registry = Registry()
+    registry = _Registry()
 
     class Base:
         pass
@@ -78,7 +78,7 @@ def test_registered_mro_base_is_used_for_unregistered_subclass():
 
 
 def test_virtual_abc_registration_is_used_as_fallback():
-    registry = Registry()
+    registry = _Registry()
 
     class IterableObject:
         def __iter__(self):
@@ -95,7 +95,7 @@ def test_virtual_abc_registration_is_used_as_fallback():
 
 
 def test_duplicate_class_and_json_name_registration_is_rejected():
-    registry = Registry()
+    registry = _Registry()
 
     class First:
         pass
