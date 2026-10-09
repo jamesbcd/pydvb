@@ -26,8 +26,8 @@ class Context:
 
 
 # Type aliases for serializer and deserializer callables
-# Serializer takes an object and returns a JSON-serializable representation
-# Deserializer takes a class and JSON data and returns an object instance.
+# Serializer takes an object and context and returns a JSON-serializable representation
+# Deserializer takes a class, JSON data, and context and returns an object instance.
 Serializer = Callable[[object, Context], object]
 Deserializer = Callable[[type, object, Context], object]
 
