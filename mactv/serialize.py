@@ -91,10 +91,10 @@ def register(cls: type,
 
     Args:
       - cls: The class to register.
-      - serializer: A callable that takes an instance of the class and returns a
+      - serializer: A callable that takes an instance of the class (and a context) and returns a
         JSON-serializable representation (i.e. a primitive type such as str, list, dict etc.)
-      - deserializer: A callable that takes the class and the JSON data (produced by
-        the serializer) and returns an instance of the class.
+      - deserializer: A callable that takes the class and the JSON data produced by
+        the serializer (and a context) and returns an instance of the class.
       - json_name: Optional custom name to use for the class in the JSON representation.
         If not provided, the class's __name__ is used.
     
