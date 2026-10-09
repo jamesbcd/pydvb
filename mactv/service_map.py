@@ -7,7 +7,7 @@ from typing import Callable, Collection, cast
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
 from mactv.scan_tables import parse_table
-from mactv.serialize import serializable, standard_serializer, standard_deserializer
+from mactv.serialize import Context, serializable, standard_serializer
 from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
 
 
@@ -152,8 +152,8 @@ class DVBServiceMap:
         return sorted([service.name for service in self.services.values()],
                       key=lambda name: (name is None, name))
 
-    def _serialize(self) -> dict:
-        output = standard_serializer(self)
+    def _serialize(self, ctx: Context) -> dict:
+        output = standard_serializer(self, ctx)
         # Remove internal dictionaries and read-only views from the serialized output.
         del output["_tuning_dict"]
         del output["_stream_info_dict"]
@@ -164,8 +164,9 @@ class DVBServiceMap:
         return output
 
     @classmethod
-    def _deserialize(cls, data: dict) -> "DVBServiceMap":
+    def _deserialize(cls, data: object, ctx: Context) -> "DVBServiceMap":
         instance = cls()
+        data = cast(dict, data)
         # Reconstruct internal dictionaries from the serialized lists.
         for tuning, stream_info in zip(data["_tuning_list"], data["_stream_info_list"]):
             instance.add_stream_info(tuning, stream_info)

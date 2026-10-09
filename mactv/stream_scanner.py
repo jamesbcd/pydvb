@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 from construct import Bit, BitStruct, BitsInteger
 
 from mactv.driver_api.adapter import DVBAdapter
-from mactv.serialize import serializable, standard_serializer
+from mactv.serialize import Context, serializable, standard_serializer
 
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
@@ -94,8 +94,8 @@ class DVBElementaryStream:
     stream_type: int
     descriptors: tuple[DVBDescriptor, ...] = ()
 
-    def _serialize(self) -> dict:
-        output = standard_serializer(self)
+    def _serialize(self, ctx: Context) -> dict:
+        output = standard_serializer(self, ctx)
         # No need to serialize the descriptors.
         output["descriptors"] = []
         return output
@@ -244,12 +244,12 @@ class DVBTripletID(NamedTuple):
     def __format__(self, format_spec: str) -> str:
         return format(self.dotted(), format_spec)
 
-    def _serialize(self) -> str:
+    def _serialize(self, ctx: Context) -> str:
         return self.dotted()
 
     @classmethod
-    def _deserialize(cls, data: str) -> "DVBTripletID":
-        return cls.from_dotted(data)
+    def _deserialize(cls, data: object, ctx: Context) -> "DVBTripletID":
+        return cls.from_dotted(str(data))
 
 
 @serializable
@@ -283,8 +283,8 @@ class DVBService:
             )
         )
 
-    def _serialize(self) -> dict:
-        output = standard_serializer(self)
+    def _serialize(self, ctx: Context) -> dict:
+        output = standard_serializer(self, ctx)
         # No need to serialize the current event.
         output["current_event"] = None
         return output
@@ -302,8 +302,8 @@ class DVBStreamInfo:
     complete: bool = False
     warnings: tuple[str, ...] = ()
 
-    def _serialize(self) -> dict:
-        output = standard_serializer(self)
+    def _serialize(self, ctx: Context) -> dict:
+        output = standard_serializer(self, ctx)
         # No need to serialize warnings
         output["warnings"] = []
         return output

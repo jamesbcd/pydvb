@@ -10,6 +10,7 @@ from mactv.serialize import (
     DATA_KEY,
     TYPE_KEY,
     _Registry,
+    Context,
     deserialize,
     register,
     serializable,
@@ -35,11 +36,11 @@ def test_custom_serializer_and_deserializer_round_trip():
         def __init__(self, value=0):
             self.value = value
 
-        def _serialize(self):
+        def _serialize(self, ctx: Context):
             return {"value": self.value * 2}
 
         @classmethod
-        def _deserialize(cls, data):
+        def _deserialize(cls, data, ctx: Context):
             return cls(data["value"] // 2)
 
     result = deserialize(serialize(TestCustom(21)))
@@ -72,7 +73,7 @@ def test_registered_mro_base_is_used_for_unregistered_subclass():
     class Child(Base):
         pass
 
-    registry.register(Base, lambda obj: "base", lambda cls, data: data, "Base")
+    registry.register(Base, lambda obj, ctx: "base", lambda cls, data, ctx: data, "Base")
 
     assert registry.serializer_for(Child())[0] == "Base"
 
@@ -86,8 +87,8 @@ def test_virtual_abc_registration_is_used_as_fallback():
 
     registry.register(
         Iterable,
-        lambda obj: "iterable",
-        lambda cls, data: data,
+        lambda obj, ctx: "iterable",
+        lambda cls, data, ctx: data,
         "Iterable",
     )
 
@@ -103,8 +104,8 @@ def test_duplicate_class_and_json_name_registration_is_rejected():
     class Second:
         pass
 
-    serializer = lambda obj: None
-    deserializer = lambda cls, data: None
+    serializer = lambda obj, ctx: None
+    deserializer = lambda cls, data, ctx: None
     registry.register(First, serializer, deserializer, "First")
 
     with pytest.raises(ValueError, match="already registered"):
@@ -205,11 +206,11 @@ def test_nested_registered_values_round_trip():
 def test_none_data_round_trips():
     @serializable("SerializeTestNone")
     class TestNone:
-        def _serialize(self):
+        def _serialize(self, ctx: Context):
             return None
 
         @classmethod
-        def _deserialize(cls, data):
+        def _deserialize(cls, data, ctx: Context):
             assert data is None
             return cls
 
