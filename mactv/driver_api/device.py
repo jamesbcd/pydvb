@@ -29,12 +29,35 @@ class DVBDevice(ABC):
         self.vendor_id = vendor_id
         self.product_id = product_id
         self._hardware_initialized = False
+        # The device owns this lock. Configured adapters, frontends, and
+        # tuners share it; stream reads deliberately use separate demux locks.
         self._control_lock = RLock()
         self.adapters: list[DVBAdapter] = []
 
     def _reset_device_state(self) -> None:
         self.adapters = []
         self._hardware_initialized = False
+
+    def _share_control_lock_with_adapter(self, adapter: DVBAdapter) -> None:
+        """Give an adapter and its frontend the device-owned control lock.
+
+        This is the shared frontend/control domain for all logical adapters
+        belonging to one physical device, matching Linux's per-device
+        ``fe_mutex`` rather than creating one lock per frontend.
+
+        Only device composition code should call this private method.
+        Application code should use the device or adapter control methods.
+        """
+        adapter.bind_to_control_lock(self._control_lock)
+
+    def _share_control_lock_with_all_adapters(self) -> None:
+        """Wire this device's lock into all configured adapters.
+
+        Device subclasses call this after constructing adapter objects;
+        application code should not call it or rewire locks directly.
+        """
+        for adapter in self.adapters:
+            self._share_control_lock_with_adapter(adapter)
 
     def _require_initialized(self) -> None:
         if not self._hardware_initialized:

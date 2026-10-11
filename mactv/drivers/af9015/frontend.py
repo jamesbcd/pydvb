@@ -3,21 +3,29 @@
 from __future__ import annotations
 
 from math import log10
+from threading import RLock
 from time import monotonic, sleep
+from typing import Any
 
 from .bridge import AF9015Bridge
 from ...driver_api.frontend import DVBFrontend, DVBFrontendStatus
+from ...driver_api.locking import with_control_lock
 from ...driver_api.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 15.0
-
 
 class AF9013Frontend(DVBFrontend):
     """Control one AF9013 DVB-T demodulator and its attached tuner.
 
     The frontend is the tuner's I2C gate and owns tuner configuration and
     tuning state; transport-stream demultiplexing belongs to the adapter.
+
+    Locking:
+        The base class supplies the replaceable control lock, while this
+        concrete frontend explicitly applies it to hardware operations,
+        diagnostics, and the complete tuner-gate sequence. A dual-device
+        configuration binds both frontends to the same device-owned lock.
     """
 
     API_VERSION = b"\x00\x01\x09\x00"
@@ -149,6 +157,7 @@ class AF9013Frontend(DVBFrontend):
         tuner_id: int = 0x9C,
         adapter_index: int = 0,
         mt2060_if: int = 0,
+        control_lock: RLock | None = None,
     ) -> None:
         if adapter_index not in (0, 1):
             raise ValueError("AF9013 adapter_index must be 0 or 1")
@@ -161,6 +170,7 @@ class AF9013Frontend(DVBFrontend):
         self.tuner_id = tuner_id
         self.adapter_index = adapter_index
         self.mt2060_if = mt2060_if
+        super().__init__(control_lock)
         self.ts_mode = self.TS_MODE_SERIAL if adapter_index == 1 else self.TS_MODE_USB
         self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter_index == 1 else self.TS_OUTPUT_PIN_DEFAULT
         self.gpio = (
@@ -178,22 +188,23 @@ class AF9013Frontend(DVBFrontend):
 
     def get_config_dict(self) -> dict[str, object]:
         """Return frontend configuration and current tuning state for diagnostics."""
-        return {
-            "demodulator_address": self.demodulator_address,
-            "tuner_id": self.tuner_id,
-            "adapter_index": self.adapter_index,
-            "clock_hz": self.clock_hz,
-            "intermediate_frequency_hz": self.intermediate_frequency_hz,
-            "spectrum_inverted": self.spectrum_inverted,
-            "mt2060_if": self.mt2060_if,
-            "ts_mode": self.ts_mode,
-            "ts_output_pin": self.ts_output_pin,
-            "gpio": self.gpio,
-            "initialized": self._initialized,
-            "sleeping": self._sleeping,
-            "current_tuning": self.current_tuning,
-            "last_bandwidth_hz": self._last_bandwidth_hz,
-        }
+        with self._control_lock:
+            return {
+                "demodulator_address": self.demodulator_address,
+                "tuner_id": self.tuner_id,
+                "adapter_index": self.adapter_index,
+                "clock_hz": self.clock_hz,
+                "intermediate_frequency_hz": self.intermediate_frequency_hz,
+                "spectrum_inverted": self.spectrum_inverted,
+                "mt2060_if": self.mt2060_if,
+                "ts_mode": self.ts_mode,
+                "ts_output_pin": self.ts_output_pin,
+                "gpio": self.gpio,
+                "initialized": self._initialized,
+                "sleeping": self._sleeping,
+                "current_tuning": self.current_tuning,
+                "last_bandwidth_hz": self._last_bandwidth_hz,
+            }
 
     def _read_register(self, register: int, length: int = 1) -> bytes:
         command = ((length - 1) << 2) | 0x02
@@ -264,19 +275,21 @@ class AF9013Frontend(DVBFrontend):
 
     def gated_read_register(self, address: int, register: int, length: int) -> bytes:
         """Read from the tuner behind this demodulator's I2C gate."""
-        self._set_gate(True)
-        try:
-            return self.bridge.read_i2c(address, register, length)
-        finally:
-            self._set_gate(False)
+        with self._control_lock:
+            self._set_gate(True)
+            try:
+                return self.bridge.read_i2c(address, register, length)
+            finally:
+                self._set_gate(False)
 
     def gated_write_register(self, address: int, register: int, data: bytes) -> None:
         """Write to the tuner behind this demodulator's I2C gate."""
-        self._set_gate(True)
-        try:
-            self.bridge.write_i2c(address, register, data)
-        finally:
-            self._set_gate(False)
+        with self._control_lock:
+            self._set_gate(True)
+            try:
+                self.bridge.write_i2c(address, register, data)
+            finally:
+                self._set_gate(False)
 
     def _update_bits(self, register: int, mask: int, value: int) -> None:
         current = self._read_register(register)[0]
@@ -284,14 +297,15 @@ class AF9013Frontend(DVBFrontend):
 
     def read_hardware_diagnostics(self) -> dict[int, int | bytes]:
         """Read the AF9013 registers most useful for tuning diagnostics."""
-        frequency_control = self._read_register(self.REG_FREQUENCY_CONTROL, 3)
-        frequency_control_ext = self._read_register(self.REG_FREQUENCY_CONTROL_EXT, 6)
-        return {
-            self.REG_FREQUENCY_CONTROL: frequency_control,
-            self.REG_FREQUENCY_CONTROL_EXT: frequency_control_ext,
-            self.REG_TPS_STATUS: self._read_register(self.REG_TPS_STATUS)[0],
-            self.REG_MPEG_STATUS: self._read_register(self.REG_MPEG_STATUS)[0],
-        }
+        with self._control_lock:
+            frequency_control = self._read_register(self.REG_FREQUENCY_CONTROL, 3)
+            frequency_control_ext = self._read_register(self.REG_FREQUENCY_CONTROL_EXT, 6)
+            return {
+                self.REG_FREQUENCY_CONTROL: frequency_control,
+                self.REG_FREQUENCY_CONTROL_EXT: frequency_control_ext,
+                self.REG_TPS_STATUS: self._read_register(self.REG_TPS_STATUS)[0],
+                self.REG_MPEG_STATUS: self._read_register(self.REG_MPEG_STATUS)[0],
+            }
 
     def _apply_table(self, table: tuple[tuple[int, int, int], ...]) -> None:
         for register, mask, value in table:
@@ -307,7 +321,12 @@ class AF9013Frontend(DVBFrontend):
         position = 0 if gpio in (0, 2) else 4
         self._update_bits(register, 0x0F << position, value << position)
 
+    @with_control_lock
     def init_hardware(self) -> None:
+        self._init_hardware()
+
+    def _init_hardware(self) -> None:
+        """Initialize the demodulator while the control lock is held."""
         clock_code = self.CLOCK_CODES.get(self.clock_hz)
         if clock_code is None:
             raise ValueError("AF9013 clock must be 20.48, 25, 28, or 28.8 MHz")
@@ -409,6 +428,7 @@ class AF9013Frontend(DVBFrontend):
             )
         ), auto_mode
 
+    @with_control_lock
     def tune(self, tuning: DVBTuning, wait_for_lock: bool = True) -> DVBFrontendStatus:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
@@ -483,6 +503,7 @@ class AF9013Frontend(DVBFrontend):
         self._sleeping = False
         return self.wait_for_lock() if wait_for_lock else self.read_status()
 
+    @with_control_lock
     def read_status(self) -> DVBFrontendStatus:
         mpeg_locked = bool(self._read_register(self.REG_MPEG_STATUS)[0] & 0x40)
         tps_locked = bool(self._read_register(self.REG_TPS_STATUS)[0] & 0x08)
@@ -541,6 +562,7 @@ class AF9013Frontend(DVBFrontend):
             block_count,
         )
 
+    @with_control_lock
     def read_tuning(self) -> DVBTuning | None:
         if self.current_tuning is None:
             return None
@@ -581,6 +603,7 @@ class AF9013Frontend(DVBFrontend):
         }.get((transmission[2] >> 3) & 7, CodeRate.AUTO)
         return DVBTuning(self.current_tuning.frequency_hz, {0: 6_000_000, 1: 7_000_000, 2: 8_000_000}[(transmission[1] >> 2) & 3], mode, guard, hierarchy, modulation, hp, lp)
 
+    @with_control_lock
     def wait_for_lock(
         self,
         timeout: float | None = DEFAULT_LOCK_TIMEOUT,
@@ -599,6 +622,7 @@ class AF9013Frontend(DVBFrontend):
             sleep(poll_interval)
         return self.read_status()
 
+    @with_control_lock
     def sleep(self) -> None:
         if not self._initialized or self._sleeping:
             return

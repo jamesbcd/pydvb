@@ -5,7 +5,12 @@ from threading import Condition
 
 
 class DVBDemuxer(ABC):
-    """Reusable DVB transport-stream demuxer functionality."""
+    """Reusable DVB transport-stream demuxer functionality.
+
+    Demuxer state and active-read synchronization are intentionally separate
+    from the device frontend/control lock so ``stop()`` can interrupt a
+    blocking stream read.
+    """
 
     TS_PACKET_SIZE = 188
     MPEG_TS_SYNC_BYTE = 0x47
@@ -112,4 +117,3 @@ class DVBDemuxer(ABC):
 
     @abstractmethod
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes: ...
-

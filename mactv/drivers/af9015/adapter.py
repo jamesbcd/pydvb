@@ -19,6 +19,12 @@ class AF9015Adapter(DVBAdapter):
 
     An adapter owns the transport-stream demuxer and composes it with one
     AF9013 frontend. The frontend provides access to the attached tuner.
+
+    Locking:
+        The inherited adapter control operations use the device-shared
+        control lock. Hardware PID-filter bookkeeping additionally uses the
+        demuxer's PID lock; stream lifecycle and reads use separate demux
+        synchronization.
     """
 
     frontend: AF9013Frontend

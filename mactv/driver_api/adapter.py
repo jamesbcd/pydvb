@@ -10,7 +10,12 @@ from typing import Any
 
 @dataclass
 class DVBAdapter:
-    """Coordinate a frontend and demuxer for one logical DVB adapter."""
+    """Coordinate a frontend and demuxer for one logical DVB adapter.
+
+    The adapter's control lock is normally replaced by its owning device's
+    lock. The demuxer retains separate locks for stream lifecycle and PID
+    bookkeeping.
+    """
 
     frontend: Any
     demuxer: Any
@@ -19,6 +24,18 @@ class DVBAdapter:
     _sw_pid_filter_pids: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)
     _sw_pid_filter_enabled: bool = field(default=False, init=False, repr=False)
     _first_sw_filter_call = False
+
+    def bind_to_control_lock(self, control_lock: RLock) -> None:
+        """Bind to a device-owned lock and pass it to the frontend.
+
+        The owning device calls this while composing its adapter graph.
+        Application code should use adapter operations, not replace this
+        lock after configuration.
+        """
+        self._control_lock = control_lock
+        bind_frontend_to_lock = getattr(self.frontend, "bind_to_control_lock", None)
+        if bind_frontend_to_lock is not None:
+            bind_frontend_to_lock(control_lock)
 
     @property
     def adapter_index(self) -> int:

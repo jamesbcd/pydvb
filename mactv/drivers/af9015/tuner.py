@@ -5,10 +5,10 @@ from time import sleep
 from typing import TYPE_CHECKING
 
 from ...driver_api.tuner import DVBTuning, DVBTuner
+from ...driver_api.locking import with_control_lock
 
 if TYPE_CHECKING:
     from .frontend import AF9013Frontend
-
 
 @dataclass
 class RFCalibrationBand:
@@ -41,6 +41,12 @@ class TDA18271Tuner(DVBTuner):
     register followed by register data. The AF9015 I2C bridge limits writes
     to 21 bytes including that register byte, so Linux's 16-byte init mode is
     used here.
+
+    Locking:
+        The base class supplies the replaceable control lock, and this
+        implementation applies it to register-cache, lifecycle, calibration,
+        and tuning operations. It shares the frontend's device-owned lock,
+        rather than creating a separate tuner lock.
     """
 
     CHIP_ID_HDC1 = 0x83
@@ -364,6 +370,8 @@ class TDA18271Tuner(DVBTuner):
         if i2c_address != self.I2C_ADDRESS:
             raise ValueError("TDA18271 must use I2C address 0x60")
         self.frontend = frontend
+        frontend_lock = getattr(frontend, "control_lock", None)
+        super().__init__(frontend_lock)
         self.i2c_address = i2c_address
         # For now, we initialize the register cache with the default values for chip ID CHIP_ID_HDC2.
         # init() will update this as needed.
@@ -388,6 +396,7 @@ class TDA18271Tuner(DVBTuner):
     def sleeping(self) -> bool:
         return self._sleeping
 
+    @with_control_lock
     def get_config_dict(self) -> dict[str, object]:
         """Return tuner configuration and current state for diagnostics."""
         return {
@@ -401,6 +410,7 @@ class TDA18271Tuner(DVBTuner):
             "rf_calibration_temperature": self._rf_calibration_temperature,
         }
 
+    @with_control_lock
     def get_if_frequency_hz(self) -> int:
         """Return the IF selected by the active digital standard map."""
         if self._chip_id is None or self.current_tuning is None:
@@ -427,6 +437,7 @@ class TDA18271Tuner(DVBTuner):
                 bytes(self._registers[register + offset : register + offset + chunk_length]),
             )
 
+    @with_control_lock
     def read_hardware_registers(self) -> bytes:
         """Read and return the physical TDA18271 register block."""
         values = self._read_register(self.REG_ID, self.REGISTER_COUNT)
@@ -437,16 +448,19 @@ class TDA18271Tuner(DVBTuner):
                 self._registers[register] = value
         return values
 
+    @with_control_lock
     def read_hardware_register(self, register: int) -> int:
         """Read one physical TDA18271 register from the extended register dump."""
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         return self.read_hardware_registers()[register]
 
+    @with_control_lock
     def get_register_cache(self) -> bytes:
         """Return a snapshot of the software TDA18271 register cache."""
         return bytes(self._registers)
 
+    @with_control_lock
     def init_hardware(self) -> None:
         chip_id = self._read_register(self.REG_ID, 1)[0]
         if chip_id not in (self.CHIP_ID_HDC1, self.CHIP_ID_HDC2):
@@ -826,6 +840,7 @@ class TDA18271Tuner(DVBTuner):
                 return
         raise ValueError("frequency is outside the TDA18271 calibration PLL range")
 
+    @with_control_lock
     def tune(self, tuning: DVBTuning) -> None:
         if not self.MIN_FREQUENCY_HZ <= tuning.frequency_hz <= self.MAX_FREQUENCY_HZ:
             raise ValueError("frequency is outside the TDA18271 range")
@@ -875,6 +890,7 @@ class TDA18271Tuner(DVBTuner):
         self.current_tuning = tuning
         self._sleeping = False
 
+    @with_control_lock
     def sleep(self) -> None:
         if not self._initialized or self._sleeping:
             return

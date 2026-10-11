@@ -68,6 +68,23 @@ class FakeAdapter:
         self.calls.append(("set_pid_filter_enabled", enabled))
 
 
+class LockAwareAdapter(FakeAdapter):
+    def bind_to_control_lock(self, control_lock):
+        self.control_lock = control_lock
+
+
+def test_device_shares_control_lock_with_adapters():
+    device = AF9015Device(FakeTransport())
+    first = LockAwareAdapter()
+    second = LockAwareAdapter()
+    device.adapters = [first, second]
+
+    device._share_control_lock_with_all_adapters()
+
+    assert first.control_lock is device._control_lock
+    assert second.control_lock is device._control_lock
+
+
 def test_default_firmware_path_exists():
     assert DEFAULT_FIRMWARE_PATH == (
         Path(__file__).parents[1]

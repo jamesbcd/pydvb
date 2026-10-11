@@ -36,6 +36,11 @@ class AF9015Device(DVBDevice):
 
     The device owns the USB bridge and composes one or two ``AF9015Adapter``
     instances from the receiver's EEPROM configuration.
+
+    Locking:
+        Unlike the standalone base-object default, this device owns one
+        control lock and shares it with every configured adapter, frontend,
+        and tuner. Stream-read synchronization remains in each demuxer.
     """
 
     STREAM_ENDPOINTS = (0x84, 0x85)
@@ -192,6 +197,7 @@ class AF9015Device(DVBDevice):
                 tuner_id,
                 adapter_index=adapter_index,
                 mt2060_if=mt2060_if,
+                control_lock=self._control_lock,
             )
             # TDA18271 sits behind the AF9013's I2C gate, so the frontend is its own bus.
             tuner = TDA18271Tuner(frontend) if tuner_id == TDA18271_TUNER_ID else None
@@ -204,7 +210,9 @@ class AF9015Device(DVBDevice):
                 demodulator_address=demodulator_address,
                 full_speed=self.bridge.transport.get_speed() == USBSpeed.FULL,
             )
-            self.adapters.append(AF9015Adapter(frontend, demuxer))
+            adapter = AF9015Adapter(frontend, demuxer)
+            self._share_control_lock_with_adapter(adapter)
+            self.adapters.append(adapter)
 
     def _read_eeprom(self) -> bytes:
         """Read and cache the complete 256-byte AF9015 EEPROM."""

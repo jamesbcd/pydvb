@@ -13,6 +13,11 @@ class AF9015Demuxer(DVBDemuxer):
 
     The demuxer controls the adapter's USB endpoint and the integrated AF9013
     demodulator's 32 hardware PID slots.
+
+    Locking:
+        The base demuxer condition protects stream state and active reads.
+        This AF9015 implementation adds a separate PID lock for hardware-slot
+        state; neither lock is the device-wide frontend/control lock.
     """
 
     TS_PACKET_COUNT = 87        # Number of TS packets in the buffer for full-speed mode

@@ -49,12 +49,20 @@ class AF9015Bridge:
 
     This is the low-level bridge shared by the device's logical adapters and
     their AF9013 frontends.
+
+    Locking:
+        The bridge owns a separate transaction lock. It serializes each
+        complete USB request/reply exchange, but does not replace the
+        device-wide frontend/control lock that protects multi-transaction
+        operations.
     """
 
     def __init__(self, transport: USBTransport, timeout_ms: int = 2000) -> None:
         self.transport = transport
         self.timeout_ms = timeout_ms
         self._sequence = 0
+        # This lock is owned by the bridge and shared by all device objects
+        # using it; it serializes one complete USB request/reply transaction.
         self._lock = Lock()
 
     def transact(self, request: ControlRequest) -> bytes:

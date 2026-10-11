@@ -1,10 +1,14 @@
 """Reusable DVB-T tuner types and lifecycle contract."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from threading import RLock
 
 from mactv.serialize import serializable
+from .locking import ControlLockMixin
 
 
 @serializable
@@ -64,8 +68,16 @@ class DVBTuning:
     code_rate_lp: CodeRate = CodeRate.AUTO
 
 
-class DVBTuner(ABC):
-    """Common lifecycle and tuning operations for DVB-T tuners."""
+class DVBTuner(ControlLockMixin, ABC):
+    """Common lifecycle and tuning operations for DVB-T tuners.
+
+    The tuner normally shares its frontend's device-owned control lock so
+    tuner I2C operations cannot interleave with demodulator operations.
+    """
+
+    def __init__(self, control_lock: RLock | None = None) -> None:
+        """Create a tuner for standalone use or device composition."""
+        super().__init__(control_lock)
 
     @abstractmethod
     def init_hardware(self) -> None:

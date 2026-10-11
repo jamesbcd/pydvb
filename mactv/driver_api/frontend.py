@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any
+
+from .locking import ControlLockMixin
 
 
 @dataclass(frozen=True)
@@ -24,8 +27,20 @@ class DVBFrontendStatus:
     block_count: int | None = None
 
 
-class DVBFrontend(ABC):
-    """Common operations shared by DVB frontends."""
+class DVBFrontend(ControlLockMixin, ABC):
+    """Common operations shared by DVB frontends.
+
+    A standalone frontend owns a private control lock. A device replaces it
+    with one lock shared by all of that device's frontend and tuner objects.
+    """
+
+    def __init__(self, control_lock: RLock | None = None) -> None:
+        """Create a frontend for standalone use or device composition.
+
+        Subclass constructors may receive a device-owned lock; ordinary
+        callers should let the frontend create its private lock.
+        """
+        super().__init__(control_lock)
 
     @abstractmethod
     def init_hardware(self) -> None:
