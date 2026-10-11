@@ -3,14 +3,14 @@ Lightweight JSON serialization library for Python objects.
 '''
 import enum
 import base64
-from dataclasses import is_dataclass
+from dataclasses import fields, is_dataclass
 import inspect
 import json
 import os
 import pathlib
 import datetime
 import re
-from typing import Any, Callable, cast, TypeVar, overload
+from typing import Any, Callable, Iterable, cast, TypeVar, overload
 
 
 # Constants for the keys used in the serialized JSON representation
@@ -352,30 +352,33 @@ def standard_deserializer(cls: type, data: object, ctx: Context) -> object:
         raise TypeError(f"Failed to deserialize object of type {cls.__name__}: {e}")
     return instance
 
-def enum_serializer(obj: object, ctx: Context) -> dict:
-    '''Serializer for enum.Enum objects.'''
-    obj = cast(enum.Enum, obj)
-    return {
-        "value": obj.value
-    }
+def _iterable_serializer(obj: object, ctx: Context) -> list:
+    obj = cast(Iterable, obj)
+    return list(obj)
 
-def enum_deserializer(cls: type, data: object, ctx: Context) -> enum.Enum:
-    '''Deserializer for enum.Enum objects.'''
+def _iterable_deserializer(cls: type, data: object, ctx: Context) -> Iterable:
+    data = cast(list, data)
+    return cls(data)
+
+register(tuple, _iterable_serializer, _iterable_deserializer)
+register(set, _iterable_serializer, _iterable_deserializer)
+register(frozenset, _iterable_serializer, _iterable_deserializer)
+
+def mapping_serializer(obj: object, ctx: Context) -> dict:
+    obj = cast(dict, obj)
+    return dict(obj)
+
+def mapping_deserializer(cls: type, data: object, ctx: Context) -> object:
     data = cast(dict, data)
-    return cls(data["value"])
+    return cls(data)
 
 def dataclass_serializer(obj: object, ctx: Context) -> dict:
-    '''Serializer for dataclass objects.'''
-    obj = cast(object, obj)
     if not is_dataclass(obj):
         raise TypeError(f"Object of type {type(obj).__name__} is not a dataclass")
-    return {field.name: getattr(obj, field.name) for field in obj.__dataclass_fields__.values()}
+    return {field.name: getattr(obj, field.name) for field in fields(obj)}
 
 def dataclass_deserializer(cls: type, data: object, ctx: Context) -> object:
-    '''Deserializer for dataclass objects.'''
     data = cast(dict, data)
-    if not is_dataclass(cls):
-        raise TypeError(f"Registered class {cls.__name__} is not a dataclass")
     try:
         # In case the dataclass is frozen, it's more reliable to construct the instance
         # by passing all the data as keyword arguments to the constructor.
@@ -387,6 +390,23 @@ def dataclass_deserializer(cls: type, data: object, ctx: Context) -> object:
 #
 # Custom serializers and deserializers for common types
 #
+
+# Enum serializers and deserializers
+#
+# We don't register a general enum serializer/deserializer here, because Enums are almost
+# always subclasses, and it's better to register the subclasses.
+
+def enum_serializer(obj: object, ctx: Context) -> dict:
+    '''Serializer for enum.Enum objects.'''
+    obj = cast(enum.Enum, obj)
+    return {
+        "value": obj.value
+    }
+
+def enum_deserializer(cls: type, data: object, ctx: Context) -> enum.Enum:
+    '''Deserializer for enum.Enum objects.'''
+    data = cast(dict, data)
+    return cls(data["value"])
 
 # Bytes serializers and deserializers
 

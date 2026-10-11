@@ -3,6 +3,7 @@ import enum
 import pathlib
 import re
 from collections.abc import Iterable
+from dataclasses import FrozenInstanceError, dataclass
 
 import pytest
 
@@ -153,6 +154,37 @@ def test_bytes_regex_pattern_and_flags_round_trip():
 
     assert result.pattern == value.pattern
     assert result.flags == value.flags
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        (1, "two", 3.0),
+        {1, 2, 3},
+        frozenset({"one", "two"}),
+    ],
+)
+def test_container_value_round_trips(value):
+    result = deserialize(serialize(value))
+
+    assert type(result) is type(value)
+    assert result == value
+
+
+def test_frozen_dataclass_round_trips():
+    @serializable("SerializeTestFrozenDataclass")
+    @dataclass(frozen=True)
+    class TestFrozenDataclass:
+        value: int
+        label: str
+
+    value = TestFrozenDataclass(42, "answer")
+    result = deserialize(serialize(value))
+
+    assert result == value
+    assert type(result) is TestFrozenDataclass
+    with pytest.raises(FrozenInstanceError):
+        result.value = 0
 
 
 def test_int_enum_round_trips_when_registered():
