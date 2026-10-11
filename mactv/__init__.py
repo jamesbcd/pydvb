@@ -20,6 +20,11 @@ from .drivers.af9015.demux import AF9015Demuxer
 from .drivers.af9015.device import AF9015Device
 from .drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
 from .drivers.af9015.tuner import TDA18271Tuner
+from .device_manager import (
+    DeviceConnectionFailure,
+    DeviceConnectionResult,
+    DVBDeviceManager,
+)
 from .stream_scanner import (
     DVBDescriptor,
     DVBElementaryStream,
@@ -31,7 +36,15 @@ from .stream_scanner import (
     DVBServiceType,
 )
 from .server import LocalTS_HTTPServer
-from .usb import USBSpeed, USBTransport, default_transport_factory
+from .usb import (
+    USBDeviceID,
+    USBDeviceInfo,
+    LibUSBError,
+    USBSpeed,
+    USBTransport,
+    default_transport_factory,
+    enumerate_usb_devices,
+)
 
 __all__ = [
     "AF9015Bridge",
@@ -39,6 +52,9 @@ __all__ = [
     "AF9013Frontend",
     "AF9015Device",
     "DVBDevice",
+    "DVBDeviceManager",
+    "DeviceConnectionFailure",
+    "DeviceConnectionResult",
     "DVBFrontend",
     "CodeRate",
     "DVBDemuxer",
@@ -47,6 +63,10 @@ __all__ = [
     "DVBFrontendStatus",
     "Modulation",
     "USBTransport",
+    "USBDeviceID",
+    "USBDeviceInfo",
+    "LibUSBError",
+    "enumerate_usb_devices",
     "default_transport_factory",
     "USBSpeed",
     "DVBTuner",

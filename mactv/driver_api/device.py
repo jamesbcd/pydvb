@@ -5,14 +5,22 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from threading import RLock
-from typing import Any
+from typing import Any, ClassVar
 
 from mactv.driver_api.adapter import DVBAdapter
-from mactv.usb import USBTransport
+from mactv.usb import USBDeviceID, USBDeviceInfo, USBTransport
 
 
 class DVBDevice(ABC):
     """Provide common lifecycle and adapter operations for a DVB device."""
+
+    SUPPORTED_USB_IDS: ClassVar[frozenset[USBDeviceID]] = frozenset()
+
+    @classmethod
+    @abstractmethod
+    def open_usb_device(cls, device: USBDeviceInfo) -> "DVBDevice":
+        """Open one enumerated USB device using this driver's implementation."""
+        ...
 
     @abstractmethod
     def init_hardware(self) -> None:

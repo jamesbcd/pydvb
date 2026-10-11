@@ -2,15 +2,20 @@
 
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Callable
-
 from .adapter import AF9015Adapter
 from .bridge import AF9015Bridge
 from .demux import AF9015Demuxer
 from ...driver_api.device import DVBDevice
 from .frontend import AF9013Frontend
 from .tuner import TDA18271Tuner
-from ...usb import USBTransport, USBSpeed, default_transport_factory
+from ...usb import (
+    USBDeviceID,
+    USBDeviceInfo,
+    USBTransport,
+    USBSpeed,
+    _LibUSB1Transport,
+    default_transport_factory,
+)
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
 
@@ -44,6 +49,7 @@ class AF9015Device(DVBDevice):
     """
 
     STREAM_ENDPOINTS = (0x84, 0x85)
+    SUPPORTED_USB_IDS = frozenset({USBDeviceID(0x0413, 0x6029)})
 
     # From Linux driver:
     #
@@ -71,13 +77,24 @@ class AF9015Device(DVBDevice):
     #
 
     @classmethod
+    def open_usb_device(cls, device: USBDeviceInfo) -> "AF9015Device":
+        """Open one enumerated AF9015 USB device."""
+        transport = _LibUSB1Transport.open_device(
+            device,
+            async_endpoints=cls.STREAM_ENDPOINTS,
+            owns_context=False,
+        )
+        return cls(transport, device.vendor_id, device.product_id)
+
+    @classmethod
     def open(
         cls,
         vendor_id: int,
         product_id: int,
-        transport_factory: Callable[[int, int], USBTransport] | None = None,
+        transport_factory=None,
         async_queue_mib: float | None = None,
     ) -> "AF9015Device":
+        """Open a device by VID/PID for compatibility with existing callers."""
         if transport_factory is None:
             transport = default_transport_factory(
                 vendor_id,

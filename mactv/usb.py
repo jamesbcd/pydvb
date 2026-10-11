@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import dataclass
 from enum import IntEnum
 from math import isfinite
 from queue import Empty, Queue
@@ -13,6 +14,7 @@ from typing import Any, Protocol
 import usb1 as _usb1
 
 usb1: Any = _usb1
+LibUSBError = getattr(_usb1, "USBError", OSError)
 
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable asynchronous bulk-read statistics.
@@ -20,6 +22,46 @@ RECORD_STATS = False    # Enable or disable asynchronous bulk-read statistics.
 DEFAULT_MAX_QUEUE_SIZE = 16 # Default maximum size of the asynchronous transfer queue in MiB.
 ASYNC_READ_DRAIN_TIMEOUT = 0.1
 ASYNC_READ_CANCEL_TIMEOUT = 2.0
+
+
+@dataclass(frozen=True, slots=True)
+class USBDeviceID:
+    """Identify a USB device by its vendor and product IDs."""
+
+    vendor_id: int
+    product_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class USBDeviceInfo:
+    """Describe an enumerated USB device and retain its libusb reference."""
+
+    vendor_id: int
+    product_id: int
+    bus_number: int
+    device_address: int
+    device: Any
+    context: Any
+
+    @property
+    def device_id(self) -> USBDeviceID:
+        """Return the vendor/product identity of this device."""
+        return USBDeviceID(self.vendor_id, self.product_id)
+
+
+def enumerate_usb_devices(context: Any) -> tuple[USBDeviceInfo, ...]:
+    """Enumerate connected USB devices using the caller-owned context."""
+    return tuple(
+        USBDeviceInfo(
+            device.getVendorID(),
+            device.getProductID(),
+            device.getBusNumber(),
+            device.getDeviceAddress(),
+            device,
+            context,
+        )
+        for device in context.getDeviceList()
+    )
 
 class USBSpeed(IntEnum):
     """USB link-speed values reported by the transport backends."""
@@ -227,6 +269,7 @@ class _LibUSB1Transport:
         async_transfer_count: int = 6,
         async_endpoints: Collection[int] = (),
         async_queue_mib: float | None = None, # Max size in MiB of the asynchronous transfer queue. None = Default
+        owns_context: bool = True,
     ) -> None:
         """Create a transport around an open python-libusb1 handle."""
         if async_transfer_count <= 0:
@@ -239,6 +282,7 @@ class _LibUSB1Transport:
         if async_queue_bytes <= 0:
             raise ValueError("async_queue_mib is too small")
         self.context = context          # libusb context that owns the device handle.
+        self._owns_context = owns_context
         self.usb_handle = usb_handle    # Open libusb device handle.
         self.interface = interface      # Interface claimed for USB transfers.
         self.vendor_id = vendor_id      # Device vendor ID used for reconnecting.
@@ -279,6 +323,31 @@ class _LibUSB1Transport:
         self._stats = _AsynchronousReadStats()
 
     @classmethod
+    def open_device(
+        cls,
+        device: USBDeviceInfo,
+        interface: int = 0,
+        async_transfer_count: int = 8,
+        async_endpoints: Collection[int] = (),
+        async_queue_mib: float | None = None,
+        owns_context: bool = True,
+    ) -> "_LibUSB1Transport":
+        """Open and claim one enumerated USB device."""
+        transport = cls(
+            device.context,
+            device.device.open(),
+            interface,
+            device.vendor_id,
+            device.product_id,
+            async_transfer_count,
+            async_endpoints,
+            async_queue_mib,
+            owns_context=owns_context,
+        )
+        transport._claim_interface()
+        return transport
+
+    @classmethod
     def find(
         cls,
         vendor_id: int,
@@ -288,7 +357,7 @@ class _LibUSB1Transport:
         async_endpoints: Collection[int] = (),
         async_queue_mib: float | None = None,
     ) -> "_LibUSB1Transport":
-        """Find, open, and claim a device by vendor/product ID."""
+        """Find and open the first device matching a vendor/product pair."""
         context = usb1.USBContext()
         try:
             handle = context.openByVendorIDAndProductID(
@@ -638,7 +707,8 @@ class _LibUSB1Transport:
             else:
                 self.usb_handle.releaseInterface(self.interface)
         self.usb_handle.close()
-        self.context.close()
+        if self._owns_context:
+            self.context.close()
 
     def reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> "_LibUSB1Transport":
         """Release this handle and wait for the same USB device to reappear."""
@@ -673,9 +743,18 @@ def default_transport_factory(
     async_queue_mib: float | None = None,
 ) -> USBTransport:
     """Create the default libusb transport for a USB device."""
-    return _LibUSB1Transport.find(
-        vendor_id,
-        product_id,
-        async_endpoints=async_endpoints,
-        async_queue_mib=async_queue_mib,
-    )
+    context = usb1.USBContext()
+    try:
+        devices = enumerate_usb_devices(context)
+        for device in devices:
+            if device.device_id == USBDeviceID(vendor_id, product_id):
+                return _LibUSB1Transport.open_device(
+                    device,
+                    async_endpoints=async_endpoints,
+                    async_queue_mib=async_queue_mib,
+                )
+    except Exception:
+        context.close()
+        raise
+    context.close()
+    raise ValueError(f"USB device {vendor_id:04x}:{product_id:04x} was not found")

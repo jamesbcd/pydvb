@@ -25,6 +25,19 @@ requested tuning locks, or 2 if any tuning does not lock. Device IDs default to
 the Leadtek IDs `0x0413:0x6029`; select another device with `--vendor-id` and
 `--product-id`.
 
+For applications that need to use multiple receivers, `DVBDeviceManager`
+enumerates all connected USB devices and connects to every available device
+supported by its registered drivers. A device that is present but unavailable
+is reported separately from unsupported devices:
+
+```python
+from mactv import AF9015Device, DVBDeviceManager
+
+with DVBDeviceManager([AF9015Device]) as manager:
+    result = manager.connect_all()
+    devices = result.connected
+```
+
 Available device commands are:
 
 ```sh
