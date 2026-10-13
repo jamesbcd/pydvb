@@ -297,12 +297,12 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                     continue
                 chunk_count += 1
                 byte_count += len(chunk)
-                if chunk_count == 1 or chunk_count % 100 == 0:
-                    print(
-                        f"Read stream chunk {chunk_count}: {len(chunk)} bytes "
-                        f"({byte_count} bytes total)",
-                        flush=True,
-                    )
+                # if chunk_count == 1 or chunk_count % 100 == 0:
+                #     print(
+                #         f"Read stream chunk {chunk_count}: {len(chunk)} bytes "
+                #         f"({byte_count} bytes total)",
+                #         flush=True,
+                #     )
                 self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
                 self.wfile.write(chunk)
                 self.wfile.write(b"\r\n")
