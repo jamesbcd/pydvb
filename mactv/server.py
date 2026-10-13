@@ -18,6 +18,10 @@ from .service_map import DVBServiceMap
 from .stream_scanner import DVBTripletID
 
 
+ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
+ADAPTER_LEASE_RETRY_INTERVAL = 0.1
+
+
 @dataclass
 class _AdapterLease:
     adapter: DVBAdapter
@@ -73,6 +77,8 @@ class LocalTS_HTTPServer:
     def close(self) -> None:
         """Stop HTTP serving and interrupt active adapter reads."""
         self._stop_event.set()
+        with self._adapters_condition:
+            self._adapters_condition.notify_all()
         self.httpd.server_close()
         with self._adapters_condition:
             active_leases = tuple(self._leased_adapters)
@@ -92,7 +98,25 @@ class LocalTS_HTTPServer:
                 lease = _AdapterLease(self._available_adapters.pop())
                 self._leased_adapters.append(lease)
                 return lease
-            if not self.evict_oldest_on_exhaustion or not self._leased_adapters:
+            if self.evict_oldest_on_exhaustion:
+                if not self._leased_adapters:
+                    return None
+            else:
+                deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
+                while not self._available_adapters:
+                    if self._stop_event.is_set():
+                        return None
+                    remaining = deadline - monotonic()
+                    if remaining <= 0:
+                        return None
+                    self._adapters_condition.wait(
+                        min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
+                    )
+                lease = _AdapterLease(self._available_adapters.pop())
+                self._leased_adapters.append(lease)
+                return lease
+
+            if not self._leased_adapters:
                 return None
 
             victim = self._leased_adapters[0]

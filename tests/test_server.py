@@ -225,7 +225,7 @@ def test_server_rejects_malformed_and_unknown_services():
         serving.join(timeout=2)
 
 
-def test_server_returns_unavailable_when_all_adapters_are_leased():
+def test_server_returns_unavailable_after_waiting_when_all_adapters_are_leased():
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter],
@@ -236,7 +236,7 @@ def test_server_returns_unavailable_when_all_adapters_are_leased():
     serving = Thread(target=server.serve_forever)
     serving.start()
     first = http.client.HTTPConnection(*server.address, timeout=2)
-    second = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=3)
     try:
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
@@ -247,6 +247,79 @@ def test_server_returns_unavailable_when_all_adapters_are_leased():
         second.close()
         server.shutdown()
         server.close()
+        serving.join(timeout=2)
+
+
+def test_server_waits_for_adapter_released_by_another_client():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map(),
+        port=0,
+        evict_oldest_on_exhaustion=False,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=3)
+    second = http.client.HTTPConnection(*server.address, timeout=3)
+    second_response = []
+
+    def request_second_client():
+        second.request("GET", "/service/1.2.3")
+        second_response.append(second.getresponse())
+
+    request_thread = Thread(target=request_second_client)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        request_thread.start()
+        deadline = monotonic() + 1
+        while monotonic() < deadline and len(server._leased_adapters) < 1:
+            sleep(0.01)
+        first.close()
+        request_thread.join(timeout=3)
+        assert not request_thread.is_alive()
+        assert second_response[0].status == 200
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_close_interrupts_waiting_adapter_request():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map(),
+        port=0,
+        evict_oldest_on_exhaustion=False,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=3)
+    second = http.client.HTTPConnection(*server.address, timeout=3)
+    second_response = []
+
+    def request_second_client():
+        second.request("GET", "/service/1.2.3")
+        second_response.append(second.getresponse())
+
+    request_thread = Thread(target=request_second_client)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        request_thread.start()
+        sleep(0.1)
+        server.close()
+        request_thread.join(timeout=1)
+        assert not request_thread.is_alive()
+        assert second_response[0].status == 503
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
         serving.join(timeout=2)
 
 
