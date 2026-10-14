@@ -6,6 +6,7 @@ from mactv.drivers.af9015 import device as device_module
 from mactv.drivers.af9015.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 from mactv.driver_api.tuner import DVBTuning
+from mactv.usb import USBDeviceInfo
 
 
 class FakeTransport:
@@ -97,42 +98,21 @@ def test_default_firmware_path_exists():
     assert DEFAULT_FIRMWARE_PATH.is_file()
 
 
-def test_open_uses_default_transport_factory(monkeypatch):
+def test_open_usb_device_uses_manager_transport_opener(monkeypatch):
     transport = FakeTransport()
     calls = []
 
-    def find(vendor_id, product_id, **kwargs):
-        calls.append((vendor_id, product_id, kwargs))
+    device_info = USBDeviceInfo(0x0413, 0x6029, 1, 2, object(), object())
+
+    def open_transport(device, **kwargs):
+        calls.append((device, kwargs))
         return transport
 
-    monkeypatch.setattr(device_module, "default_transport_factory", find)
+    monkeypatch.setattr(device_module, "open_usb_transport", open_transport)
 
-    device = AF9015Device.open(0x0413, 0x6029)
+    device = AF9015Device.open_usb_device(device_info)
 
-    assert calls == [
-        (
-            0x0413,
-            0x6029,
-            {
-                "async_endpoints": AF9015Device.STREAM_ENDPOINTS,
-                "async_queue_mib": None,
-            },
-        )
-    ]
-    assert device.bridge.transport is transport
-
-
-def test_open_accepts_alternative_transport_factory():
-    transport = FakeTransport()
-    calls = []
-
-    def factory(vendor_id, product_id):
-        calls.append((vendor_id, product_id))
-        return transport
-
-    device = AF9015Device.open(0x0413, 0x6029, transport_factory=factory)
-
-    assert calls == [(0x0413, 0x6029)]
+    assert calls == [(device_info, {"async_endpoints": AF9015Device.STREAM_ENDPOINTS})]
     assert device.bridge.transport is transport
 
 

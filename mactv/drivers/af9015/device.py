@@ -13,8 +13,7 @@ from ...usb import (
     USBDeviceInfo,
     USBTransport,
     USBSpeed,
-    _LibUSB1Transport,
-    default_transport_factory,
+    open_usb_transport,
 )
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
@@ -79,32 +78,11 @@ class AF9015Device(DVBDevice):
     @classmethod
     def open_usb_device(cls, device: USBDeviceInfo) -> "AF9015Device":
         """Open one enumerated AF9015 USB device."""
-        transport = _LibUSB1Transport.open_device(
+        transport = open_usb_transport(
             device,
             async_endpoints=cls.STREAM_ENDPOINTS,
-            owns_context=False,
         )
         return cls(transport, device.vendor_id, device.product_id)
-
-    @classmethod
-    def open(
-        cls,
-        vendor_id: int,
-        product_id: int,
-        transport_factory=None,
-        async_queue_mib: float | None = None,
-    ) -> "AF9015Device":
-        """Open a device by VID/PID for compatibility with existing callers."""
-        if transport_factory is None:
-            transport = default_transport_factory(
-                vendor_id,
-                product_id,
-                async_endpoints=cls.STREAM_ENDPOINTS,
-                async_queue_mib=async_queue_mib,
-            )
-        else:
-            transport = transport_factory(vendor_id, product_id)
-        return cls(transport, vendor_id, product_id)
 
     def __init__(
         self,
@@ -124,10 +102,12 @@ class AF9015Device(DVBDevice):
         self.eeprom_hash: int | None = None
         self._reset_device_state()
 
-    @property
     def is_warm(self) -> bool:
         with self._control_lock:
             return self.bridge.get_state() == 0x02
+
+    def log_transport_stats(self) -> None:
+        self.bridge.transport.log_stats()
 
     def init_hardware(
         self,
@@ -139,7 +119,7 @@ class AF9015Device(DVBDevice):
             self._hardware_initialized = False
             for adapter in self.adapters:
                 adapter.stop()
-            if not self.is_warm:
+            if not self.is_warm():
                 if not download_firmware:
                     raise RuntimeError(
                         "AF9015 firmware is not running; call init_hardware(download_firmware=True) "

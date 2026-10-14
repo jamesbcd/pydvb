@@ -736,6 +736,20 @@ class _LibUSB1Transport:
         raise TimeoutError("USB device did not re-enumerate") from last_error
 
 
+def open_usb_transport(
+    device: USBDeviceInfo,
+    async_endpoints: Collection[int] = (),
+    async_queue_mib: float | None = None,
+) -> USBTransport:
+    """Open an enumerated USB device using its caller-owned context."""
+    return _LibUSB1Transport.open_device(
+        device,
+        async_endpoints=async_endpoints,
+        async_queue_mib=async_queue_mib,
+        owns_context=False,
+    )
+
+
 def default_transport_factory(
     vendor_id: int,
     product_id: int,

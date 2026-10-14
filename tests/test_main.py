@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,27 @@ from mactv.stream_scanner import DVBService, DVBServiceType, DVBStreamInfo, DVBT
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
+def install_fake_manager(monkeypatch, device):
+    calls = []
+
+    class FakeDeviceManager:
+        def __init__(self, _device_types):
+            pass
+
+        def connect_all(self, ids=None):
+            calls.append(ids)
+            return SimpleNamespace(connected=(device,))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exception_type, _exception, _traceback):
+            device.close()
+
+    monkeypatch.setattr(__main__, "DVBDeviceManager", FakeDeviceManager)
+    return calls
+
+
 class FakeDevice:
     def __init__(self):
         self.initialize_called = False
@@ -15,7 +37,6 @@ class FakeDevice:
         self.tune_called = False
         self.close_called = False
 
-    @property
     def is_warm(self):
         return False
 
@@ -25,10 +46,13 @@ class FakeDevice:
     def init_hardware(self):
         self.initialize_called = True
 
+    def log_transport_stats(self):
+        pass
+
     def sleep(self):
         self.sleep_called = True
 
-    def tune(self, tuning, adapter_index, wait_for_lock):
+    def tune(self, tuning, adapter_index, wait_for_lock) -> DVBFrontendStatus | None:
         self.tune_called = True
 
     def close(self):
@@ -85,7 +109,7 @@ class FakeStatusDevice(FakeDevice):
 
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "device"])
 
     assert __main__.main() == 0
@@ -95,13 +119,7 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
 
 def test_device_accepts_device_ids(monkeypatch):
     device = FakeDevice()
-    calls = []
-
-    def open_device(vendor_id, product_id):
-        calls.append((vendor_id, product_id))
-        return device
-
-    monkeypatch.setattr(__main__.AF9015Device, "open", open_device)
+    calls = install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -109,12 +127,12 @@ def test_device_accepts_device_ids(monkeypatch):
     )
 
     assert __main__.main() == 0
-    assert calls == [(0x1234, 0x5678)]
+    assert calls == [{__main__.usb.USBDeviceID(0x1234, 0x5678)}]
 
 
 def test_init_initializes_without_tuning(monkeypatch, capsys):
     device = FakeDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "init"])
 
     assert __main__.main() == 0
@@ -125,7 +143,7 @@ def test_init_initializes_without_tuning(monkeypatch, capsys):
 
 def test_status_initializes_reports_and_exits(monkeypatch, capsys):
     device = FakeStatusDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "status"])
 
     assert __main__.main() == 0
@@ -138,7 +156,7 @@ def test_status_initializes_reports_and_exits(monkeypatch, capsys):
 
 def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     device = FakeDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "sleep"])
 
     assert __main__.main() == 0
@@ -157,7 +175,7 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
 )
 def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_code, expected_output):
     device = device_class()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "tune"])
 
     assert __main__.main() == expected_code
@@ -169,7 +187,7 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
     device = FakeDevice()
     parsed_args = []
     scan_path = tmp_path / "brisbane.scan"
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(
         __main__,
         "_run_device",
@@ -183,7 +201,7 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
 
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "record", str(tmp_path / "capture.ts")])
 
     assert __main__.main() == 2
@@ -194,7 +212,7 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
 
 def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     device = FakeLockedRecordingDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(
         __main__,
         "capture_stream",
@@ -227,7 +245,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
     )()
     calls = []
 
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(
         __main__,
         "map_from_tunings",
@@ -256,8 +274,8 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
         lambda: (calls.append(True) or ["au-Adelaide", "au-Brisbane"]),
     )
     monkeypatch.setattr(
-        __main__.AF9015Device,
-        "open",
+        __main__,
+        "DVBDeviceManager",
         lambda *_args: pytest.fail("known scan tables should not open a device"),
     )
     monkeypatch.setattr(sys, "argv", ["mactv", "known-tables"])
@@ -277,8 +295,8 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
         lambda scan: (calls.append(scan) or tunings),
     )
     monkeypatch.setattr(
-        __main__.AF9015Device,
-        "open",
+        __main__,
+        "DVBDeviceManager",
         lambda *_args: pytest.fail("parse scan should not open a device"),
     )
     monkeypatch.setattr(sys, "argv", ["mactv", "parse-table", "au-Brisbane"])
@@ -299,7 +317,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 )
 def test_usb_options_are_opt_in(monkeypatch, arguments, expected_log, expected_stats):
     device = FakeDevice()
-    monkeypatch.setattr(__main__.AF9015Device, "open", lambda vendor_id, product_id: device)
+    install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["mactv", "device", *arguments])
 
     assert __main__.main() == 0

@@ -23,6 +23,14 @@ class DVBDevice(ABC):
         ...
 
     @abstractmethod
+    def is_warm(self) -> bool:
+        ...
+
+    @abstractmethod
+    def log_transport_stats(self) -> None:
+        ...
+
+    @abstractmethod
     def init_hardware(self) -> None:
         """Initialize device hardware and configure its adapters."""
         ...

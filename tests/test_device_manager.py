@@ -25,6 +25,12 @@ class FakeDevice(DVBDevice):
     def init_hardware(self):
         pass
 
+    def is_warm(self):
+        return False
+
+    def log_transport_stats(self):
+        pass
+
 
 class FakeUSBDevice:
     def __init__(self, vendor_id, product_id, fail=False, address=1):

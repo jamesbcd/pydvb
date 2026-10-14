@@ -44,6 +44,7 @@ from .usb import (
     USBTransport,
     default_transport_factory,
     enumerate_usb_devices,
+    open_usb_transport,
 )
 
 __all__ = [
@@ -67,6 +68,7 @@ __all__ = [
     "USBDeviceInfo",
     "LibUSBError",
     "enumerate_usb_devices",
+    "open_usb_transport",
     "default_transport_factory",
     "USBSpeed",
     "DVBTuner",

@@ -136,6 +136,40 @@ def fake_usb1(context):
     )
 
 
+def test_open_usb_transport_preserves_manager_context_ownership(monkeypatch):
+    device = usb_module.USBDeviceInfo(0x0413, 0x6029, 1, 2, object(), object())
+    calls = []
+    transport = object()
+
+    def open_device(cls, usb_device, **kwargs):
+        calls.append((usb_device, kwargs))
+        return transport
+
+    monkeypatch.setattr(
+        usb_module._LibUSB1Transport,
+        "open_device",
+        classmethod(open_device),
+    )
+
+    result = usb_module.open_usb_transport(
+        device,
+        async_endpoints=(0x84, 0x85),
+        async_queue_mib=4,
+    )
+
+    assert result is transport
+    assert calls == [
+        (
+            device,
+            {
+                "async_endpoints": (0x84, 0x85),
+                "async_queue_mib": 4,
+                "owns_context": False,
+            },
+        )
+    ]
+
+
 class FakeTransport:
     def __init__(self, reply=b"\x00\x00\xaa"):
         self.writes = []

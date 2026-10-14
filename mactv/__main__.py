@@ -6,16 +6,16 @@ from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Callable, cast
 
-from mactv.service_map import DVBServiceMap, map_from_tunings
 
-
-from mactv.scan_tables import known_table_names, parse_table
-from mactv.stream_scanner import DVBServiceType
-from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
-
-from mactv.drivers.af9015.device import AF9015Device
 from mactv import usb, serialize
+from mactv.device_manager import DVBDeviceManager
+from mactv.driver_api.device import DVBDevice
+from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
+from mactv.drivers.af9015.device import AF9015Device
+from mactv.scan_tables import known_table_names, parse_table
 from mactv.server import LocalTS_HTTPServer
+from mactv.service_map import DVBServiceMap, map_from_tunings
+from mactv.stream_scanner import DVBServiceType
 
 
 TS_PACKET_SIZE = 188
@@ -163,7 +163,7 @@ def _print_status(device) -> None:
 
 
 def _report_scan_failure_diagnostics(
-    device: AF9015Device, adapter_index: int, error: Exception
+    device: DVBDevice, adapter_index: int, error: Exception
 ) -> None:
     """Report frontend state and optional USB transfer statistics after a scan error."""
     print(
@@ -178,20 +178,20 @@ def _report_scan_failure_diagnostics(
 
     if usb.RECORD_STATS:
         try:
-            device.bridge.transport.log_stats()
+            device.log_transport_stats()
         except Exception as diagnostic_error:
             print(f"USB transfer statistics failed: {diagnostic_error}", flush=True)
     else:
         print("USB transfer statistics are disabled; rerun with --usb-stats to collect them.")
 
 
-def _run_device(device: AF9015Device, args) -> int:
+def _run_device(device: DVBDevice, args) -> int:
     # 'device' command stops at device discovery
     if args.command == "device":
-        print(f"Device state: {'warm' if device.is_warm else 'cold'}")
+        print(f"Device state: {'warm' if device.is_warm() else 'cold'}")
         return 0
 
-    if not device.is_warm:
+    if not device.is_warm():
         print("Device is cold; initializing and downloading firmware to device...", end="", flush=True)
         device.init_hardware()
         print("Done.")
@@ -261,7 +261,7 @@ def _run_device(device: AF9015Device, args) -> int:
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1
-        device.bridge.transport.log_stats()
+        device.log_transport_stats()
         print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
         return 0
 
@@ -286,7 +286,7 @@ def _run_device(device: AF9015Device, args) -> int:
                         if service.service_type in DVBServiceType else service.service_type
         print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
                 f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
-    device.bridge.transport.log_stats()
+    device.log_transport_stats()
 
     if args.command == "scan":
         return 0
@@ -312,7 +312,7 @@ def _run_device(device: AF9015Device, args) -> int:
             print("Stopping transport-stream server")
         finally:
             server.close()
-            device.bridge.transport.log_stats()
+            device.log_transport_stats()
 
     return 0
 
@@ -476,24 +476,24 @@ def main() -> int:
         pprint.pprint(parse_table(args.scan), underscore_numbers=True)
         return 0
 
-    stream_actions = [
-        name for name, enabled in (
-            ("--record", args.record is not None),
-            ("--serve", args.serve is not None),
-            ("--scan", args.command == "scan"),
-        ) if enabled
-    ]
-    if len(stream_actions) > 1:
-        main_parser.error(f"{', '.join(stream_actions)} cannot be used together")
     usb.LOG = args.usb_log
     usb.RECORD_STATS = args.usb_stats
 
-    try:
-        with AF9015Device.open(args.vendor_id, args.product_id) as device:
-            return _run_device(cast(AF9015Device, device), args)
-    except (ValueError) as error:
-        print(f"Error: {error}")
-        return 1
+    with DVBDeviceManager([AF9015Device]) as manager:
+        device_id = usb.USBDeviceID(args.vendor_id, args.product_id)
+        result = manager.connect_all(ids={device_id})
+
+        if len(result.connected) < 1:
+            print("No DVB devices found.")
+            return 1
+
+        if len(result.connected) > 1:
+            for device in result.connected:
+                print(f"Discovered {device}")
+
+        device = result.connected[0]
+        print(f"Using {device}")
+        return _run_device(device, args)
 
 
 if __name__ == "__main__":
