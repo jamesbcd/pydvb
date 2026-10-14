@@ -13,8 +13,9 @@ from typing import Any, Protocol
 
 import usb1 as _usb1
 
-usb1: Any = _usb1
-LibUSBError = getattr(_usb1, "USBError", OSError)
+usb1: Any = _usb1 # Helps us avoid type-checking errors
+
+LibUSBError = getattr(usb1, "USBError", OSError)
 
 LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable asynchronous bulk-read statistics.
@@ -748,27 +749,3 @@ def open_usb_transport(
         async_queue_mib=async_queue_mib,
         owns_context=False,
     )
-
-
-def default_transport_factory(
-    vendor_id: int,
-    product_id: int,
-    async_endpoints: Collection[int] = (),
-    async_queue_mib: float | None = None,
-) -> USBTransport:
-    """Create the default libusb transport for a USB device."""
-    context = usb1.USBContext()
-    try:
-        devices = enumerate_usb_devices(context)
-        for device in devices:
-            if device.device_id == USBDeviceID(vendor_id, product_id):
-                return _LibUSB1Transport.open_device(
-                    device,
-                    async_endpoints=async_endpoints,
-                    async_queue_mib=async_queue_mib,
-                )
-    except Exception:
-        context.close()
-        raise
-    context.close()
-    raise ValueError(f"USB device {vendor_id:04x}:{product_id:04x} was not found")

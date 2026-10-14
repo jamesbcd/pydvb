@@ -42,7 +42,6 @@ from .usb import (
     LibUSBError,
     USBSpeed,
     USBTransport,
-    default_transport_factory,
     enumerate_usb_devices,
     open_usb_transport,
 )
@@ -69,7 +68,6 @@ __all__ = [
     "LibUSBError",
     "enumerate_usb_devices",
     "open_usb_transport",
-    "default_transport_factory",
     "USBSpeed",
     "DVBTuner",
     "TDA18271Tuner",
