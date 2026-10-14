@@ -6,7 +6,7 @@ from mactv.drivers.af9015 import device as device_module
 from mactv.drivers.af9015.device import AF9015Device, DEFAULT_FIRMWARE_PATH
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 from mactv.driver_api.tuner import DVBTuning
-from mactv.usb import USBDeviceInfo
+from mactv.usb import USBDeviceID, USBDeviceInfo
 
 
 class FakeTransport:
@@ -275,7 +275,7 @@ class ReconnectTransport:
 def test_reconnect_replaces_handle_after_get_config_succeeds():
     candidate = ReconnectTransport(b"\x00\x00\x02")
     original = ReconnectTransport(b"\x00\x00\x00", (candidate,))
-    device = AF9015Device(original, vendor_id=0x0413, product_id=0x6029)
+    device = AF9015Device(original, USBDeviceID(0x0413, 0x6029))
 
     assert device._reconnect(timeout=1, poll_interval=0.001) == 0x02
     assert original.closed

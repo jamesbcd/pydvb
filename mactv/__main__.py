@@ -489,10 +489,10 @@ def main() -> int:
 
         if len(result.connected) > 1:
             for device in result.connected:
-                print(f"Discovered {device}")
+                print(f"Discovered {device.model_name} ({device.device_id})")
 
         device = result.connected[0]
-        print(f"Using {device}")
+        print(f"Using {device.model_name} ({device.device_id})")
         return _run_device(device, args)
 
 

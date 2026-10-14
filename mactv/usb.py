@@ -32,6 +32,9 @@ class USBDeviceID:
     vendor_id: int
     product_id: int
 
+    def __str__(self) -> str:
+        return f"{self.vendor_id:#06x}:{self.product_id:#06x}"
+
 
 @dataclass(frozen=True, slots=True)
 class USBDeviceInfo:

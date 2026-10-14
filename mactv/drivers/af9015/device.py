@@ -18,6 +18,9 @@ from ...usb import (
 
 DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
 
+LEADTEK_WINFAST_DTV_DONGLE_GOLD_ID = USBDeviceID(0x0413, 0x6029)
+LEADTEK_WINFAST_DTV_DONGLE_GOLD_NAME = "Leadtek WinFast DTV Dongle Gold"
+
 EEPROM_ADDRESS = 0x50
 EEPROM_SIZE = 256
 EEPROM_TS_MODE = 0x31
@@ -48,7 +51,9 @@ class AF9015Device(DVBDevice):
     """
 
     STREAM_ENDPOINTS = (0x84, 0x85)
-    SUPPORTED_USB_IDS = frozenset({USBDeviceID(0x0413, 0x6029)})
+    SUPPORTED_USB_MODELS = {
+        LEADTEK_WINFAST_DTV_DONGLE_GOLD_ID: LEADTEK_WINFAST_DTV_DONGLE_GOLD_NAME,
+    }
 
     # From Linux driver:
     #
@@ -82,15 +87,14 @@ class AF9015Device(DVBDevice):
             device,
             async_endpoints=cls.STREAM_ENDPOINTS,
         )
-        return cls(transport, device.vendor_id, device.product_id)
+        return cls(transport, device.device_id)
 
     def __init__(
         self,
         transport: USBTransport,
-        vendor_id: int | None = None,
-        product_id: int | None = None,
+        device_id: USBDeviceID | None = None,
     ) -> None:
-        super().__init__(transport, vendor_id, product_id)
+        super().__init__(transport, device_id)
         self.firmware_size = 0
         self.firmware_checksum = 0
         self._reset_with_bridge(AF9015Bridge(transport))

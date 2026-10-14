@@ -14,13 +14,16 @@ class FakeTransport:
 
 
 class FakeDevice(DVBDevice):
-    SUPPORTED_USB_IDS = frozenset({USBDeviceID(0x1111, 0x2222)})
+    SUPPORTED_USB_MODELS = {
+        USBDeviceID(0x1111, 0x2222): "First receiver",
+        USBDeviceID(0x5555, 0x6666): "Second receiver",
+    }
 
     @classmethod
     def open_usb_device(cls, device):
         if device.device.fail:
             raise PermissionError("device is busy")
-        return cls(FakeTransport(), device.vendor_id, device.product_id)
+        return cls(FakeTransport(), device.device_id)
 
     def init_hardware(self):
         pass
@@ -77,6 +80,7 @@ def test_manager_connects_supported_devices_and_reports_failures(monkeypatch):
     with DVBDeviceManager([FakeDevice]) as manager:
         result = manager.connect_all()
 
+        assert manager.supported_ids() == frozenset(FakeDevice.SUPPORTED_USB_MODELS)
         assert len(result.connected) == 1
         assert len(result.unavailable) == 1
         assert result.unavailable[0].device.device_address == 2
@@ -93,3 +97,15 @@ def test_manager_rejects_duplicate_supported_ids():
 
     with pytest.raises(ValueError, match="claimed by both"):
         DVBDeviceManager([FakeDevice, OtherDevice])
+
+
+def test_device_model_name_is_resolved_from_its_usb_id():
+    first = FakeDevice(FakeTransport(), USBDeviceID(0x1111, 0x2222))
+    second = FakeDevice(FakeTransport(), USBDeviceID(0x5555, 0x6666))
+    unknown = FakeDevice(FakeTransport(), USBDeviceID(0x3333, 0x4444))
+    unidentified = FakeDevice(FakeTransport())
+
+    assert first.model_name == "First receiver"
+    assert second.model_name == "Second receiver"
+    assert unknown.model_name is None
+    assert unidentified.model_name is None

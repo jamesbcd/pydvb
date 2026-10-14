@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from threading import RLock
 from typing import Any, ClassVar
 
@@ -14,7 +14,7 @@ from mactv.usb import USBDeviceID, USBDeviceInfo, USBTransport
 class DVBDevice(ABC):
     """Provide common lifecycle and adapter operations for a DVB device."""
 
-    SUPPORTED_USB_IDS: ClassVar[frozenset[USBDeviceID]] = frozenset()
+    SUPPORTED_USB_MODELS: ClassVar[Mapping[USBDeviceID, str]] = {}
 
     @classmethod
     @abstractmethod
@@ -38,17 +38,22 @@ class DVBDevice(ABC):
     def __init__(
         self,
         transport: USBTransport,
-        vendor_id: int | None = None,
-        product_id: int | None = None,
+        device_id: USBDeviceID | None = None,
     ) -> None:
         self.transport = transport
-        self.vendor_id = vendor_id
-        self.product_id = product_id
+        self.device_id = device_id
         self._hardware_initialized = False
         # The device owns this lock. Configured adapters, frontends, and
         # tuners share it; stream reads deliberately use separate demux locks.
         self._control_lock = RLock()
         self.adapters: list[DVBAdapter] = []
+
+    @property
+    def model_name(self) -> str | None:
+        """Return the registered model name for this device's USB ID, if known."""
+        if self.device_id is None:
+            return None
+        return type(self).SUPPORTED_USB_MODELS.get(self.device_id)
 
     def _reset_device_state(self) -> None:
         self.adapters = []

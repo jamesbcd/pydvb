@@ -40,7 +40,7 @@ class DVBDeviceManager:
     def _build_driver_index(self) -> dict[USBDeviceID, type[DVBDevice]]:
         drivers: dict[USBDeviceID, type[DVBDevice]] = {}
         for device_type in self._device_types:
-            for device_id in device_type.SUPPORTED_USB_IDS:
+            for device_id in device_type.SUPPORTED_USB_MODELS:
                 existing = drivers.get(device_id)
                 if existing is not None and existing is not device_type:
                     raise ValueError(

@@ -33,18 +33,23 @@ def install_fake_manager(monkeypatch, device):
 class FakeDevice:
     def __init__(self):
         self.initialize_called = False
+        self.init_hardware_called = False
         self.sleep_called = False
         self.tune_called = False
         self.close_called = False
+        self.model_name = "Fake DVB Device"
+        self.device_id = "fake:0000"
 
     def is_warm(self):
         return False
 
     def initialize(self):
         self.initialize_called = True
+        self.init_hardware_called = True
 
     def init_hardware(self):
         self.initialize_called = True
+        self.init_hardware_called = True
 
     def log_transport_stats(self):
         pass
@@ -136,9 +141,9 @@ def test_init_initializes_without_tuning(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["mactv", "init"])
 
     assert __main__.main() == 0
-    assert device.initialize_called
+    assert device.init_hardware_called
     assert not device.tune_called
-    assert "Device is cold; initializing" in capsys.readouterr().out
+    assert "Device is cold; initializing and downloading firmware to device..." in capsys.readouterr().out
 
 
 def test_status_initializes_reports_and_exits(monkeypatch, capsys):
@@ -147,7 +152,7 @@ def test_status_initializes_reports_and_exits(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["mactv", "status"])
 
     assert __main__.main() == 0
-    assert device.initialize_called
+    assert device.init_hardware_called
     assert not device.tune_called
     output = capsys.readouterr().out
     assert "USB speed: HIGH" in output
@@ -160,10 +165,10 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["mactv", "sleep"])
 
     assert __main__.main() == 0
-    assert device.initialize_called
+    assert device.init_hardware_called
     assert device.sleep_called
     assert not device.tune_called
-    assert "Putting device to sleep" in capsys.readouterr().out
+    assert "Putting device to sleep..." in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

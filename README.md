@@ -38,6 +38,10 @@ with DVBDeviceManager([AF9015Device]) as manager:
     devices = result.connected
 ```
 
+Each connected device exposes its registered model name through
+`device.model_name`. The name is resolved from the device's USB ID and is
+`None` when its driver has no model-name entry for that ID.
+
 Available device commands are:
 
 ```sh
