@@ -122,17 +122,23 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     assert "Device state: cold" in capsys.readouterr().out
 
 
-def test_device_accepts_device_ids(monkeypatch):
+def test_device_uses_supported_device_discovery(monkeypatch):
     device = FakeDevice()
     calls = install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["mactv", "device", "--vendor-id", "0x1234", "--product-id", "0x5678"],
-    )
+    monkeypatch.setattr(sys, "argv", ["mactv", "device"])
 
     assert __main__.main() == 0
-    assert calls == [{__main__.usb.USBDeviceID(0x1234, 0x5678)}]
+    assert calls == [None]
+
+
+@pytest.mark.parametrize("option", ["--vendor-id", "--product-id"])
+def test_device_rejects_removed_device_id_options(monkeypatch, option):
+    monkeypatch.setattr(sys, "argv", ["mactv", "device", option, "0x1234"])
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
 
 
 def test_init_initializes_without_tuning(monkeypatch, capsys):

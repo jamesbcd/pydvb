@@ -340,18 +340,6 @@ def _run_device(device: DVBDevice, args) -> int:
 def main() -> int:
     needs_device = argparse.ArgumentParser(add_help=False)
     needs_device.add_argument(
-        "--vendor-id",
-        type=lambda value: int(value, 0),
-        default=argparse.SUPPRESS,
-        help="Vendor ID of the DVB-T device (default: auto-detected)",
-    )
-    needs_device.add_argument(
-        "--product-id",
-        type=lambda value: int(value, 0),
-        default=argparse.SUPPRESS,
-        help="Product ID of the DVB-T device (default: auto-detected)",
-    )
-    needs_device.add_argument(
         "--adapter",
         "--adapter-index",
         dest="adapter_index",
@@ -474,8 +462,6 @@ def main() -> int:
     )
 
     args = main_parser.parse_args()
-    args.vendor_id = getattr(args, "vendor_id", 0x0413)
-    args.product_id = getattr(args, "product_id", 0x6029)
     args.record = getattr(args, "record", None)
     args.serve = getattr(args, "serve", None)
     args.tuning = getattr(args, "tuning", None)
@@ -496,8 +482,7 @@ def main() -> int:
     usb.RECORD_STATS = args.usb_stats
 
     with DVBDeviceManager([AF9015Device]) as manager:
-        device_id = usb.USBDeviceID(args.vendor_id, args.product_id)
-        result = manager.connect_all(ids={device_id})
+        result = manager.connect_all()
 
         if len(result.connected) < 1:
             print("No DVB devices found.")

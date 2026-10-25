@@ -21,9 +21,8 @@ python3 -m mactv tune --tuning 177.5/7
 
 The default tuning is 226.5 MHz with a 7 MHz bandwidth. The default adapter
 is 0. `tune` exits with status 0 when every
-requested tuning locks, or 2 if any tuning does not lock. Device IDs default to
-the Leadtek IDs `0x0413:0x6029`; select another device with `--vendor-id` and
-`--product-id`.
+requested tuning locks, or 2 if any tuning does not lock. CLI commands discover
+connected devices supported by their registered drivers.
 
 For applications that need to use multiple receivers, `DVBDeviceManager`
 enumerates all connected USB devices and connects to every available device
