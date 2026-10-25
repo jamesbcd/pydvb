@@ -247,12 +247,7 @@ def _run_device(device: DVBDevice, args) -> int:
     else:
         tunings = [DVBTuning(frequency_hz=args.tuning[0],
                              bandwidth_hz=args.tuning[1],
-                             modulation=Modulation.QAM64,
-                             transmission_mode=TransmissionMode.K8,
-                             guard_interval=GuardInterval.GI_1_16,
-                             code_rate_hp=CodeRate.RATE_3_4,
-                             code_rate_lp=CodeRate.RATE_1_2,
-                             hierarchy=Hierarchy.NONE)]
+                            )]
 
     tuning_status = None
     if args.command == "tune":
