@@ -181,11 +181,47 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
 def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_code, expected_output):
     device = device_class()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--tuning", "177.5/8"])
 
     assert __main__.main() == expected_code
     assert device.tune_called
     assert expected_output in capsys.readouterr().out
+
+
+def test_tune_requires_explicit_tuning(monkeypatch):
+    device = FakeDevice()
+    install_fake_manager(monkeypatch, device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune"])
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+
+
+def test_tune_passes_combined_tuning_to_device(monkeypatch):
+    class CapturingDevice(FakeDevice):
+        def tune(self, tuning, adapter_index, wait_for_lock):
+            self.last_tuning = tuning
+            super().tune(tuning, adapter_index, wait_for_lock)
+
+    device = CapturingDevice()
+    install_fake_manager(monkeypatch, device)
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--tuning", "177.5/8"])
+
+    assert __main__.main() == 2
+    assert device.last_tuning.frequency_hz == 177_500_000
+    assert device.last_tuning.bandwidth_hz == 8_000_000
+
+
+@pytest.mark.parametrize("flag", ["--frequency", "--bandwidth"])
+def test_tune_rejects_removed_tuning_flags(monkeypatch, flag):
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", flag, "177.5"])
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
 
 
 def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
@@ -207,7 +243,11 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "record", str(tmp_path / "capture.ts")])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+    )
 
     assert __main__.main() == 2
     output = capsys.readouterr().out
@@ -223,7 +263,11 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
         "capture_stream",
         lambda adapter, output_path: (10, 1.0),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "record", str(tmp_path / "capture.ts")])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+    )
 
     assert __main__.main() == 0
     assert device.close_called
@@ -256,7 +300,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
         "map_from_tunings",
         lambda tunings, adapter, **_kwargs: (calls.append((tunings, adapter)) or channel_map),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "scan"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "scan", "--tuning", "177.5/8"])
 
     assert __main__.main() == 0
     assert len(calls) == 1
@@ -341,6 +385,37 @@ def test_parse_frequency_accepts_mhz(value, expected):
 def test_parse_frequency_rejects_non_positive_values():
     with pytest.raises(__main__.argparse.ArgumentTypeError):
         __main__.parse_frequency("0")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("177.5/6", (177_500_000, 6_000_000)),
+        ("650/7", (650_000_000, 7_000_000)),
+        ("226.5/8", (226_500_000, 8_000_000)),
+    ],
+)
+def test_parse_tuning_accepts_frequency_and_bandwidth_mhz(value, expected):
+    assert __main__.parse_tuning(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "177.5",
+        "177.5/7/8",
+        "/7",
+        "0/7",
+        "nan/7",
+        "1e308/7",
+        "not-a-frequency/7",
+        "177.5/5",
+        "177.5/7.5",
+    ],
+)
+def test_parse_tuning_rejects_invalid_values(value):
+    with pytest.raises(__main__.argparse.ArgumentTypeError):
+        __main__.parse_tuning(value)
 
 
 @pytest.mark.parametrize(

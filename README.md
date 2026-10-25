@@ -16,11 +16,11 @@ and HTTP-streaming commands. Put command options after the subcommand. For a
 live Brisbane DVB-T lock test, connect an antenna and run:
 
 ```sh
-python3 -m mactv tune --frequency 177.5 --bandwidth 7
+python3 -m mactv tune --tuning 177.5/7
 ```
 
-Without `--frequency`, tuning defaults to 226.5 MHz; bandwidth defaults to
-7 MHz. The default adapter is 0. `tune` exits with status 0 when every
+The default tuning is 226.5 MHz with a 7 MHz bandwidth. The default adapter
+is 0. `tune` exits with status 0 when every
 requested tuning locks, or 2 if any tuning does not lock. Device IDs default to
 the Leadtek IDs `0x0413:0x6029`; select another device with `--vendor-id` and
 `--product-id`.
@@ -64,12 +64,13 @@ python3 -m mactv scan --use-table au-Brisbane
 ```
 
 `scan` scans the live transport stream for service/channel metadata.
-For a single frequency it uses the same default tuning parameters as `tune`.
+For a single frequency, `--tuning` accepts the same frequency/bandwidth format
+and defaults to 226.5/7.
 
 To capture up to 35 MiB of transport-stream data after tuning:
 
 ```sh
-python3 -m mactv record capture.ts --frequency 177.5 --bandwidth 7
+python3 -m mactv record capture.ts --tuning 177.5/7
 ```
 
 Recording requires a frontend lock. The adapter is stopped and put to sleep
@@ -78,7 +79,7 @@ after capture completes.
 To serve the live transport stream for VLC or another MPEG-TS client:
 
 ```sh
-python3 -m mactv serve --frequency 177.5 --bandwidth 7
+python3 -m mactv serve --tuning 177.5/7
 ```
 
 The server defaults to `127.0.0.1:8080`; open

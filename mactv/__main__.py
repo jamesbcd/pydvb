@@ -1,6 +1,7 @@
 """Test command-line tool for the Leadtek AF9015 device."""
 
 import argparse
+import math
 import pprint
 from pathlib import Path
 from time import monotonic, sleep
@@ -26,10 +27,34 @@ DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
 
 def parse_frequency(value: str) -> int:
     """Parse a frequency in MHz (for example, ``177.5``)."""
-    frequency_mhz = float(value)
-    if frequency_mhz <= 0:
+    try:
+        frequency_mhz = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("frequency must be a number in MHz") from None
+    if not math.isfinite(frequency_mhz) or frequency_mhz <= 0:
         raise argparse.ArgumentTypeError("frequency must be positive")
-    return round(frequency_mhz * 1_000_000)
+    frequency_hz = frequency_mhz * 1_000_000
+    if not math.isfinite(frequency_hz):
+        raise argparse.ArgumentTypeError("frequency is too large")
+    return round(frequency_hz)
+
+
+def parse_tuning(value: str) -> tuple[int, int]:
+    """Parse ``FREQUENCY_MHZ/BANDWIDTH_MHZ`` into Hz-valued tuning parameters."""
+    parts = value.split("/")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(
+            "tuning must be FREQUENCY_MHZ/BANDWIDTH_MHZ (for example, 177.5/7)"
+        )
+
+    frequency_hz = parse_frequency(parts[0])
+    try:
+        bandwidth_mhz = int(parts[1])
+    except ValueError:
+        raise argparse.ArgumentTypeError("bandwidth must be 6, 7, or 8 MHz") from None
+    if bandwidth_mhz not in (6, 7, 8):
+        raise argparse.ArgumentTypeError("bandwidth must be 6, 7, or 8 MHz")
+    return frequency_hz, bandwidth_mhz * 1_000_000
 
 
 def parse_server_address(value: str) -> tuple[str, int]:
@@ -220,8 +245,8 @@ def _run_device(device: DVBDevice, args) -> int:
             raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
         print("Done.")
     else:
-        tunings = [DVBTuning(frequency_hz=args.frequency,
-                             bandwidth_hz=args.bandwidth * 1_000_000,
+        tunings = [DVBTuning(frequency_hz=args.tuning[0],
+                             bandwidth_hz=args.tuning[1],
                              modulation=Modulation.QAM64,
                              transmission_mode=TransmissionMode.K8,
                              guard_interval=GuardInterval.GI_1_16,
@@ -342,19 +367,11 @@ def main() -> int:
 
     needs_tuning = argparse.ArgumentParser(add_help=False)
     needs_tuning.add_argument(
-        "--frequency",
-        type=parse_frequency,
-        default=226_500_000,    # ABC
-        #default=177_500_000,    # Seven Network
-        help="DVB-T centre frequency in MHz (default: 177.5)",
-    )
-    needs_tuning.add_argument(
-        "--bandwidth",
-        type=int,
-        choices=(6, 7, 8),
-        default=7,
-        metavar="MHZ",
-        help="DVB-T channel bandwidth in MHz (default: 7)",
+        "--tuning",
+        type=parse_tuning,
+        default=None,
+        metavar="FREQUENCY_MHZ/BANDWIDTH_MHZ",
+        help="DVB-T centre frequency and channel bandwidth in MHz",
     )
     needs_tuning.add_argument(
         "--use-table",
@@ -466,6 +483,10 @@ def main() -> int:
     args.product_id = getattr(args, "product_id", 0x6029)
     args.record = getattr(args, "record", None)
     args.serve = getattr(args, "serve", None)
+    args.tuning = getattr(args, "tuning", None)
+
+    if args.command in {"tune", "scan", "record", "serve"} and args.use_table is None and args.tuning is None:
+        main_parser.error("--tuning is required unless --use-table is provided")
 
     if args.command == "known-tables":
         for table_name in known_table_names():
