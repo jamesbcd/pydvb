@@ -352,17 +352,17 @@ def standard_deserializer(cls: type, data: object, ctx: Context) -> object:
         raise TypeError(f"Failed to deserialize object of type {cls.__name__}: {e}")
     return instance
 
-def _iterable_serializer(obj: object, ctx: Context) -> list:
+def iterable_serializer(obj: object, ctx: Context) -> list:
     obj = cast(Iterable, obj)
     return list(obj)
 
-def _iterable_deserializer(cls: type, data: object, ctx: Context) -> Iterable:
+def iterable_deserializer(cls: type, data: object, ctx: Context) -> Iterable:
     data = cast(list, data)
     return cls(data)
 
-register(tuple, _iterable_serializer, _iterable_deserializer)
-register(set, _iterable_serializer, _iterable_deserializer)
-register(frozenset, _iterable_serializer, _iterable_deserializer)
+register(tuple, iterable_serializer, iterable_deserializer)
+register(set, iterable_serializer, iterable_deserializer)
+register(frozenset, iterable_serializer, iterable_deserializer)
 
 def mapping_serializer(obj: object, ctx: Context) -> dict:
     obj = cast(dict, obj)
