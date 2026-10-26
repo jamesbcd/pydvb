@@ -212,7 +212,7 @@ def _report_scan_failure_diagnostics(
 
 def _run_device(device: DVBDevice, args) -> int:
     # 'device' command stops at device discovery
-    if args.command == "device":
+    if args.command == "discover":
         print(f"Device state: {'warm' if device.is_warm() else 'cold'}")
         return 0
 
@@ -399,8 +399,8 @@ def main() -> int:
     )
 
     subparsers.add_parser(
-        "device",
-        help="Detect if a known DVB-T device is connected, without initializing it.",
+        "discover",
+        help="Discover if a known DVB-T device is connected, without initializing it.",
         parents=[needs_device, global_options],
     )
     subparsers.add_parser(

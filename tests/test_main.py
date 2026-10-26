@@ -115,7 +115,7 @@ class FakeStatusDevice(FakeDevice):
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "device"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "discover"])
 
     assert __main__.main() == 0
     assert not device.initialize_called
@@ -125,7 +125,7 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
 def test_device_uses_supported_device_discovery(monkeypatch):
     device = FakeDevice()
     calls = install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "device"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "discover"])
 
     assert __main__.main() == 0
     assert calls == [None]
@@ -133,7 +133,7 @@ def test_device_uses_supported_device_discovery(monkeypatch):
 
 @pytest.mark.parametrize("option", ["--vendor-id", "--product-id"])
 def test_device_rejects_removed_device_id_options(monkeypatch, option):
-    monkeypatch.setattr(sys, "argv", ["mactv", "device", option, "0x1234"])
+    monkeypatch.setattr(sys, "argv", ["mactv", "discover", option, "0x1234"])
 
     with pytest.raises(SystemExit) as error:
         __main__.main()
@@ -149,7 +149,7 @@ def test_init_initializes_without_tuning(monkeypatch, capsys):
     assert __main__.main() == 0
     assert device.init_hardware_called
     assert not device.tune_called
-    assert "Device is cold; initializing and downloading firmware to device..." in capsys.readouterr().out
+    assert "Device is cold; initializing device..." in capsys.readouterr().out
 
 
 def test_status_initializes_reports_and_exits(monkeypatch, capsys):
@@ -373,7 +373,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 def test_usb_options_are_opt_in(monkeypatch, arguments, expected_log, expected_stats):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "device", *arguments])
+    monkeypatch.setattr(sys, "argv", ["mactv", "discover", *arguments])
 
     assert __main__.main() == 0
     assert __main__.usb.LOG is expected_log
