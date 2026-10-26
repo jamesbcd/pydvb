@@ -217,13 +217,12 @@ def _run_device(device: DVBDevice, args) -> int:
         return 0
 
     if not device.is_warm():
-        print("Device is cold; initializing and downloading firmware to device...", end="", flush=True)
+        print("Device is cold; initializing device...", end="", flush=True)
         device.init_hardware()
-        print("Done.")
     else:
         print("Device is warm; reinitializing hardware...", end="", flush=True)
         device.init_hardware()
-        print("Done.")
+    print("Done.")
 
     if args.command == "init":
         return 0
@@ -245,9 +244,7 @@ def _run_device(device: DVBDevice, args) -> int:
             raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
         print("Done.")
     else:
-        tunings = [DVBTuning(frequency_hz=args.tuning[0],
-                             bandwidth_hz=args.tuning[1],
-                            )]
+        tunings = [DVBTuning(frequency_hz=args.tuning[0], bandwidth_hz=args.tuning[1])]
 
     tuning_status = None
     if args.command == "tune":
@@ -296,19 +293,19 @@ def _run_device(device: DVBDevice, args) -> int:
                 device, args.adapter_index, error
             ),
         )
+
     if args.save_services is not None:
         serialize.save(channel_map, args.save_services)
 
-    for service in channel_map.services_sorted():
-        network_name = None if service is None or service.triplet_id is None else \
-                        channel_map.stream_infos[service.triplet_id].network_name
-        service_type = DVBServiceType(service.service_type).name \
-                        if service.service_type in DVBServiceType else service.service_type
-        print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
-                f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
-    device.log_transport_stats()
-
     if args.command == "scan":
+        for service in channel_map.services_sorted():
+            network_name = None if service is None or service.triplet_id is None else \
+                            channel_map.stream_infos[service.triplet_id].network_name
+            service_type = DVBServiceType(service.service_type).name \
+                            if service.service_type in DVBServiceType else service.service_type
+            print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
+                    f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
+        device.log_transport_stats()
         return 0
 
     if args.command == "serve" and args.serve is not None:
