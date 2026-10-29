@@ -262,30 +262,9 @@ def _run_device(device: DVBDevice, args) -> int:
             locks_acquired.append(status and status.lock)
         return 0 if all(locks_acquired) else 2
 
-    if args.record is not None:
-        print(f"Tuning to frequency {tunings[0].frequency_hz / 1_000_000} MHz" +
-                f" with bandwidth {tunings[0].bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
-        tuning_status = device.tune(tunings[0], adapter_index=args.adapter_index, wait_for_lock=True)
-        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
-
-        if tuning_status is None or not tuning_status.lock:
-            print("Capture failed: frontend did not lock; no transport stream is available")
-            return 2
-        print(f"Frontend lock acquired. Starting capture to {args.record}")
-        adapter = device.adapters[args.adapter_index]
-        try:
-            bytes_written, elapsed = capture_stream(adapter, args.record)
-        except (OSError, RuntimeError, ValueError) as error:
-            print(f"Capture failed: {error}")
-            return 1
-        device.log_transport_stats()
-        print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
-        return 0
-
     if args.load_services is not None:
         channel_map = cast(DVBServiceMap, serialize.load(args.load_services))
     else:
-        # Scan and serve build a channel map and display the services.
         channel_map = map_from_tunings(
             tunings,
             device.adapters[args.adapter_index],
@@ -306,6 +285,29 @@ def _run_device(device: DVBDevice, args) -> int:
             print(f"Ch {service.logical_channel_number:3} {service.name:25} {service.service_metatype:5} " +
                     f"ID={service.triplet_id:17} {network_name:25} " + f"Type: {service_type}")
         device.log_transport_stats()
+        return 0
+
+    if args.record is not None:
+        # For now, just tune to the first channel in the channel map for recording.
+        tuning = list(channel_map.tunings.values())[0]
+        
+        print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
+                f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+        tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
+        print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
+
+        if tuning_status is None or not tuning_status.lock:
+            print("Capture failed: frontend did not lock; no transport stream is available")
+            return 2
+        print(f"Frontend lock acquired. Starting capture to {args.record}")
+        adapter = device.adapters[args.adapter_index]
+        try:
+            bytes_written, elapsed = capture_stream(adapter, args.record)
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"Capture failed: {error}")
+            return 1
+        device.log_transport_stats()
+        print(f"Captured {bytes_written} bytes in {elapsed:.2f} seconds to {args.record}")
         return 0
 
     if args.command == "serve" and args.serve is not None:

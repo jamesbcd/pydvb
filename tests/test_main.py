@@ -39,6 +39,8 @@ class FakeDevice:
         self.close_called = False
         self.model_name = "Fake DVB Device"
         self.device_id = "fake:0000"
+        self.adapters = [object()]
+        self.tuned = []
 
     def is_warm(self):
         return False
@@ -59,6 +61,7 @@ class FakeDevice:
 
     def tune(self, tuning, adapter_index, wait_for_lock) -> DVBFrontendStatus | None:
         self.tune_called = True
+        self.tuned.append(tuning)
 
     def close(self):
         self.close_called = True
@@ -72,7 +75,7 @@ class FakeDevice:
 
 class FakeUnlockedRecordingDevice(FakeDevice):
     def tune(self, tuning, adapter_index, wait_for_lock):
-        self.tune_called = True
+        super().tune(tuning, adapter_index, wait_for_lock)
         return DVBFrontendStatus(False, False, False, False, False)
 
 
@@ -87,7 +90,7 @@ class FakeLockedRecordingDevice(FakeDevice):
         })()
 
     def tune(self, tuning, adapter_index, wait_for_lock):
-        self.tune_called = True
+        super().tune(tuning, adapter_index, wait_for_lock)
         return DVBFrontendStatus(True, True, True, True, True)
 
 
@@ -246,9 +249,27 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
     assert parsed_args[0].use_table == str(scan_path)
 
 
+def install_recording_channel_map(monkeypatch):
+    mapped_tuning = DVBTuning(frequency_hz=191_500_000, bandwidth_hz=7_000_000)
+    channel_map = SimpleNamespace(tunings={0: mapped_tuning})
+    calls = []
+
+    def fake_map_from_tunings(tunings, adapter, **_kwargs):
+        calls.append((tunings, adapter))
+        return channel_map
+
+    monkeypatch.setattr(__main__, "map_from_tunings", fake_map_from_tunings)
+    return calls, mapped_tuning
+
+
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
     install_fake_manager(monkeypatch, device)
+    map_calls, mapped_tuning = install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__, "capture_stream", lambda *_args: capture_calls.append(True)
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -256,6 +277,11 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
     )
 
     assert __main__.main() == 2
+    assert len(map_calls) == 1
+    assert map_calls[0][0][0].frequency_hz == 177_500_000
+    assert map_calls[0][1] is device.adapters[0]
+    assert device.tuned == [mapped_tuning]
+    assert capture_calls == []
     output = capsys.readouterr().out
     assert "frontend did not lock" in output
     assert "transport stream read returned no data" not in output
@@ -264,10 +290,12 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
 def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     device = FakeLockedRecordingDevice()
     install_fake_manager(monkeypatch, device)
+    map_calls, mapped_tuning = install_recording_channel_map(monkeypatch)
+    capture_calls = []
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda adapter, output_path: (10, 1.0),
+        lambda adapter, output_path: (capture_calls.append((adapter, output_path)) or (10, 1.0)),
     )
     monkeypatch.setattr(
         sys,
@@ -276,6 +304,11 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     )
 
     assert __main__.main() == 0
+    assert len(map_calls) == 1
+    assert map_calls[0][0][0].frequency_hz == 177_500_000
+    assert map_calls[0][1] is device.adapters[0]
+    assert device.tuned == [mapped_tuning]
+    assert capture_calls == [(device.adapters[0], tmp_path / "capture.ts")]
     assert device.close_called
 
 
