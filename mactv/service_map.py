@@ -8,7 +8,7 @@ from mactv.driver_api.adapter import DVBAdapter
 from mactv.driver_api.tuner import DVBTuning
 from mactv.scan_tables import parse_table
 from mactv.serialize import Context, serializable, standard_serializer
-from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBTripletID, ScanPolicy
+from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBDoubletID, DVBTripletID, ScanPolicy
 
 
 @serializable
@@ -21,10 +21,14 @@ class DVBServiceMap:
         self._tuning_list: list[DVBTuning] = []
         self._stream_info_list: list[DVBStreamInfo] = []
 
-        # Dictionaries mapping triplet IDs to indices in the corresponding lists.
+        # Dictionaries mapping triplet IDs to tunings, stream infos, and services.
         self._tuning_dict: dict[DVBTripletID, DVBTuning] = {}
         self._stream_info_dict: dict[DVBTripletID, DVBStreamInfo] = {}
         self._service_dict: dict[DVBTripletID, DVBService] = {}
+
+        # Dictionaries mapping doublet IDs to tunings and stream infos.
+        self._doublet_tuning_dict: dict[DVBDoubletID, DVBTuning] = {}
+        self._doublet_stream_info_dict: dict[DVBDoubletID, DVBStreamInfo] = {}
 
         # Dictionary mapping logical channel number to triplet ID
         self._tripletID_dict: dict[int, DVBTripletID] = {}
@@ -39,6 +43,10 @@ class DVBServiceMap:
         self._read_only_services = MappingProxyType(self._service_dict)
         self._read_only_tripletIDs = MappingProxyType(self._tripletID_dict)
 
+        # Read-only views of the tunings and stream infos, keyed by DVBDoubletIDs for convenience.
+        self._read_only_doublet_tunings = MappingProxyType(self._doublet_tuning_dict)
+        self._read_only_doublet_stream_infos = MappingProxyType(self._doublet_stream_info_dict)
+
     def add_stream_info(self, tuning: DVBTuning, stream_info: DVBStreamInfo):
         '''Add a stream info and its corresponding tuning to the channel map.
         
@@ -49,6 +57,10 @@ class DVBServiceMap:
         
         self._tuning_list.append(tuning)
         self._stream_info_list.append(stream_info)
+
+        if stream_info.doublet_id is not None:
+            self._doublet_tuning_dict[stream_info.doublet_id] = tuning
+            self._doublet_stream_info_dict[stream_info.doublet_id] = stream_info
 
         for service in stream_info.services:
             triplet_id = service.triplet_id
@@ -80,6 +92,16 @@ class DVBServiceMap:
     def triplet_ids(self) -> Mapping[int, DVBTripletID]:
         '''Return a read-only map of all DVBTripletIDs, keyed by logical channel number.'''
         return self._read_only_tripletIDs
+
+    @property
+    def tunings_by_doublet(self) -> Mapping[DVBDoubletID, DVBTuning]:
+        '''Return a read-only map of all DVBTunings, keyed by DVBDoubletID.'''
+        return self._read_only_doublet_tunings
+
+    @property
+    def stream_infos_by_doublet(self) -> Mapping[DVBDoubletID, DVBStreamInfo]:
+        '''Return a read-only map of all DVBStreamInfos, keyed by DVBDoubletID.'''
+        return self._read_only_doublet_stream_infos
 
     def services_sorted(self, key=None) -> list[DVBService]:
         '''Return a sorted list of all DVB services in the channel map.
