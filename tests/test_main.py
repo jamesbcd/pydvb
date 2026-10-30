@@ -1,3 +1,4 @@
+import argparse
 import sys
 from types import SimpleNamespace
 
@@ -7,6 +8,14 @@ from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
 from mactv.stream_scanner import DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
+
+
+def test_parse_lcn_validates_dvb_field_range():
+    assert __main__.parse_lcn("0") == 0
+    assert __main__.parse_lcn("1023") == 1023
+    for value in ("-1", "1024", "not-a-number"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            __main__.parse_lcn(value)
 
 
 def install_fake_manager(monkeypatch, device):
@@ -92,6 +101,14 @@ class FakeLockedRecordingDevice(FakeDevice):
     def tune(self, tuning, adapter_index, wait_for_lock):
         super().tune(tuning, adapter_index, wait_for_lock)
         return DVBFrontendStatus(True, True, True, True, True)
+
+
+class FakeRecordingAdapter:
+    def __init__(self):
+        self.pid_filters = []
+
+    def configure_pid_filter(self, pids):
+        self.pid_filters.append(frozenset(pids))
 
 
 class FakeStatusDevice(FakeDevice):
@@ -251,7 +268,18 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
 
 def install_recording_channel_map(monkeypatch):
     mapped_tuning = DVBTuning(frequency_hz=191_500_000, bandwidth_hz=7_000_000)
-    channel_map = SimpleNamespace(tunings={0: mapped_tuning})
+    triplet_id = DVBTripletID(1, 2, 10)
+    pids = frozenset((0, 16, 17, 100, 101))
+    service = SimpleNamespace(
+        logical_channel_number=7,
+        pids=lambda: pids,
+    )
+    channel_map = SimpleNamespace(
+        tunings={triplet_id: mapped_tuning},
+        triplet_ids={7: triplet_id},
+        services={triplet_id: service},
+        lcns=[7],
+    )
     calls = []
 
     def fake_map_from_tunings(tunings, adapter, **_kwargs):
@@ -259,13 +287,13 @@ def install_recording_channel_map(monkeypatch):
         return channel_map
 
     monkeypatch.setattr(__main__, "map_from_tunings", fake_map_from_tunings)
-    return calls, mapped_tuning
+    return calls, mapped_tuning, pids
 
 
 def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch, capsys, tmp_path):
     device = FakeUnlockedRecordingDevice()
     install_fake_manager(monkeypatch, device)
-    map_calls, mapped_tuning = install_recording_channel_map(monkeypatch)
+    map_calls, mapped_tuning, _pids = install_recording_channel_map(monkeypatch)
     capture_calls = []
     monkeypatch.setattr(
         __main__, "capture_stream", lambda *_args: capture_calls.append(True)
@@ -290,7 +318,7 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
 def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     device = FakeLockedRecordingDevice()
     install_fake_manager(monkeypatch, device)
-    map_calls, mapped_tuning = install_recording_channel_map(monkeypatch)
+    map_calls, mapped_tuning, _pids = install_recording_channel_map(monkeypatch)
     capture_calls = []
     monkeypatch.setattr(
         __main__,
@@ -310,6 +338,56 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     assert device.tuned == [mapped_tuning]
     assert capture_calls == [(device.adapters[0], tmp_path / "capture.ts")]
     assert device.close_called
+
+
+def test_recording_selects_lcn_tuning_and_filters_service_pids(monkeypatch, tmp_path):
+    device = FakeLockedRecordingDevice()
+    adapter = FakeRecordingAdapter()
+    device.adapters[0] = adapter
+    install_fake_manager(monkeypatch, device)
+    map_calls, mapped_tuning, pids = install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__,
+        "capture_stream",
+        lambda capture_adapter, output_path: (
+            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--lcn", "7", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 0
+    assert len(map_calls) == 1
+    assert device.tuned == [mapped_tuning]
+    assert adapter.pid_filters == [pids]
+    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+
+
+def test_recording_unknown_lcn_fails_before_tuning_or_capture(monkeypatch, tmp_path, capsys):
+    device = FakeLockedRecordingDevice()
+    install_fake_manager(monkeypatch, device)
+    map_calls, _mapped_tuning, _pids = install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__, "capture_stream", lambda *_args: capture_calls.append(True)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--lcn", "8", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 2
+    assert len(map_calls) == 1
+    assert device.tuned == []
+    assert capture_calls == []
+    assert "LCN 8 was not found" in capsys.readouterr().out
 
 
 def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):

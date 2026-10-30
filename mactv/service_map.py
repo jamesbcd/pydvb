@@ -26,6 +26,9 @@ class DVBServiceMap:
         self._stream_info_dict: dict[DVBTripletID, DVBStreamInfo] = {}
         self._service_dict: dict[DVBTripletID, DVBService] = {}
 
+        # Dictionary mapping logical channel number to triplet ID
+        self._tripletID_dict: dict[int, DVBTripletID] = {}
+
         self._initialize_read_only_views()
 
     def _initialize_read_only_views(self):
@@ -34,6 +37,7 @@ class DVBServiceMap:
         self._read_only_tunings = MappingProxyType(self._tuning_dict)
         self._read_only_stream_infos = MappingProxyType(self._stream_info_dict)
         self._read_only_services = MappingProxyType(self._service_dict)
+        self._read_only_tripletIDs = MappingProxyType(self._tripletID_dict)
 
     def add_stream_info(self, tuning: DVBTuning, stream_info: DVBStreamInfo):
         '''Add a stream info and its corresponding tuning to the channel map.
@@ -54,6 +58,8 @@ class DVBServiceMap:
             self._tuning_dict[triplet_id] = tuning
             self._stream_info_dict[triplet_id] = stream_info
             self._service_dict[triplet_id] = service
+            if service.logical_channel_number is not None:
+                self._tripletID_dict[service.logical_channel_number] = triplet_id
 
     @property
     def tunings(self) -> Mapping[DVBTripletID, DVBTuning]:
@@ -69,6 +75,11 @@ class DVBServiceMap:
     def services(self) -> Mapping[DVBTripletID, DVBService]:
         '''Return a read-only map of all DVBServices, keyed by serviceDVBTripletID.'''
         return self._read_only_services
+
+    @property
+    def triplet_ids(self) -> Mapping[int, DVBTripletID]:
+        '''Return a read-only map of all DVBTripletIDs, keyed by logical channel number.'''
+        return self._read_only_tripletIDs
 
     def services_sorted(self, key=None) -> list[DVBService]:
         '''Return a sorted list of all DVB services in the channel map.
@@ -96,15 +107,10 @@ class DVBServiceMap:
                       key=lambda name: (name is None, name))
 
     def _serialize(self, ctx: Context) -> dict:
-        output = standard_serializer(self, ctx)
-        # Remove internal dictionaries and read-only views from the serialized output.
-        del output["_tuning_dict"]
-        del output["_stream_info_dict"]
-        del output["_service_dict"]
-        del output["_read_only_tunings"]
-        del output["_read_only_stream_infos"]
-        del output["_read_only_services"]
-        return output
+        return {
+            "_tuning_list": self._tuning_list,
+            "_stream_info_list": self._stream_info_list,
+        }
 
     @classmethod
     def _deserialize(cls, data: object, ctx: Context) -> "DVBServiceMap":

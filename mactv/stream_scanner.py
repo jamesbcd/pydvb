@@ -193,6 +193,68 @@ _DVB_SERVICE_METATYPES = {
 }
 
 @serializable
+class DVBDoubletID(NamedTuple):
+    '''Represents a DVB doublet that globally and uniquely identifies a DVB stream.'''
+    original_network_id: int
+    transport_stream_id: int
+
+    @classmethod
+    def from_int(cls, value: int) -> "DVBDoubletID":
+        """Create a DVBDoubletID from a single integer."""
+        onid = (value >> 16) & 0xFFFF
+        tsid = value & 0xFFFF
+        return cls(original_network_id=onid, transport_stream_id=tsid)
+
+    @classmethod
+    def from_dotted(cls, value: str) -> "DVBDoubletID":
+        """Create a DVBDoubletID from a dotted string in the format ONID.TSID"""
+        onid, tsid = map(int, value.split("."))
+        return cls(original_network_id=onid, transport_stream_id=tsid)
+
+    # Compact aliases for convenience
+    @property
+    def onid(self) -> int:
+        return self.original_network_id
+
+    @property
+    def tsid(self) -> int:
+        return self.transport_stream_id
+
+    def triplet_id(self, service_id: int) -> DVBTripletID:
+        """Return a DVBTripletID for this doublet and the given service ID."""
+        return DVBTripletID(
+            original_network_id=self.original_network_id,
+            transport_stream_id=self.transport_stream_id,
+            service_id=service_id,
+        )
+
+    def __int__(self) -> int:
+        '''Converts the DVBDoubletID to a single integer.'''
+        return (self.original_network_id << 16) | self.transport_stream_id
+
+    def __index__(self) -> int:
+        '''Allows bin(), hex(), oct() and other functions that require a number to work with this object.'''
+        return int(self)
+
+    def dotted(self) -> str:
+        '''Return the DVB doublet as a dotted string in the format ONID.TSID'''
+        return f"{self.original_network_id}.{self.transport_stream_id}"
+
+    def __str__(self) -> str:
+        return self.dotted()
+
+    def __format__(self, format_spec: str) -> str:
+        return format(self.dotted(), format_spec)
+
+    def _serialize(self, ctx: Context) -> str:
+        return self.dotted()
+
+    @classmethod
+    def _deserialize(cls, data: object, ctx: Context) -> "DVBDoubletID":
+        return cls.from_dotted(str(data))
+
+
+@serializable
 class DVBTripletID(NamedTuple):
     '''Represents a DVB triplet that globally and uniquely identifies a DVB service (i.e. channel).'''
     original_network_id: int
@@ -209,7 +271,7 @@ class DVBTripletID(NamedTuple):
 
     @classmethod
     def from_dotted(cls, value: str) -> "DVBTripletID":
-        """Create a DVBTripletID from a dotted string in the format ONID.TSID.SID."""
+        """Create a DVBTripletID from a dotted string in the format ONID.TSID.SID"""
         onid, tsid, sid = map(int, value.split("."))
         return cls(original_network_id=onid, transport_stream_id=tsid, service_id=sid)
 
@@ -226,6 +288,10 @@ class DVBTripletID(NamedTuple):
     def sid(self) -> int:
         return self.service_id
 
+    @property
+    def doublet_id(self) -> DVBDoubletID:
+        return DVBDoubletID(original_network_id=self.original_network_id, transport_stream_id=self.transport_stream_id)
+
     def __int__(self) -> int:
         '''Converts the DVBTriplet to a single integer.'''
         return (self.original_network_id << 32) | (self.transport_stream_id << 16) | self.service_id
@@ -235,7 +301,7 @@ class DVBTripletID(NamedTuple):
         return int(self)
 
     def dotted(self) -> str:
-        '''Return the DVB triplet as a dotted string in the format ONID.TSID.SID.'''
+        '''Return the DVB triplet as a dotted string in the format ONID.TSID.SID'''
         return f"{self.original_network_id}.{self.transport_stream_id}.{self.service_id}"
 
     def __str__(self) -> str:
@@ -301,6 +367,16 @@ class DVBStreamInfo:
     packets_seen: int = 0
     complete: bool = False
     warnings: tuple[str, ...] = ()
+
+    @property
+    def doublet_id(self) -> DVBDoubletID | None:
+        """Return a DVBDoubletID for this stream, or None if the ONID or TSID is missing."""
+        if self.original_network_id is not None and self.transport_stream_id is not None:
+            return DVBDoubletID(
+                original_network_id=self.original_network_id,
+                transport_stream_id=self.transport_stream_id,
+            )
+        return None
 
     def _serialize(self, ctx: Context) -> dict:
         output = standard_serializer(self, ctx)

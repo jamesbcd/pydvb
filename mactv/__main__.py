@@ -39,6 +39,17 @@ def parse_frequency(value: str) -> int:
     return round(frequency_hz)
 
 
+def parse_lcn(value: str) -> int:
+    """Parse a DVB logical channel number."""
+    try:
+        lcn = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("LCN must be an integer from 0 to 1023") from None
+    if not 0 <= lcn <= 1023:
+        raise argparse.ArgumentTypeError("LCN must be an integer from 0 to 1023")
+    return lcn
+
+
 def parse_tuning(value: str) -> tuple[int, int]:
     """Parse ``FREQUENCY_MHZ/BANDWIDTH_MHZ`` into Hz-valued tuning parameters."""
     parts = value.split("/")
@@ -288,8 +299,19 @@ def _run_device(device: DVBDevice, args) -> int:
         return 0
 
     if args.record is not None:
-        # For now, just tune to the first channel in the channel map for recording.
-        tuning = list(channel_map.tunings.values())[0]
+        service = None
+        if args.lcn is not None:
+            triplet_id = channel_map.triplet_ids.get(args.lcn)
+            if triplet_id is None:
+                available_lcns = [lcn for lcn in channel_map.lcns if lcn is not None]
+                print(f"Capture failed: LCN {args.lcn} was not found. "
+                      f"Available LCNs: {available_lcns}")
+                return 2
+            service = channel_map.services[triplet_id]
+            tuning = channel_map.tunings[triplet_id]
+        else:
+            # Preserve the default behavior of recording the first mapped multiplex.
+            tuning = list(channel_map.tunings.values())[0]
         
         print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
                 f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
@@ -301,6 +323,16 @@ def _run_device(device: DVBDevice, args) -> int:
             return 2
         print(f"Frontend lock acquired. Starting capture to {args.record}")
         adapter = device.adapters[args.adapter_index]
+        if service is not None:
+            try:
+                adapter.configure_pid_filter(service.pids())
+            except (OSError, RuntimeError, ValueError) as error:
+                try:
+                    adapter.set_pid_filter_enabled(False)
+                except (OSError, RuntimeError, ValueError) as cleanup_error:
+                    print(f"Capture cleanup failed: {cleanup_error}")
+                print(f"Capture failed: could not configure service PID filter: {error}")
+                return 1
         try:
             bytes_written, elapsed = capture_stream(adapter, args.record)
         except (OSError, RuntimeError, ValueError) as error:
@@ -443,10 +475,16 @@ def main() -> int:
     parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
     record_parser = subparsers.add_parser(
         "record",
-        help="Record a live MPEG-TS stream data to a file",
+        help="Record a live MPEG-TS stream to a file",
         parents=[needs_device, needs_tuning, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
+    record_parser.add_argument(
+        "--lcn",
+        type=parse_lcn,
+        metavar="LCN",
+        help="Record only the DVB service with this logical channel number",
+    )
     serve_parser = subparsers.add_parser(
         "serve",
         help="Serve live MPEG-TS streams over HTTP",
