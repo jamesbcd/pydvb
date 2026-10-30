@@ -16,7 +16,7 @@ from mactv.drivers.af9015.device import AF9015Device
 from mactv.scan_tables import known_table_names, parse_table
 from mactv.server import LocalTS_HTTPServer
 from mactv.service_map import DVBServiceMap, map_from_tunings
-from mactv.stream_scanner import DVBServiceType
+from mactv.stream_scanner import DVBServiceType, DVBTripletID
 
 
 TS_PACKET_SIZE = 188
@@ -48,6 +48,21 @@ def parse_lcn(value: str) -> int:
     if not 0 <= lcn <= 1023:
         raise argparse.ArgumentTypeError("LCN must be an integer from 0 to 1023")
     return lcn
+
+
+def parse_triplet_id(value: str) -> DVBTripletID:
+    """Parse a DVB service triplet ID in ONID.TSID.SID form."""
+    try:
+        triplet_id = DVBTripletID.from_dotted(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "triplet ID must be ONID.TSID.SID with each value from 0 to 65535"
+        ) from None
+    if any(not 0 <= identifier <= 65535 for identifier in triplet_id):
+        raise argparse.ArgumentTypeError(
+            "triplet ID must be ONID.TSID.SID with each value from 0 to 65535"
+        )
+    return triplet_id
 
 
 def parse_tuning(value: str) -> tuple[int, int]:
@@ -309,6 +324,15 @@ def _run_device(device: DVBDevice, args) -> int:
                 return 2
             service = channel_map.services[triplet_id]
             tuning = channel_map.tunings[triplet_id]
+        elif args.triplet_id is not None:
+            triplet_id = args.triplet_id
+            service = channel_map.services.get(triplet_id)
+            if service is None:
+                available_triplet_ids = sorted(channel_map.services)
+                print(f"Capture failed: triplet ID {triplet_id} was not found. "
+                      f"Available triplet IDs: {available_triplet_ids}")
+                return 2
+            tuning = channel_map.tunings[triplet_id]
         else:
             # Preserve the default behavior of recording the first mapped multiplex.
             tuning = list(channel_map.tunings.values())[0]
@@ -479,11 +503,18 @@ def main() -> int:
         parents=[needs_device, needs_tuning, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
-    record_parser.add_argument(
+    service_selector = record_parser.add_mutually_exclusive_group()
+    service_selector.add_argument(
         "--lcn",
         type=parse_lcn,
         metavar="LCN",
         help="Record only the DVB service with this logical channel number",
+    )
+    service_selector.add_argument(
+        "--triplet-id",
+        type=parse_triplet_id,
+        metavar="ONID.TSID.SID",
+        help="Record only the DVB service with this triplet ID",
     )
     serve_parser = subparsers.add_parser(
         "serve",

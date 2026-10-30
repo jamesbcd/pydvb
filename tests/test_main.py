@@ -18,6 +18,14 @@ def test_parse_lcn_validates_dvb_field_range():
             __main__.parse_lcn(value)
 
 
+def test_parse_triplet_id_validates_dvb_fields():
+    assert __main__.parse_triplet_id("1.2.10") == DVBTripletID(1, 2, 10)
+    assert __main__.parse_triplet_id("0.65535.65535") == DVBTripletID(0, 65535, 65535)
+    for value in ("1.2", "1.2.3.4", "1.x.3", "-1.2.3", "1.65536.3"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            __main__.parse_triplet_id(value)
+
+
 def install_fake_manager(monkeypatch, device):
     calls = []
 
@@ -366,6 +374,56 @@ def test_recording_selects_lcn_tuning_and_filters_service_pids(monkeypatch, tmp_
     assert device.tuned == [mapped_tuning]
     assert adapter.pid_filters == [pids]
     assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+
+
+def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatch, tmp_path):
+    device = FakeLockedRecordingDevice()
+    adapter = FakeRecordingAdapter()
+    device.adapters[0] = adapter
+    install_fake_manager(monkeypatch, device)
+    _map_calls, mapped_tuning, pids = install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__,
+        "capture_stream",
+        lambda capture_adapter, output_path: (
+            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--triplet-id", "1.2.10", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 0
+    assert device.tuned == [mapped_tuning]
+    assert adapter.pid_filters == [pids]
+    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+
+
+def test_recording_unknown_triplet_id_fails_before_tuning_or_capture(
+    monkeypatch, tmp_path, capsys
+):
+    device = FakeLockedRecordingDevice()
+    install_fake_manager(monkeypatch, device)
+    install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__, "capture_stream", lambda *_args: capture_calls.append(True)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--triplet-id", "1.2.11", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 2
+    assert device.tuned == []
+    assert capture_calls == []
+    assert "triplet ID 1.2.11 was not found" in capsys.readouterr().out
 
 
 def test_recording_unknown_lcn_fails_before_tuning_or_capture(monkeypatch, tmp_path, capsys):
