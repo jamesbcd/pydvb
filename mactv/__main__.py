@@ -16,7 +16,7 @@ from mactv.drivers.af9015.device import AF9015Device
 from mactv.scan_tables import known_table_names, parse_table
 from mactv.server import LocalTS_HTTPServer
 from mactv.service_map import DVBServiceMap, map_from_tunings
-from mactv.stream_scanner import DVBServiceType, DVBTripletID
+from mactv.stream_scanner import DVBServiceType, DVBDoubletID, DVBTripletID
 
 
 TS_PACKET_SIZE = 188
@@ -63,6 +63,21 @@ def parse_triplet_id(value: str) -> DVBTripletID:
             "triplet ID must be ONID.TSID.SID with each value from 0 to 65535"
         )
     return triplet_id
+
+
+def parse_doublet_id(value: str) -> DVBDoubletID:
+    """Parse a DVB multiplex doublet ID in ONID.TSID form."""
+    try:
+        doublet_id = DVBDoubletID.from_dotted(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "doublet ID must be ONID.TSID with each value from 0 to 65535"
+        ) from None
+    if any(not 0 <= identifier <= 65535 for identifier in doublet_id):
+        raise argparse.ArgumentTypeError(
+            "doublet ID must be ONID.TSID with each value from 0 to 65535"
+        )
+    return doublet_id
 
 
 def parse_tuning(value: str) -> tuple[int, int]:
@@ -333,6 +348,13 @@ def _run_device(device: DVBDevice, args) -> int:
                       f"Available triplet IDs: {available_triplet_ids}")
                 return 2
             tuning = channel_map.tunings[triplet_id]
+        elif args.doublet_id is not None:
+            tuning = channel_map.tunings_by_doublet.get(args.doublet_id)
+            if tuning is None:
+                available_doublet_ids = sorted(channel_map.tunings_by_doublet)
+                print(f"Capture failed: doublet ID {args.doublet_id} was not found. "
+                      f"Available doublet IDs: {available_doublet_ids}")
+                return 2
         else:
             # Preserve the default behavior of recording the first mapped multiplex.
             tuning = list(channel_map.tunings.values())[0]
@@ -515,6 +537,12 @@ def main() -> int:
         type=parse_triplet_id,
         metavar="ONID.TSID.SID",
         help="Record only the DVB service with this triplet ID",
+    )
+    service_selector.add_argument(
+        "--doublet-id",
+        type=parse_doublet_id,
+        metavar="ONID.TSID",
+        help="Record the full DVB multiplex with this doublet ID",
     )
     serve_parser = subparsers.add_parser(
         "serve",

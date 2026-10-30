@@ -72,12 +72,14 @@ To capture up to 35 MiB of transport-stream data after tuning:
 python3 -m mactv record capture.ts --tuning 177.5/7
 python3 -m mactv record channel-7.ts --use-table au-Brisbane --lcn 7
 python3 -m mactv record example.ts --use-table au-Brisbane --triplet-id 1.2.10
+python3 -m mactv record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
 ```
 
 Use `--lcn` or `--triplet-id ONID.TSID.SID` to capture only the selected
-service's transport-stream PIDs; without either option, recording captures the
-full multiplex. Recording requires a frontend lock. The adapter is stopped and
-put to sleep after capture completes.
+service's transport-stream PIDs. Use `--doublet-id ONID.TSID` to select a
+multiplex and capture its full transport stream. Without a selector, recording
+captures the first mapped multiplex. Recording requires a frontend lock. The
+adapter is stopped and put to sleep after capture completes.
 
 To serve the live transport stream for VLC or another MPEG-TS client:
 

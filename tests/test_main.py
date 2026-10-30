@@ -6,7 +6,13 @@ import pytest
 
 from mactv import __main__
 from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
+from mactv.stream_scanner import (
+    DVBDoubletID,
+    DVBService,
+    DVBServiceType,
+    DVBStreamInfo,
+    DVBTripletID,
+)
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
 
 
@@ -24,6 +30,14 @@ def test_parse_triplet_id_validates_dvb_fields():
     for value in ("1.2", "1.2.3.4", "1.x.3", "-1.2.3", "1.65536.3"):
         with pytest.raises(argparse.ArgumentTypeError):
             __main__.parse_triplet_id(value)
+
+
+def test_parse_doublet_id_validates_dvb_fields():
+    assert __main__.parse_doublet_id("1.2") == DVBDoubletID(1, 2)
+    assert __main__.parse_doublet_id("0.65535") == DVBDoubletID(0, 65535)
+    for value in ("1", "1.2.3", "1.x", "-1.2", "1.65536"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            __main__.parse_doublet_id(value)
 
 
 def install_fake_manager(monkeypatch, device):
@@ -277,6 +291,7 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
 def install_recording_channel_map(monkeypatch):
     mapped_tuning = DVBTuning(frequency_hz=191_500_000, bandwidth_hz=7_000_000)
     triplet_id = DVBTripletID(1, 2, 10)
+    doublet_id = DVBDoubletID(1, 2)
     pids = frozenset((0, 16, 17, 100, 101))
     service = SimpleNamespace(
         logical_channel_number=7,
@@ -284,6 +299,7 @@ def install_recording_channel_map(monkeypatch):
     )
     channel_map = SimpleNamespace(
         tunings={triplet_id: mapped_tuning},
+        tunings_by_doublet={doublet_id: mapped_tuning},
         triplet_ids={7: triplet_id},
         services={triplet_id: service},
         lcns=[7],
@@ -401,6 +417,70 @@ def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatc
     assert device.tuned == [mapped_tuning]
     assert adapter.pid_filters == [pids]
     assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+
+
+def test_recording_selects_doublet_id_tuning_for_full_multiplex(monkeypatch, tmp_path):
+    device = FakeLockedRecordingDevice()
+    adapter = FakeRecordingAdapter()
+    device.adapters[0] = adapter
+    install_fake_manager(monkeypatch, device)
+    _map_calls, mapped_tuning, _pids = install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__,
+        "capture_stream",
+        lambda capture_adapter, output_path: (
+            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 0
+    assert device.tuned == [mapped_tuning]
+    assert adapter.pid_filters == []
+    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+
+
+def test_recording_unknown_doublet_id_fails_before_tuning_or_capture(
+    monkeypatch, tmp_path, capsys
+):
+    device = FakeLockedRecordingDevice()
+    install_fake_manager(monkeypatch, device)
+    install_recording_channel_map(monkeypatch)
+    capture_calls = []
+    monkeypatch.setattr(
+        __main__, "capture_stream", lambda *_args: capture_calls.append(True)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--doublet-id", "1.3", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
+    )
+
+    assert __main__.main() == 2
+    assert device.tuned == []
+    assert capture_calls == []
+    assert "doublet ID 1.3 was not found" in capsys.readouterr().out
+
+
+def test_recording_doublet_id_is_exclusive_with_service_selectors(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--doublet-id", "1.2", "--lcn", "7", "--tuning",
+         "177.5/8", str(tmp_path / "capture.ts")],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
 
 
 def test_recording_unknown_triplet_id_fails_before_tuning_or_capture(
