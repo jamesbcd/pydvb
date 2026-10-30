@@ -356,7 +356,7 @@ def _run_device(device: DVBDevice, args) -> int:
                       f"Available doublet IDs: {available_doublet_ids}")
                 return 2
         else:
-            # Preserve the default behavior of recording the first mapped multiplex.
+            # Should never get to here, but as a fallback, use the first available tuning.
             tuning = list(channel_map.tunings.values())[0]
         
         print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
@@ -525,7 +525,7 @@ def main() -> int:
         parents=[needs_device, needs_tuning, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
-    service_selector = record_parser.add_mutually_exclusive_group()
+    service_selector = record_parser.add_mutually_exclusive_group(required=True)
     service_selector.add_argument(
         "--lcn",
         type=parse_lcn,

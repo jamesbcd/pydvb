@@ -325,7 +325,8 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
     )
 
     assert __main__.main() == 2
@@ -352,7 +353,8 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+         str(tmp_path / "capture.ts")],
     )
 
     assert __main__.main() == 0
@@ -481,6 +483,22 @@ def test_recording_doublet_id_is_exclusive_with_service_selectors(monkeypatch, t
         __main__.main()
 
     assert error.value.code == 2
+
+
+def test_recording_requires_a_service_selector(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+    assert "one of the arguments --lcn --triplet-id --doublet-id is required" in (
+        capsys.readouterr().err
+    )
 
 
 def test_recording_unknown_triplet_id_fails_before_tuning_or_capture(
