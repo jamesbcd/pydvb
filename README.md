@@ -142,8 +142,12 @@ output-option configuration, selectable I2C gates, or external AGC callbacks.
 Those features are outside the AF9015 DVB-T integration currently provided by
 this package.
 
-By default, `download_firmware()` loads
-`mactv/drivers/af9015/firmware/dvb-usb-af9015.fw`. An alternate image can be selected with
+By default, `download_firmware()` checks the verified cache at
+`mactv/drivers/af9015/firmware/dvb-usb-af9015.fw`, then downloads the AF9015 image
+from the pinned upstream URLs if needed. Downloads are accepted only when their SHA-256
+matches `2e734fa15da07ac75a9ae8aabd766c2b1e36cf10441077597b37f98e50188a71`.
+If the cache is missing or invalid and all downloads fail, firmware loading
+raises an error. An alternate image can be selected with
 `device.download_firmware(firmware_path="/path/to/image.fw")`.
 
 `init_hardware()` follows the Linux AF9015 lifecycle: it detects warm firmware,

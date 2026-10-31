@@ -16,8 +16,6 @@ from ...usb import (
     open_usb_transport,
 )
 
-DEFAULT_FIRMWARE_PATH = Path(__file__).parent / "firmware" / "dvb-usb-af9015.fw"
-
 LEADTEK_WINFAST_DTV_DONGLE_GOLD_ID = USBDeviceID(0x0413, 0x6029)
 LEADTEK_WINFAST_DTV_DONGLE_GOLD_NAME = "Leadtek WinFast DTV Dongle Gold"
 
@@ -51,6 +49,13 @@ class AF9015Device(DVBDevice):
     """
 
     STREAM_ENDPOINTS = (0x84, 0x85)
+    FIRMWARE_FILENAME = "dvb-usb-af9015.fw"
+    FIRMWARE_CACHE_DIR = Path(__file__).resolve().parent / "firmware"
+    FIRMWARE_URLS = (
+        "https://github.com/OpenELEC/dvb-firmware/raw/refs/heads/master/firmware/dvb-usb-af9015.fw",
+        "http://palosaari.fi/linux/v4l-dvb/firmware/af9015/5.24.0.0/dvb-usb-af9015.fw"
+    )
+    FIRMWARE_SHA256 = "2e734fa15da07ac75a9ae8aabd766c2b1e36cf10441077597b37f98e50188a71"
     SUPPORTED_USB_MODELS = {
         LEADTEK_WINFAST_DTV_DONGLE_GOLD_ID: LEADTEK_WINFAST_DTV_DONGLE_GOLD_NAME,
     }
@@ -148,7 +153,11 @@ class AF9015Device(DVBDevice):
             if firmware is not None and firmware_path is not None:
                 raise ValueError("provide firmware bytes or firmware_path, not both")
             if firmware is None:
-                path = Path(firmware_path) if firmware_path is not None else DEFAULT_FIRMWARE_PATH
+                path = (
+                    Path(firmware_path)
+                    if firmware_path is not None
+                    else self.resolve_firmware_path()
+                )
                 firmware = path.read_bytes()
             self.bridge.download_firmware(firmware)
             self.firmware_size = len(firmware)

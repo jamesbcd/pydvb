@@ -1,10 +1,13 @@
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
+import requests
 
 from mactv.drivers.af9015 import device as device_module
-from mactv.drivers.af9015.device import AF9015Device, DEFAULT_FIRMWARE_PATH
+from mactv.drivers.af9015.device import AF9015Device
 from mactv.drivers.af9015.frontend import DVBFrontendStatus
+from mactv.driver_api import device as driver_device_module
 from mactv.driver_api.tuner import DVBTuning
 from mactv.usb import USBDeviceID, USBDeviceInfo
 
@@ -86,16 +89,8 @@ def test_device_shares_control_lock_with_adapters():
     assert second.control_lock is device._control_lock
 
 
-def test_default_firmware_path_exists():
-    assert DEFAULT_FIRMWARE_PATH == (
-        Path(__file__).parents[1]
-        / "mactv"
-        / "drivers"
-        / "af9015"
-        / "firmware"
-        / "dvb-usb-af9015.fw"
-    )
-    assert DEFAULT_FIRMWARE_PATH.is_file()
+def test_firmware_cache_is_inside_concrete_driver_package():
+    assert AF9015Device.FIRMWARE_CACHE_DIR == Path(device_module.__file__).resolve().parent / "firmware"
 
 
 def test_open_usb_device_uses_manager_transport_opener(monkeypatch):
@@ -281,3 +276,110 @@ def test_reconnect_replaces_handle_after_get_config_succeeds():
     assert original.closed
     assert device.bridge.transport is candidate
     assert not device._hardware_initialized
+
+
+class FirmwareResponse:
+    def __init__(self, content):
+        self.content = content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exception_type, _exception, _traceback):
+        pass
+
+    def raise_for_status(self):
+        pass
+
+
+def configure_test_firmware(monkeypatch, tmp_path, urls, firmware):
+    monkeypatch.setattr(AF9015Device, "FIRMWARE_URLS", urls)
+    monkeypatch.setattr(AF9015Device, "FIRMWARE_FILENAME", "test-firmware.fw")
+    monkeypatch.setattr(AF9015Device, "FIRMWARE_SHA256", sha256(firmware).hexdigest())
+    monkeypatch.setattr(AF9015Device, "FIRMWARE_CACHE_DIR", tmp_path)
+
+
+def test_firmware_resolver_downloads_then_reuses_verified_cache(monkeypatch, tmp_path):
+    firmware = b"verified firmware"
+    configure_test_firmware(monkeypatch, tmp_path, ("https://example.test/firmware",), firmware)
+    requests_made = []
+
+    def get(url, timeout):
+        requests_made.append((url, timeout))
+        return FirmwareResponse(firmware)
+
+    monkeypatch.setattr(driver_device_module.requests, "get", get)
+    device = AF9015Device(FakeTransport())
+
+    cached_path = device.resolve_firmware_path()
+    assert cached_path.read_bytes() == firmware
+    assert device.resolve_firmware_path() == cached_path
+    assert requests_made == [("https://example.test/firmware", 15)]
+
+
+def test_firmware_resolver_replaces_cache_with_invalid_digest(monkeypatch, tmp_path):
+    firmware = b"verified firmware"
+    configure_test_firmware(monkeypatch, tmp_path, ("https://example.test/firmware",), firmware)
+    cached_path = tmp_path / "test-firmware.fw"
+    cached_path.write_bytes(b"stale firmware")
+    monkeypatch.setattr(
+        driver_device_module.requests,
+        "get",
+        lambda url, timeout: FirmwareResponse(firmware),
+    )
+    device = AF9015Device(FakeTransport())
+
+    assert device.resolve_firmware_path() == cached_path
+    assert cached_path.read_bytes() == firmware
+
+
+def test_firmware_resolver_tries_next_url_after_digest_mismatch(monkeypatch, tmp_path):
+    firmware = b"verified firmware"
+    urls = ("https://example.test/bad", "https://example.test/good")
+    configure_test_firmware(monkeypatch, tmp_path, urls, firmware)
+    responses = iter((FirmwareResponse(b"wrong firmware"), FirmwareResponse(firmware)))
+    requests_made = []
+
+    def get(url, timeout):
+        requests_made.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(driver_device_module.requests, "get", get)
+    device = AF9015Device(FakeTransport())
+
+    cached_path = device.resolve_firmware_path()
+
+    assert cached_path.read_bytes() == firmware
+    assert requests_made == list(urls)
+
+
+def test_firmware_resolver_fails_without_cached_file_when_download_fails(monkeypatch, tmp_path):
+    firmware = b"verified firmware"
+    configure_test_firmware(monkeypatch, tmp_path / "cache", ("https://example.test/firmware",), firmware)
+
+    def fail_request(url, timeout):
+        raise requests.ConnectionError("offline")
+
+    monkeypatch.setattr(driver_device_module.requests, "get", fail_request)
+    device = AF9015Device(FakeTransport())
+
+    with pytest.raises(IOError, match="could not obtain verified firmware"):
+        device.resolve_firmware_path()
+    assert not (tmp_path / "cache" / "test-firmware.fw").exists()
+
+
+def test_download_firmware_caches_and_uses_remote_image(monkeypatch, tmp_path):
+    firmware = b"verified firmware"
+    configure_test_firmware(monkeypatch, tmp_path, ("https://example.test/firmware",), firmware)
+    monkeypatch.setattr(
+        driver_device_module.requests,
+        "get",
+        lambda url, timeout: FirmwareResponse(firmware),
+    )
+    transport = FakeTransport()
+    device = AF9015Device(transport)
+
+    device.download_firmware()
+
+    assert transport.writes[0][8:] == firmware
+    assert (tmp_path / "test-firmware.fw").read_bytes() == firmware

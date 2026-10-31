@@ -12,8 +12,5 @@ dependencies = ["libusb1>=3.4.0", "construct>=2.10.70", "requests>=2.34.2"]
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
-[tool.setuptools.package-data]
-mactv.drivers.af9015 = ["firmware/*.fw"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]

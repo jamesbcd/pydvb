@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
+from hashlib import sha256
+from os import replace
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import RLock
 from typing import Any, ClassVar
+
+import requests
 
 from mactv.driver_api.adapter import DVBAdapter
 from mactv.usb import USBDeviceID, USBDeviceInfo, USBTransport
@@ -15,6 +21,10 @@ class DVBDevice(ABC):
     """Provide common lifecycle and adapter operations for a DVB device."""
 
     SUPPORTED_USB_MODELS: ClassVar[Mapping[USBDeviceID, str]] = {}
+    FIRMWARE_URLS: ClassVar[tuple[str, ...]] = ()
+    FIRMWARE_FILENAME: ClassVar[str | None] = None
+    FIRMWARE_SHA256: ClassVar[str | None] = None
+    FIRMWARE_CACHE_DIR: ClassVar[Path]
 
     @classmethod
     @abstractmethod
@@ -54,6 +64,58 @@ class DVBDevice(ABC):
         if self.device_id is None:
             return None
         return type(self).SUPPORTED_USB_MODELS.get(self.device_id)
+
+    def resolve_firmware_path(self) -> Path:
+        """Return verified cached firmware, downloading and caching it when needed.
+
+        Concrete device classes configure ``FIRMWARE_FILENAME``,
+        ``FIRMWARE_SHA256``, ``FIRMWARE_URLS``, and ``FIRMWARE_CACHE_DIR``.
+        """
+        filename = type(self).FIRMWARE_FILENAME
+        expected_hash = type(self).FIRMWARE_SHA256
+        if not filename or not expected_hash:
+            raise RuntimeError("device firmware filename and SHA-256 are not configured")
+        if Path(filename).name != filename:
+            raise ValueError("firmware filename must not include a directory")
+        if len(expected_hash) != 64 or any(character not in "0123456789abcdefABCDEF" for character in expected_hash):
+            raise ValueError("firmware SHA-256 must contain exactly 64 hexadecimal characters")
+        expected_hash = expected_hash.lower()
+
+        cache_path = type(self).FIRMWARE_CACHE_DIR / filename
+        if self._matches_firmware_hash(cache_path, expected_hash):
+            return cache_path
+
+        errors: list[str] = []
+        for url in type(self).FIRMWARE_URLS:
+            temporary_path: Path | None = None
+            try:
+                with requests.get(url, timeout=15) as response:
+                    response.raise_for_status()
+                    data = response.content
+                if sha256(data).hexdigest() != expected_hash:
+                    raise ValueError("downloaded firmware SHA-256 does not match the expected value")
+
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                with NamedTemporaryFile(dir=cache_path.parent, prefix=f".{filename}.", delete=False) as temporary_file:
+                    temporary_path = Path(temporary_file.name)
+                    temporary_file.write(data)
+                replace(temporary_path, cache_path)
+                return cache_path
+            except (OSError, requests.RequestException, ValueError) as error:
+                errors.append(f"{url}: {error}")
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
+
+        detail = "; ".join(errors) if errors else "no firmware URLs are configured"
+        raise IOError(f"could not obtain verified firmware: {detail}")
+
+    @staticmethod
+    def _matches_firmware_hash(path: Path, expected_hash: str) -> bool:
+        try:
+            return sha256(path.read_bytes()).hexdigest() == expected_hash
+        except OSError:
+            return False
 
     def _reset_device_state(self) -> None:
         self.adapters = []
