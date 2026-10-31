@@ -255,6 +255,41 @@ def test_tune_requires_explicit_tuning(monkeypatch):
     assert error.value.code == 2
 
 
+def test_tune_rejects_both_tuning_sources(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "tune", "--tuning", "177.5/8", "--use-table", "au-Brisbane"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+
+
+def test_tune_rejects_load_services(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--load-services", "services.json"])
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+
+
+def test_load_services_rejects_tuning_source(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mactv", "scan", "--tuning", "177.5/8", "--load-services", "services.json"],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+
+
 def test_tune_passes_combined_tuning_to_device(monkeypatch):
     class CapturingDevice(FakeDevice):
         def tune(self, tuning, adapter_index, wait_for_lock):
@@ -595,6 +630,32 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "Example TV" in output
     assert "network" in output
+    assert device.close_called
+
+
+def test_scan_loads_services_without_tuning_or_scan_table(monkeypatch, tmp_path):
+    device = FakeDevice()
+    services_path = tmp_path / "services.json"
+    channel_map = SimpleNamespace(services_sorted=lambda: [])
+    install_fake_manager(monkeypatch, device)
+    monkeypatch.setattr(
+        __main__.serialize,
+        "load",
+        lambda path: channel_map if path == services_path else pytest.fail("unexpected path"),
+    )
+    monkeypatch.setattr(
+        __main__, "parse_table", lambda *_args, **_kwargs: pytest.fail("unexpected table parse")
+    )
+    monkeypatch.setattr(
+        __main__,
+        "map_from_tunings",
+        lambda *_args, **_kwargs: pytest.fail("unexpected live scan"),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["mactv", "scan", "--load-services", str(services_path)]
+    )
+
+    assert __main__.main() == 0
     assert device.close_called
 
 

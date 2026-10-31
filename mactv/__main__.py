@@ -298,14 +298,16 @@ def _run_device(device: DVBDevice, args) -> int:
         print("Done.")
         return 0
 
-    if args.use_table is not None:
-        print(f"Parsing scan table from {args.use_table}...", end="", flush=True)
-        tunings = parse_table(args.use_table, prefer_auto=True)
-        if not tunings:
-            raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
-        print("Done.")
-    else:
-        tunings = [DVBTuning(frequency_hz=args.tuning[0], bandwidth_hz=args.tuning[1])]
+    tunings: list[DVBTuning] = []
+    if args.command == "tune" or args.load_services is None:
+        if args.use_table is not None:
+            print(f"Parsing scan table from {args.use_table}...", end="", flush=True)
+            tunings = parse_table(args.use_table, prefer_auto=True)
+            if not tunings:
+                raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
+            print("Done.")
+        else:
+            tunings = [DVBTuning(frequency_hz=args.tuning[0], bandwidth_hz=args.tuning[1])]
 
     tuning_status = None
     if args.command == "tune":
@@ -446,14 +448,15 @@ def main() -> int:
     )
 
     needs_tuning = argparse.ArgumentParser(add_help=False)
-    needs_tuning.add_argument(
+    tuning_source = needs_tuning.add_mutually_exclusive_group()
+    tuning_source.add_argument(
         "--tuning",
         type=parse_tuning,
         default=None,
         metavar="FREQUENCY_MHZ/BANDWIDTH_MHZ",
         help="DVB-T centre frequency and channel bandwidth in MHz",
     )
-    needs_tuning.add_argument(
+    tuning_source.add_argument(
         "--use-table",
         type=str,
         metavar="scan-table-name-or-path",
@@ -465,7 +468,8 @@ def main() -> int:
         metavar="path-to-save-services-json",
         help="Path to save the scanned DVB-T services",
     )
-    needs_tuning.add_argument(
+    needs_services = argparse.ArgumentParser(add_help=False)
+    needs_services.add_argument(
         "--load-services",
         type=Path,
         metavar="path-to-load-services-json",
@@ -536,13 +540,13 @@ def main() -> int:
     subparsers.add_parser(
         "scan",
         help="Tune and scan live MPEG-TS stream for its service metadata (ie. channels)",
-        parents=[needs_device, needs_tuning, global_options],
+        parents=[needs_device, needs_tuning, needs_services, global_options],
     )
     parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
     record_parser = subparsers.add_parser(
         "record",
         help="Record a live MPEG-TS stream to a file",
-        parents=[needs_device, needs_tuning, global_options],
+        parents=[needs_device, needs_tuning, needs_services, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
     record_parser.add_argument(
@@ -574,7 +578,7 @@ def main() -> int:
     serve_parser = subparsers.add_parser(
         "serve",
         help="Serve live MPEG-TS streams over HTTP",
-        parents=[needs_device, needs_tuning, global_options],
+        parents=[needs_device, needs_tuning, needs_services, global_options],
     )
     serve_parser.add_argument(
         "serve",
@@ -588,9 +592,22 @@ def main() -> int:
     args.record = getattr(args, "record", None)
     args.serve = getattr(args, "serve", None)
     args.tuning = getattr(args, "tuning", None)
+    args.load_services = getattr(args, "load_services", None)
 
-    if args.command in {"tune", "scan", "record", "serve"} and args.use_table is None and args.tuning is None:
-        main_parser.error("--tuning is required unless --use-table is provided")
+    tuning_commands = {"tune", "scan", "record", "serve"}
+    if args.command in tuning_commands:
+        if args.load_services is not None and (
+            args.use_table is not None or args.tuning is not None
+        ):
+            main_parser.error("--load-services cannot be combined with --tuning or --use-table")
+        if (
+            args.use_table is None
+            and args.tuning is None
+            and args.load_services is None
+        ):
+            main_parser.error(
+                "--tuning or --use-table is required unless --load-services is provided"
+            )
 
     if args.command == "known-tables":
         for table_name in known_table_names():

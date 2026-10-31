@@ -1,117 +1,183 @@
 # mactv
 
-`mactv` is a Python framework for AF9015-based USB DVB-T receivers. Its layers
-follow the Linux driver: `AF9015Bridge` handles the USB command protocol and
-exposes I2C client operations, `DVBTuner` models tuner callbacks, and
-`DVBDemuxer` reads the transport stream.
+`mactv` is a Python framework and command-line tool for using DVB-T receivrs. It
+currently only supports a single device and chipset: the the **Leadtek WinFast DTV Dongle Gold** (USB ID `0413:6029`), which uses the Afateach AF9015 bridge, AF9013 demodulator
+and TDA18271 HDC1/HDC2 tuner.
 
-Install the package with:
+This framework has been developed using Github Copilot to translate the Linux device driver
+code to Python. Although a single device is currently supported, it should be relatively
+easy to use AI to add support for other DVB-T devices, using the abstractions provided here.
+
+
+## Requirements
+
+- Python 3.10 or later
+- A supported AF9015 receiver for live hardware operations
+- Native libusb 1.0, required by the default USB transport
+
+On macOS, install libusb with your preferred package manager, for example:
 
 ```sh
-python3 -m pip install -e .[test]
+brew install libusb
 ```
 
-The CLI provides device inspection, initialization, tuning, scan-table, capture,
-and HTTP-streaming commands. Put command options after the subcommand. For a
-live Brisbane DVB-T lock test, connect an antenna and run:
+Install `mactv` from a checkout:
+
+```sh
+python3 -m pip install -e .
+```
+
+To install the test dependencies as well:
+
+```sh
+python3 -m pip install -e '.[test]'
+```
+
+Run the command-line tool's help with:
+
+```sh
+python3 -m mactv --help
+```
+
+Live tuning, firmware upload, recording, and streaming require a connected
+receiver and usable antenna signal. `discover` only probes the device; commands
+that tune or stream initialize the hardware and may upload firmware.
+
+## Quick start
+
+Tune to a channel at 177.5 MHz with 7 MHz bandwidth:
 
 ```sh
 python3 -m mactv tune --tuning 177.5/7
 ```
 
-The default tuning is 226.5 MHz with a 7 MHz bandwidth. The default adapter
-is 0. `tune` exits with status 0 when every
-requested tuning locks, or 2 if any tuning does not lock. CLI commands discover
-connected devices supported by their registered drivers.
+The tuning format is `FREQUENCY_MHZ/BANDWIDTH_MHZ`; supported bandwidths are
+6, 7, and 8 MHz. The default adapter index is 0. Tuning exits with status 0
+when all requested tunings lock and status 2 if any fails to lock.
 
-For applications that need to use multiple receivers, `DVBDeviceManager`
-enumerates all connected USB devices and connects to every available device
-supported by its registered drivers. A device that is present but unavailable
-is reported separately from unsupported devices:
-
-```python
-from mactv import AF9015Device, DVBDeviceManager
-
-with DVBDeviceManager([AF9015Device]) as manager:
-    result = manager.connect_all()
-    devices = result.connected
-```
-
-Each connected device exposes its registered model name through
-`device.model_name`. The name is resolved from the device's USB ID and is
-`None` when its driver has no model-name entry for that ID.
-
-Available device commands are:
+Scan a LinuxTV DVB-T table and list its services:
 
 ```sh
-python3 -m mactv device             # Detect the device without initializing it
-python3 -m mactv init               # Initialize without tuning
-python3 -m mactv status             # Initialize and print device/frontend status
-python3 -m mactv sleep              # Initialize, then put the device to sleep
+python3 -m mactv scan --use-table au-Brisbane
 ```
 
-Use `--adapter` (or `--adapter-index`) to select an adapter. Tuning commands
-also accept `--use-table` with a known scan-table name or local table path.
-`known-tables` lists available LinuxTV table names, while `parse-table
-<name-or-path>` prints parsed tunings without opening a device:
+Capture a selected service or an entire multiplex:
+
+```sh
+python3 -m mactv record channel.ts --use-table au-Brisbane --lcn 7
+python3 -m mactv record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
+```
+
+Serve discovered services and live streams to a local network:
+
+```sh
+python3 -m mactv serve --use-table au-Brisbane
+```
+
+By default, the HTTP server binds to `127.0.0.1:8080`. Open
+`http://127.0.0.1:8080/playlist.m3u8` in VLC or another MPEG-TS client.
+To allow other devices on your network to connect, bind to all interfaces:
+
+```sh
+python3 -m mactv serve 0.0.0.0:8080 --use-table au-Brisbane
+```
+
+Then use the server computer's LAN address in the playlist URL. Stop a running
+tune, recording, or server with Ctrl-C where applicable.
+
+## Commands
+
+Command options go after the subcommand. Use `--adapter INDEX` (also
+`--adapter-index`) to choose an adapter; it defaults to 0.
+
+| Command | Purpose |
+| --- | --- |
+| `discover` | Find a supported receiver and report whether its firmware is running; does not initialize it. |
+| `init` | Initialize the receiver without tuning. May require network access for firmware retrieval. |
+| `status` | Initialize and print USB, adapter, frontend, and tuner status. |
+| `sleep` | Initialize, then put the receiver into its low-power state. |
+| `tune` | Tune to a frequency or each entry in a scan table and report lock. |
+| `known-tables` | List LinuxTV DVB-T scan-table names; requires network access. |
+| `parse-table NAME_OR_PATH` | Parse a known scan-table name or a local table file without opening a device. |
+| `scan` | Read live transport-stream metadata and list services/channels. |
+| `record OUTPUT_PATH` | Record a selected service or multiplex to a transport-stream file. |
+| `serve` | Serve discovered services and their live transport streams over HTTP. |
+
+`tune` requires either `--tuning FREQUENCY_MHZ/BANDWIDTH_MHZ` or
+`--use-table NAME_OR_PATH`; those options cannot be combined. `scan`, `record`,
+and `serve` accept either tuning source or `--load-services PATH`, and these
+service-map inputs cannot be combined.
+
+### Scan tables and service maps
+
+Use the LinuxTV DVB-T table name for your location or pass a local table path:
 
 ```sh
 python3 -m mactv known-tables
 python3 -m mactv parse-table au-Brisbane
-python3 -m mactv tune --use-table au-Brisbane
-python3 -m mactv scan --use-table au-Brisbane
+python3 -m mactv parse-table ./my-scan-table
+python3 -m mactv scan --use-table ./my-scan-table
 ```
 
-`scan` scans the live transport stream for service/channel metadata.
-For a single frequency, `--tuning` accepts the same frequency/bandwidth format
-and defaults to 226.5/7.
+`scan`, `record`, and `serve` can save a scanned service map as JSON with
+`--save-services PATH`. They can also load a previously saved map with
+`--load-services PATH`, without scanning a table or supplying a tuning.
 
-Recording runs for 15 seconds by default. Use `--duration SECONDS` to set a
-different duration; press Ctrl-C to stop early and keep the partial recording:
+### Recording
 
-```sh
-python3 -m mactv record capture.ts --tuning 177.5/7
-python3 -m mactv record capture.ts --duration 60 --tuning 177.5/7
-python3 -m mactv record channel-7.ts --use-table au-Brisbane --lcn 7
-python3 -m mactv record example.ts --use-table au-Brisbane --triplet-id 1.2.10
-python3 -m mactv record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
-```
+Recording runs for 15 seconds by default. Change the duration with
+`--duration SECONDS`; Ctrl-C stops early and preserves the partial file. Choose
+exactly one selector:
 
-Use `--lcn` or `--triplet-id ONID.TSID.SID` to capture only the selected
-service's transport-stream PIDs. Use `--doublet-id ONID.TSID` to select a
-multiplex and capture its full transport stream. Without a selector, recording
-captures the first mapped multiplex. Recording requires a frontend lock. The
-adapter is stopped and put to sleep after capture completes.
+- `--lcn LCN` records the service with that logical channel number.
+- `--triplet-id ONID.TSID.SID` records the service with that DVB service ID.
+- `--doublet-id ONID.TSID` records the full multiplex.
 
-To serve the live transport stream for VLC or another MPEG-TS client:
+Service recordings configure PID filtering for the selected service. Recording
+requires a frontend lock; the adapter is stopped and put to sleep when the
+capture ends.
 
-```sh
-python3 -m mactv serve --tuning 177.5/7
-```
+### Diagnostics
 
-The server defaults to `127.0.0.1:8080`; open
-`http://127.0.0.1:8080/playlist.m3u8` in VLC to see the available DVB services.
-Pass an optional `HOST:PORT` after `serve` to choose another bind address. To
-connect from another device, bind to `0.0.0.0:8080` and open the playlist using
-the server machine's LAN address. The server requires a frontend lock, and
-Ctrl-C stops the server and adapter.
+Use these options on device commands:
 
-Use `--usb-log` to log USB bulk transfers, `--usb-stats` to log stream-read
-timing and byte counts, and `--hardware-diagnostics` with `tune` to print
-tuner/demodulator register diagnostics while checking for lock. The CLI
-initializes the device for `init`, `status`, `sleep`, tuning, recording, and
-streaming, uploading bundled firmware when needed.
-When a scan fails, it prints the frontend status before cleanup; add
-`--usb-stats` to also print asynchronous USB transfer statistics for that run.
+- `--usb-log` logs USB bulk transfers.
+- `--usb-stats` logs stream-read timing and byte counts.
+- `--hardware-diagnostics` prints tuner and demodulator register diagnostics
+  while checking tuning lock.
 
-The Leadtek device's USB IDs can be passed to `Af9015Device.open` after
-checking them with `system_profiler SPUSBHostDataType`:
+## Python API
+
+Register a device driver with `DVBDeviceManager` to enumerate and connect
+supported receivers. The result separates connected devices, supported
+devices that could not be opened, and unsupported USB devices:
 
 ```python
-from mactv import AF9015Device
+from mactv import AF9015Device, DVBDeviceManager, DVBTuning
 
-device = Af9015Device.open(vendor_id=0x0413, product_id=0x6029)
-device.init_hardware()
+with DVBDeviceManager([AF9015Device]) as manager:
+    result = manager.connect_all()
+    if not result.connected:
+        raise RuntimeError("No supported DVB receiver could be opened")
+
+    device = result.connected[0]
+    device.init_hardware()
+    status = device.tune(
+        DVBTuning(frequency_hz=177_500_000, bandwidth_hz=7_000_000)
+    )
+    print(f"Frontend status: {status}")
+```
+
+The manager closes connected devices and its libusb context when leaving the
+`with` block. `device.adapters` contains the configured adapter objects.
+`DVBDeviceManager.connect_all()` returns `connected`, `unavailable`, and
+`unsupported` collections; use `device.model_name` to inspect a registered
+model name.
+
+For lower-level streaming, start an adapter after initializing and tuning its
+frontend, then stop it when finished:
+
+```python
 adapter = device.adapters[0]
 adapter.start()
 try:
@@ -120,41 +186,39 @@ finally:
     adapter.stop()
 ```
 
-The AF9013 demodulator and individual tuner chips still need chip-specific
-drivers. The public `DVBTuner` interface is intentionally ready for those drivers.
+The default transport uses python-libusb1 asynchronous USB transfers and limits
+queued stream data to 16 MiB. Applications that construct or inject transports
+can configure the queue limit through the transport API. Alternative USB
+transports can implement the public `USBTransport` interface.
 
-The transport uses python-libusb1 and queues asynchronous transfers for smooth
-stream buffering. The queued payload is limited to 16 MiB by default; configure
-that limit with `AF9015Device.open(async_queue_mib=...)`. When the limit is
-reached, completed transfers are retained and resubmission pauses until the
-reader consumes enough data. `AF9015Device.open()` uses the bundled libusb
-transport by default; tests or alternative backends can provide a callable via
-its `transport_factory` argument. The callable receives `vendor_id` and
-`product_id` and returns an object implementing `USBTransport`.
+## Firmware
 
-python-libusb1 requires a native libusb-1.0 library. On macOS, install one
-through Homebrew, MacPorts, or Fink as appropriate for your environment.
+Initialization detects whether AF9015 firmware is already running. If needed,
+the device uses the verified firmware cache; if the cache is missing or
+invalid, it downloads firmware from configured upstream URLs and checks its
+SHA-256 before use. Firmware acquisition therefore needs network access when no
+valid cached image is available. You can also supply firmware bytes or a local
+firmware path to `AF9015Device.init_hardware()` or
+`AF9015Device.download_firmware()`.
 
-The bundled `TDA18271Tuner` implements the AF9015 digital DVB-T path: 6, 7,
-and 8 MHz channel bandwidths for the supported HDC1 and HDC2 tuner variants,
-including Linux-compatible PLL, image-rejection, RF tracking-filter, and
-temperature calibration. It intentionally does not expose the full Linux
-TDA18271 driver's analog TV/FM, ATSC, QAM, or DVB-T2 modes, slave-tuner and
-output-option configuration, selectable I2C gates, or external AGC callbacks.
-Those features are outside the AF9015 DVB-T integration currently provided by
-this package.
+## Supported scope
 
-By default, `download_firmware()` checks the verified cache at
-`mactv/drivers/af9015/firmware/dvb-usb-af9015.fw`, then downloads the AF9015 image
-from the pinned upstream URLs if needed. Downloads are accepted only when their SHA-256
-matches `2e734fa15da07ac75a9ae8aabd766c2b1e36cf10441077597b37f98e50188a71`.
-If the cache is missing or invalid and all downloads fail, firmware loading
-raises an error. An alternate image can be selected with
-`device.download_firmware(firmware_path="/path/to/image.fw")`.
+The TDA18271 implementation covers digital DVB-T with 6, 7, and 8 MHz channel
+bandwidths for HDC1 and HDC2 tuner variants. It does not expose the full Linux
+TDA18271 driver's analog TV/FM, ATSC, QAM, or DVB-T2 modes, nor its slave-tuner,
+output-option, selectable I2C-gate, or external-AGC features. Other tuner
+variants are not implemented by this integration.
 
-`init_hardware()` follows the Linux AF9015 lifecycle: it detects warm firmware,
-uploads firmware when needed (unless explicitly disabled), reads the EEPROM
-configuration, and creates a second demuxer when the device reports dual-tuner
-mode. Each entry in `device.adapters` is an `AF9015Adapter` containing a
-frontend, tuner, and demuxer. Use `adapter.frontend` for tuning and status, or
-the adapter's thin stream methods for PID filtering and transport-stream reads.
+For the Linux compatibility reference and implementation details, see
+[the AF9015 driver guide](docs/af9015_driver_explained.md) and
+[the AF9015 header guide](docs/af9015_header_explained.md).
+
+## Development
+
+The test suite uses fake or injected USB transports and does not require
+physical receiver hardware:
+
+```sh
+./.venv/bin/python -m pip install -e '.[test]'
+./.venv/bin/python -m pytest -q
+```
