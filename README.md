@@ -208,10 +208,6 @@ TDA18271 driver's analog TV/FM, ATSC, QAM, or DVB-T2 modes, nor its slave-tuner,
 output-option, selectable I2C-gate, or external-AGC features. Other tuner
 variants are not implemented by this integration.
 
-For the Linux compatibility reference and implementation details, see
-[the AF9015 driver guide](docs/af9015_driver_explained.md) and
-[the AF9015 header guide](docs/af9015_header_explained.md).
-
 ## Development
 
 The test suite uses fake or injected USB transports and does not require
