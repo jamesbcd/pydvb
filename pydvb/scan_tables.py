@@ -109,13 +109,35 @@ def parse_table(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
     """
     scan_path = Path(scan)
     if scan_path.is_file():
-        contents = scan_path.read_text(encoding="utf-8")
-    else:
-        response = _get_from_urls(
-            url.format(name=scan_path.name) for url in DVB_T_SCAN_TABLE_URL
+        return _parse_table_contents(
+            scan_path.read_text(encoding="utf-8"), prefer_auto
         )
-        contents = response.content.decode("utf-8")
 
+    last_error: requests.RequestException | None = None
+    successful_response = False
+    for url in DVB_T_SCAN_TABLE_URL:
+        try:
+            response = _get_from_urls([url.format(name=scan_path.name)])
+        except requests.RequestException as error:
+            last_error = error
+            continue
+
+        successful_response = True
+        try:
+            contents = response.content.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        tunings = _parse_table_contents(contents, prefer_auto)
+        if tunings:
+            return tunings
+
+    if last_error is not None and not successful_response:
+        raise last_error
+    return []
+
+
+def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
+    """Parse scan-table text into DVB tuning values."""
     tunings: list[DVBTuning] = []
     channel: dict[str, str] = {}
 

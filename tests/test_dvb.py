@@ -469,6 +469,38 @@ def test_scanner_parses_known_table_from_mirror_when_linux_tv_fails(monkeypatch)
     ]
 
 
+def test_scanner_parses_known_table_from_mirror_when_linux_tv_returns_html(monkeypatch):
+    class Response:
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            pass
+
+    calls = []
+
+    def get(url, timeout):
+        calls.append(url)
+        if url == scan_tables_module.DVB_T_SCAN_TABLE_URL[0].format(
+            name="au-Brisbane"
+        ):
+            return Response(b"<!doctype html><title>Making sure you're not a bot!</title>")
+        assert url == scan_tables_module.DVB_T_SCAN_TABLE_URL[1].format(
+            name="au-Brisbane"
+        )
+        return Response(b"T 177500000 7MHz 3/4 1/2 QAM64 8K 1/32 NONE\n")
+
+    monkeypatch.setattr(scan_tables_module.requests, "get", get)
+
+    assert parse_table("au-Brisbane") == [
+        scan_tables_module.DVBTuning(177_500_000, 7_000_000)
+    ]
+    assert calls == [
+        url.format(name="au-Brisbane")
+        for url in scan_tables_module.DVB_T_SCAN_TABLE_URL
+    ]
+
+
 def test_scanner_parses_channel_scan_table_format(tmp_path):
     scan_path = tmp_path / "au-Brisbane"
     scan_path.write_text(
