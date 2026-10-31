@@ -337,6 +337,8 @@ def install_recording_channel_map(monkeypatch):
     doublet_id = DVBDoubletID(1, 2)
     pids = frozenset((0, 16, 17, 100, 101))
     service = SimpleNamespace(
+        name="Test service",
+        triplet_id=triplet_id,
         logical_channel_number=7,
         pids=lambda: pids,
     )
@@ -345,6 +347,9 @@ def install_recording_channel_map(monkeypatch):
         tunings_by_doublet={doublet_id: mapped_tuning},
         triplet_ids={7: triplet_id},
         services={triplet_id: service},
+        stream_infos_by_doublet={
+            doublet_id: SimpleNamespace(network_name="Test network"),
+        },
         lcns=[7],
     )
     calls = []

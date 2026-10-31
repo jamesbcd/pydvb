@@ -105,7 +105,20 @@ class LocalTS_HTTPServer:
                 return lease
             if self.evict_oldest_on_exhaustion:
                 if not self._leased_adapters:
-                    return None
+                    deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
+                    while not self._available_adapters and not self._leased_adapters:
+                        if self._stop_event.is_set():
+                            return None
+                        remaining = deadline - monotonic()
+                        if remaining <= 0:
+                            return None
+                        self._adapters_condition.wait(
+                            min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
+                        )
+                    if self._available_adapters:
+                        lease = _AdapterLease(self._available_adapters.pop())
+                        self._leased_adapters.append(lease)
+                        return lease
             else:
                 deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
                 while not self._available_adapters:
@@ -201,6 +214,11 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    @staticmethod
+    def _log(message: str, *, depth: int = 1) -> None:
+        """Print a handler diagnostic with nested indentation."""
+        print(f"{'  ' * depth}{message}", flush=True)
+
     def do_GET(self) -> None:
         owner = cast(_HTTPServer, self.server).owner
         path = urlsplit(self.path).path
@@ -232,11 +250,11 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 or parsed_authority.fragment
                 or any(character.isspace() for character in authority)
             ):
-                print(f"Rejecting playlist request with invalid Host header: {authority!r}", flush=True)
+                self._log(f"Rejecting playlist request with invalid Host header: {authority!r}")
                 self.send_error(400, "invalid Host header")
                 return
             body = owner._playlist(f"http://{authority}")
-            print(f"Serving playlist with {len(body)} bytes", flush=True)
+            self._log(f"Serving playlist with {len(body)} bytes")
             self.send_response(200)
             self.send_header("Content-Type", "audio/x-mpegurl")
             self.send_header("Content-Length", str(len(body)))
@@ -246,62 +264,61 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
         prefix = "/service/"
         if not path.startswith(prefix):
-            print(f"Rejecting unknown HTTP path: {path!r}", flush=True)
+            self._log(f"Rejecting unknown HTTP path: {path!r}")
             self.send_error(404, "stream endpoint is /service/X.Y.Z")
             return
 
         try:
             triplet = DVBTripletID.from_dotted(path.removeprefix(prefix))
         except (TypeError, ValueError):
-            print(f"Rejecting malformed service path: {path!r}", flush=True)
+            self._log(f"Rejecting malformed service path: {path!r}")
             self.send_error(400, "service path must be /service/X.Y.Z")
             return
-        print(f"Resolved service triplet: {triplet}", flush=True)
+        self._log(f"Resolved service triplet: {triplet}")
 
         try:
             tuning = owner.service_map.tunings[triplet]
             service = owner.service_map.services[triplet]
         except KeyError:
-            print(f"Service triplet not found in service map: {triplet}", flush=True)
+            self._log(f"Service triplet not found in service map: {triplet}")
             self.send_error(404, "service was not found")
             return
-        print(
+        self._log(
             f"Service lookup succeeded: name={service.name!r} "
-            f"frequency_hz={tuning.frequency_hz} bandwidth_hz={tuning.bandwidth_hz}",
-            flush=True,
+            f"frequency_hz={tuning.frequency_hz} bandwidth_hz={tuning.bandwidth_hz}"
         )
 
         lease = owner._lease_adapter()
         if lease is None:
-            print("No adapter available for service request", flush=True)
+            self._log("No adapter available for service request")
             self.send_error(503, "no adapter is currently available")
             return
         adapter = lease.adapter
 
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
-        print(f"Client connected: {client_address}", flush=True)
+        self._log(f">>> Client connected: {client_address}")
         chunk_count = 0
         byte_count = 0
         timeout_count = 0
         try:
             if lease.tuning == tuning:
-                print("Reusing adapter tuning for requested service", flush=True)
+                self._log("Reusing adapter tuning for requested service", depth=2)
             else:
-                print("Tuning adapter and waiting for frontend lock", flush=True)
+                self._log("Tuning adapter and waiting for frontend lock", depth=2)
                 status = adapter.tune(tuning, wait_for_lock=True)
-                print(f"Frontend tune returned status: {status!r}", flush=True)
+                self._log(f"Frontend tune returned status: {status!r}", depth=2)
                 if status is not None and not status.lock:
-                    print("Frontend did not lock requested service", flush=True)
+                    self._log("Frontend did not lock requested service", depth=2)
                     self.send_error(503, "adapter did not lock the requested service")
                     return
                 owner._set_lease_tuning(lease, tuning)
                 if status and status.lock:
-                    print("Adapter successfully locked the requested service", flush=True)
+                    self._log("Adapter successfully locked the requested service", depth=2)
             adapter.start()
-            print("Started adapter for streaming", flush=True)
+            self._log("Started adapter for streaming", depth=2)
             adapter.configure_pid_filter(service.pids())
             adapter.set_pid_filter_enabled(True)
-            print("Configured PID filter for streaming", flush=True)
+            self._log("Configured PID filter for streaming", depth=2)
             
             self.protocol_version = "HTTP/1.1"
             self.send_response(200)
@@ -309,19 +326,19 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
-            print("Sent HTTP 200 video/mp2t response headers", flush=True)
+            self._log("Sent HTTP 200 video/mp2t response headers", depth=2)
             while not owner._stop_event.is_set():
                 if self._client_disconnected():
-                    print("Client disconnected before next stream read", flush=True)
+                    self._log("Client disconnected before next stream read", depth=2)
                     break
                 try:
                     chunk = adapter.read_stream(1000)
                 except TimeoutError:
                     timeout_count += 1
                     if timeout_count == 1 or timeout_count % 10 == 0:
-                        print(
+                        self._log(
                             f"Transport-stream read timed out ({timeout_count} timeouts)",
-                            flush=True,
+                            depth=2,
                         )
                     continue
                 chunk_count += 1
@@ -337,21 +354,20 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError) as error:
-            print(f"Client connection closed while streaming: {error!r}", flush=True)
+            self._log(f"Client connection closed while streaming: {error!r}", depth=2)
         except RuntimeError as error:
             if not (lease.stopped and str(error) == "demuxer is not started"):
-                print(
+                self._log(
                     f"Streaming request failed: {type(error).__name__}: {error}",
-                    flush=True,
+                    depth=2,
                 )
         except (TimeoutError, OSError) as error:
-            print(f"Streaming request failed: {type(error).__name__}: {error}", flush=True)
+            self._log(f"Streaming request failed: {type(error).__name__}: {error}", depth=2)
         finally:
             owner._finish_lease(lease)
-            print(
-                f"Client disconnected: {client_address}; "
+            self._log(
+                f"<<< Client disconnected: {client_address}; "
                 f"chunks={chunk_count} bytes={byte_count} read_timeouts={timeout_count}",
-                flush=True,
             )
 
     def _client_disconnected(self) -> bool:

@@ -114,6 +114,13 @@ def test_server_streams_requested_service_and_releases_adapter(capsys):
     output += capsys.readouterr().out
     assert "Client connected:" in output
     assert "Client disconnected:" in output
+    lines = output.splitlines()
+    connected = next(line for line in lines if ">>> Client connected:" in line)
+    disconnected = next(line for line in lines if "<<< Client disconnected:" in line)
+    assert connected.startswith("  >>> Client connected:")
+    assert disconnected.startswith("  <<< Client disconnected:")
+    assert lines.index(connected) < lines.index(disconnected)
+    assert "    Tuning adapter and waiting for frontend lock" in output
 
 
 def test_server_suppresses_demuxer_error_when_stopping_stream(capsys):
@@ -325,7 +332,9 @@ def test_server_close_interrupts_waiting_adapter_request():
 
 def test_server_evicts_oldest_stream_and_reuses_same_tuning_without_sleeping():
     adapter = FakeAdapter()
-    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    server = LocalTS_HTTPServer(
+        [adapter], make_service_map(), port=0, evict_oldest_on_exhaustion=True
+    )
     serving = Thread(target=server.serve_forever)
     serving.start()
     first = http.client.HTTPConnection(*server.address, timeout=2)
@@ -357,7 +366,9 @@ def test_server_evicts_oldest_stream_and_reuses_same_tuning_without_sleeping():
 
 def test_server_retunes_evicted_adapter_for_different_tuning():
     adapter = FakeAdapter()
-    server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
+    server = LocalTS_HTTPServer(
+        [adapter], make_service_map(), port=0, evict_oldest_on_exhaustion=True
+    )
     serving = Thread(target=server.serve_forever)
     serving.start()
     first = http.client.HTTPConnection(*server.address, timeout=2)
