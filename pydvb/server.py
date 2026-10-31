@@ -41,7 +41,12 @@ class LocalTS_HTTPServer:
         port: int = 8080,
         client_queue_size: int = 20,
         buffer_log: bool = False,
-        evict_oldest_on_exhaustion: bool = True,
+        # When evict_oldest_on_exhaustion is True, the server will forcibly evict the oldest active adapter
+        # lease when all adapters are in use and a new request arrives. This can be useful for live streaming
+        # scenarios where you want to prioritize new requests over existing ones.
+        # When False, the server will wait for an adapter to become available, potentially timing out if
+        # none are free.
+        evict_oldest_on_exhaustion: bool = False,
     ) -> None:
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
