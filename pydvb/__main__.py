@@ -457,7 +457,6 @@ def _run_device(device: DVBDevice, args) -> int:
 def main() -> int:
     needs_device = argparse.ArgumentParser(add_help=False)
     needs_device.add_argument(
-        "--adapter",
         "--adapter-index",
         dest="adapter_index",
         type=int,
@@ -512,7 +511,7 @@ def main() -> int:
     )
 
     main_parser = argparse.ArgumentParser(
-        description="Test an AF9015 device",
+        description="Control a DVB-T receiver",
    )
     subparsers = main_parser.add_subparsers(
         dest="command",
