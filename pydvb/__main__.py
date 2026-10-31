@@ -380,6 +380,13 @@ def _run_device(device: DVBDevice, args) -> int:
         else:
             # Should never get to here, but as a fallback, use the first available tuning.
             tuning = list(channel_map.tunings.values())[0]
+
+        if service is not None:
+            print(f"Recording service {service.name} ({service.triplet_id}, LCN {service.logical_channel_number})")
+        elif args.doublet_id is not None:
+            stream_info = channel_map.stream_infos_by_doublet.get(args.doublet_id)
+            if stream_info is not None:
+                print(f"Recording multiplex {stream_info.network_name} ({args.doublet_id})")
         
         print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
                 f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
