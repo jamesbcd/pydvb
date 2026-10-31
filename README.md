@@ -75,6 +75,13 @@ python3 -m pydvb serve --use-table au-Brisbane
 
 By default, the HTTP server binds to `127.0.0.1:8080`. Open
 `http://127.0.0.1:8080/playlist.m3u8` in VLC or another MPEG-TS client.
+Requests for services on the same multiplex share one adapter stream and are
+filtered independently by service PID. Slow clients have bounded output queues;
+when a queue fills, its oldest filtered block is discarded. Requests for a
+different multiplex wait for an adapter or return HTTP 503 after the wait
+timeout. Forced eviction of an active multiplex is available only when the
+server is explicitly configured with `evict_oldest_on_exhaustion=True`; this
+disconnects all clients using that multiplex.
 To allow other devices on your network to connect, bind to all interfaces:
 
 ```sh

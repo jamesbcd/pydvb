@@ -6,7 +6,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import logging
-from queue import Empty
+from queue import Empty, Full, Queue
 import select
 from socketserver import BaseServer
 from threading import Condition, Event, Lock, Thread
@@ -15,6 +15,7 @@ from typing import cast
 from urllib.parse import urlsplit
 
 from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.driver_api.tuner import DVBTuning
 from .service_map import DVBServiceMap
 from .stream_scanner import DVBTripletID
 
@@ -25,12 +26,23 @@ ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
 
 
-@dataclass
-class _AdapterLease:
+@dataclass(eq=False)
+class _StreamSubscriber:
+    pids: frozenset[int]
+    output: Queue[bytes]
+
+
+@dataclass(eq=False)
+class _MultiplexSession:
     adapter: DVBAdapter
-    tuning: object | None = None
-    handoff_requested: bool = False
-    stopped: bool = False
+    tuning: DVBTuning
+    subscribers: set[_StreamSubscriber]
+    pid_routes: dict[int, tuple[_StreamSubscriber, ...]]
+    stop_event: Event
+    ready_event: Event
+    done_event: Event
+    startup_error: Exception | None = None
+    producer: Thread | None = None
 
 
 class LocalTS_HTTPServer:
@@ -44,9 +56,8 @@ class LocalTS_HTTPServer:
         port: int = 8080,
         client_queue_size: int = 20,
         buffer_log: bool = False,
-        # When evict_oldest_on_exhaustion is True, the server will forcibly evict the oldest active adapter
-        # lease when all adapters are in use and a new request arrives. This can be useful for live streaming
-        # scenarios where you want to prioritize new requests over existing ones.
+        # When evict_oldest_on_exhaustion is True, the server stops the oldest
+        # multiplex session, disconnecting all subscribers using that adapter.
         # When False, the server will wait for an adapter to become available, potentially timing out if
         # none are free.
         evict_oldest_on_exhaustion: bool = False,
@@ -57,7 +68,8 @@ class LocalTS_HTTPServer:
             raise ValueError("client_queue_size must be positive")
         self.service_map = service_map
         self._available_adapters = list(adapters)
-        self._leased_adapters: list[_AdapterLease] = []
+        self._sessions: dict[DVBTuning, _MultiplexSession] = {}
+        self._active_sessions: list[_MultiplexSession] = []
         self._adapters_condition = Condition(Lock())
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
@@ -83,121 +95,215 @@ class LocalTS_HTTPServer:
         self.httpd.shutdown()
 
     def close(self) -> None:
-        """Stop HTTP serving and interrupt active adapter reads."""
+        """Stop HTTP serving and wait for active multiplex sessions to finish."""
         self._stop_event.set()
         with self._adapters_condition:
+            sessions = tuple(self._active_sessions)
+            for session in sessions:
+                session.stop_event.set()
             self._adapters_condition.notify_all()
         self.httpd.server_close()
-        with self._adapters_condition:
-            active_leases = tuple(self._leased_adapters)
-        for lease in active_leases:
-            self._stop_lease_once(lease)
         deadline = monotonic() + 2.0
-        with self._adapters_condition:
-            while self._leased_adapters:
-                remaining = deadline - monotonic()
-                if remaining <= 0:
-                    break
-                self._adapters_condition.wait(remaining)
+        for session in sessions:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            session.done_event.wait(remaining)
 
-    def _lease_adapter(self) -> _AdapterLease | None:
+    def _subscribe(
+        self, tuning: DVBTuning, pids: frozenset[int]
+    ) -> tuple[_MultiplexSession, _StreamSubscriber] | None:
+        deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
+        wait_started = monotonic()
+        waiting_logged = False
         with self._adapters_condition:
-            if self._available_adapters:
-                lease = _AdapterLease(self._available_adapters.pop())
-                self._leased_adapters.append(lease)
-                return lease
-            if self.evict_oldest_on_exhaustion:
-                if not self._leased_adapters:
-                    deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
-                    wait_started = monotonic()
-                    logger.debug(
-                        "Waiting up to %.1f seconds for an adapter to become available",
-                        ADAPTER_LEASE_RETRY_TIMEOUT,
-                    )
-                    while not self._available_adapters and not self._leased_adapters:
-                        if self._stop_event.is_set():
-                            return None
-                        remaining = deadline - monotonic()
-                        if remaining <= 0:
-                            return None
-                        self._adapters_condition.wait(
-                            min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
-                        )
-                    if self._available_adapters:
+            while not self._stop_event.is_set():
+                session = self._sessions.get(tuning)
+                if session is not None and not session.stop_event.is_set():
+                    subscriber = self._add_subscriber_locked(session, pids)
+                    return session, subscriber
+
+                if self._available_adapters:
+                    if waiting_logged:
                         logger.info(
                             "Adapter became available after %.3f seconds",
                             monotonic() - wait_started,
                         )
-                        lease = _AdapterLease(self._available_adapters.pop())
-                        self._leased_adapters.append(lease)
-                        return lease
-            else:
-                deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
-                wait_started = monotonic()
-                logger.debug(
-                    "Waiting up to %.1f seconds for an adapter to become available",
-                    ADAPTER_LEASE_RETRY_TIMEOUT,
-                )
-                while not self._available_adapters:
-                    if self._stop_event.is_set():
-                        return None
-                    remaining = deadline - monotonic()
-                    if remaining <= 0:
-                        return None
-                    self._adapters_condition.wait(
-                        min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
+                    session = _MultiplexSession(
+                        adapter=self._available_adapters.pop(),
+                        tuning=tuning,
+                        subscribers=set(),
+                        pid_routes={},
+                        stop_event=Event(),
+                        ready_event=Event(),
+                        done_event=Event(),
                     )
-                logger.info(
-                    "Adapter became available after %.3f seconds",
-                    monotonic() - wait_started,
+                    subscriber = self._add_subscriber_locked(session, pids)
+                    self._sessions[tuning] = session
+                    self._active_sessions.append(session)
+                    session.producer = Thread(
+                        target=self._run_session,
+                        args=(session,),
+                        name=f"dvb-stream-{tuning.frequency_hz}",
+                        daemon=True,
+                    )
+                    try:
+                        session.producer.start()
+                    except RuntimeError:
+                        self._active_sessions.remove(session)
+                        del self._sessions[tuning]
+                        self._available_adapters.append(session.adapter)
+                        self._adapters_condition.notify_all()
+                        return None
+                    return session, subscriber
+
+                if self.evict_oldest_on_exhaustion:
+                    victim = next(
+                        (
+                            active
+                            for active in self._active_sessions
+                            if not active.stop_event.is_set()
+                        ),
+                        None,
+                    )
+                    if victim is not None:
+                        logger.info(
+                            "Evicting multiplex at %s Hz for request at %s Hz",
+                            victim.tuning.frequency_hz,
+                            tuning.frequency_hz,
+                        )
+                        victim.stop_event.set()
+
+                if not waiting_logged:
+                    logger.debug(
+                        "Waiting up to %.1f seconds for an adapter to become available",
+                        ADAPTER_LEASE_RETRY_TIMEOUT,
+                    )
+                    waiting_logged = True
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    return None
+                self._adapters_condition.wait(
+                    min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
                 )
-                lease = _AdapterLease(self._available_adapters.pop())
-                self._leased_adapters.append(lease)
-                return lease
 
-            if not self._leased_adapters:
-                return None
+        return None
 
-            victim = self._leased_adapters[0]
-            victim.handoff_requested = True
+    def _add_subscriber_locked(
+        self, session: _MultiplexSession, pids: frozenset[int]
+    ) -> _StreamSubscriber:
+        subscriber = _StreamSubscriber(
+            pids=pids,
+            output=Queue(maxsize=self.client_queue_size),
+        )
+        session.subscribers.add(subscriber)
+        self._refresh_pid_routes_locked(session)
+        return subscriber
 
-        self._stop_lease_once(victim)
+    @staticmethod
+    def _refresh_pid_routes_locked(session: _MultiplexSession) -> None:
+        routes: dict[int, list[_StreamSubscriber]] = {}
+        for subscriber in session.subscribers:
+            for pid in subscriber.pids:
+                routes.setdefault(pid, []).append(subscriber)
+        session.pid_routes = {
+            pid: tuple(subscribers) for pid, subscribers in routes.items()
+        }
+
+    def _unsubscribe(
+        self, session: _MultiplexSession, subscriber: _StreamSubscriber
+    ) -> None:
         with self._adapters_condition:
-            self._leased_adapters.remove(victim)
-            replacement = _AdapterLease(victim.adapter, victim.tuning)
-            self._leased_adapters.append(replacement)
-            self._adapters_condition.notify_all()
-            return replacement
-
-    def _set_lease_tuning(self, lease: _AdapterLease, tuning: object) -> None:
-        with self._adapters_condition:
-            lease.tuning = tuning
-
-    def _stop_lease_once(self, lease: _AdapterLease) -> None:
-        with self._adapters_condition:
-            if lease.stopped:
+            if subscriber not in session.subscribers:
                 return
-            lease.stopped = True
-        try:
-            lease.adapter.stop()
-        except (RuntimeError, OSError):
-            pass
+            session.subscribers.remove(subscriber)
+            self._refresh_pid_routes_locked(session)
+            if not session.subscribers:
+                session.stop_event.set()
+            self._adapters_condition.notify_all()
 
-    def _finish_lease(self, lease: _AdapterLease) -> None:
-        self._stop_lease_once(lease)
-        with self._adapters_condition:
-            if lease.handoff_requested:
+    def _run_session(self, session: _MultiplexSession) -> None:
+        try:
+            status = session.adapter.tune(session.tuning, wait_for_lock=True)
+            if status is not None and not status.lock:
+                raise RuntimeError("adapter did not lock the requested multiplex")
+            if session.stop_event.is_set():
+                return
+            session.adapter.set_pid_filter_enabled(False)
+            session.adapter.start()
+            logger.info(
+                "Started multiplex stream at %s Hz for %d subscriber(s)",
+                session.tuning.frequency_hz,
+                len(session.subscribers),
+            )
+            session.ready_event.set()
+            while not self._stop_event.is_set() and not session.stop_event.is_set():
+                try:
+                    chunk = session.adapter.read_stream(1000)
+                except TimeoutError:
+                    continue
+                self._route_stream_chunk(session, chunk)
+        except Exception as error:
+            session.startup_error = error
+            session.stop_event.set()
+            logger.error(
+                "Multiplex stream failed at %s Hz: %s: %s",
+                session.tuning.frequency_hz,
+                type(error).__name__,
+                error,
+            )
+        finally:
+            session.ready_event.set()
+            try:
+                session.adapter.stop()
+            except (RuntimeError, OSError):
+                pass
+            try:
+                session.adapter.sleep()
+            except (RuntimeError, OSError):
+                pass
+            with self._adapters_condition:
+                if self._sessions.get(session.tuning) is session:
+                    del self._sessions[session.tuning]
+                if session in self._active_sessions:
+                    self._active_sessions.remove(session)
+                session.subscribers.clear()
+                session.pid_routes = {}
+                self._available_adapters.append(session.adapter)
                 self._adapters_condition.notify_all()
-                return
-            self._leased_adapters.remove(lease)
-            self._adapters_condition.notify_all()
+            session.done_event.set()
+
+    def _route_stream_chunk(self, session: _MultiplexSession, chunk: bytes) -> None:
+        packet_size = 188
+        packet_end = len(chunk) - len(chunk) % packet_size
+        routes = session.pid_routes
+        outputs: dict[_StreamSubscriber, bytearray] = {}
+        data = memoryview(chunk)
+        for offset in range(0, packet_end, packet_size):
+            pid = ((data[offset + 1] & 0x1F) << 8) | data[offset + 2]
+            for subscriber in routes.get(pid, ()):
+                output = outputs.get(subscriber)
+                if output is None:
+                    output = bytearray()
+                    outputs[subscriber] = output
+                output.extend(data[offset : offset + packet_size])
+
+        for subscriber, output in outputs.items():
+            self._enqueue_output(subscriber, bytes(output))
+
+    @staticmethod
+    def _enqueue_output(subscriber: _StreamSubscriber, output: bytes) -> None:
         try:
-            lease.adapter.sleep()
-        except (RuntimeError, OSError):
-            pass
-        with self._adapters_condition:
-            self._available_adapters.append(lease.adapter)
-            self._adapters_condition.notify_all()
+            subscriber.output.put_nowait(output)
+        except Full:
+            try:
+                subscriber.output.get_nowait()
+            except Empty:
+                pass
+            try:
+                subscriber.output.put_nowait(output)
+            except Full:
+                pass
 
     def _playlist(self, base_url: str) -> bytes:
         lines = ["#EXTM3U"]
@@ -316,12 +422,12 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             f"frequency_hz={tuning.frequency_hz} bandwidth_hz={tuning.bandwidth_hz}"
         )
 
-        lease = owner._lease_adapter()
-        if lease is None:
+        subscription = owner._subscribe(tuning, service.pids())
+        if subscription is None:
             self._log("No adapter available for service request", level=logging.WARNING)
             self.send_error(503, "no adapter is currently available")
             return
-        adapter = lease.adapter
+        session, subscriber = subscription
 
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
         self._log(f">>> Client connected: {client_address}", level=logging.INFO)
@@ -329,25 +435,18 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         byte_count = 0
         timeout_count = 0
         try:
-            if lease.tuning == tuning:
-                self._log("Reusing adapter tuning for requested service")
-            else:
-                self._log("Tuning adapter and waiting for frontend lock")
-                status = adapter.tune(tuning, wait_for_lock=True)
-                self._log(f"Frontend tune returned status: {status!r}")
-                if status is not None and not status.lock:
-                    self._log("Frontend did not lock requested service", level=logging.WARNING)
-                    self.send_error(503, "adapter did not lock the requested service")
-                    return
-                owner._set_lease_tuning(lease, tuning)
-                if status and status.lock:
-                    self._log("Adapter successfully locked the requested service")
-            adapter.start()
-            self._log("Started adapter for streaming")
-            adapter.configure_pid_filter(service.pids())
-            adapter.set_pid_filter_enabled(True)
-            self._log("Configured PID filter for streaming")
-            
+            session.ready_event.wait()
+            if session.startup_error is not None:
+                self._log(
+                    f"Could not start multiplex stream: {session.startup_error}",
+                    level=logging.WARNING,
+                )
+                self.send_error(503, "adapter could not start the requested multiplex")
+                return
+            if session.stop_event.is_set():
+                self.send_error(503, "multiplex stream is stopping")
+                return
+
             self.protocol_version = "HTTP/1.1"
             self.send_response(200)
             self.send_header("Content-Type", "video/mp2t")
@@ -355,18 +454,15 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
             self._log("Sent HTTP 200 video/mp2t response headers")
-            while not owner._stop_event.is_set():
+            while not owner._stop_event.is_set() and not session.stop_event.is_set():
                 if self._client_disconnected():
                     self._log("Client disconnected before next stream read")
                     break
                 try:
-                    chunk = adapter.read_stream(1000)
-                except TimeoutError:
-                    timeout_count += 1
-                    if timeout_count == 1 or timeout_count % 10 == 0:
-                        self._log(
-                            f"Transport-stream read timed out ({timeout_count} timeouts)",
-                        )
+                    chunk = subscriber.output.get(timeout=0.1)
+                except Empty:
+                    if session.done_event.is_set():
+                        break
                     continue
                 chunk_count += 1
                 byte_count += len(chunk)
@@ -382,19 +478,13 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError) as error:
             self._log(f"Client connection closed while streaming: {error!r}")
-        except RuntimeError as error:
-            if not (lease.stopped and str(error) == "demuxer is not started"):
-                self._log(
-                    f"Streaming request failed: {type(error).__name__}: {error}",
-                    level=logging.ERROR,
-                )
-        except (TimeoutError, OSError) as error:
+        except OSError as error:
             self._log(
                 f"Streaming request failed: {type(error).__name__}: {error}",
                 level=logging.ERROR,
             )
         finally:
-            owner._finish_lease(lease)
+            owner._unsubscribe(session, subscriber)
             self._log(
                 f"<<< Client disconnected: {client_address}; "
                 f"chunks={chunk_count} bytes={byte_count} read_timeouts={timeout_count}",

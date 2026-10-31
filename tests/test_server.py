@@ -5,7 +5,12 @@ from queue import Queue
 from threading import Event, Thread
 from time import monotonic, sleep
 
-from pydvb.server import LocalTS_HTTPServer, _StreamRequestHandler
+from pydvb.server import (
+    LocalTS_HTTPServer,
+    _MultiplexSession,
+    _StreamRequestHandler,
+    _StreamSubscriber,
+)
 from pydvb.service_map import DVBServiceMap
 from pydvb.stream_scanner import DVBElementaryStream, DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
 from pydvb.driver_api.tuner import DVBTuning
@@ -59,7 +64,9 @@ class ShutdownRaceAdapter(FakeAdapter):
 
 
 TRIPLET = DVBTripletID(1, 2, 3)
+TRIPLET_2 = DVBTripletID(4, 5, 6)
 TUNING = DVBTuning(650_000_000)
+OTHER_TUNING = DVBTuning(666_000_000)
 
 
 def make_service_map():
@@ -76,6 +83,24 @@ def make_service_map():
     return service_map
 
 
+def make_service_map_with_another_multiplex():
+    service_map = make_service_map()
+    service = DVBService(
+        service_id=6,
+        triplet_id=TRIPLET_2,
+        name="Other TV",
+        service_type=DVBServiceType.DIGITAL_TELEVISION,
+        pmt_pid=101,
+        elementary_streams=(DVBElementaryStream(201, 0x1B),),
+    )
+    service_map.add_stream_info(OTHER_TUNING, DVBStreamInfo(services=(service,)))
+    return service_map
+
+
+def make_ts_packet(pid, payload_byte=0):
+    return bytes((0x47, (pid >> 8) & 0x1F, pid & 0xFF)) + bytes((payload_byte,)) * 185
+
+
 def test_server_streams_requested_service_and_releases_adapter(caplog):
     caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = FakeAdapter()
@@ -88,7 +113,7 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
         connection.request("GET", "/service/1.2.3?token=secret")
         response = connection.getresponse()
 
-        payload = b"\x47" * 188
+        payload = b"\x47\x00\xc8" + b"\x00" * 185
         adapter.chunks.put(payload)
 
         assert response.status == 200
@@ -100,14 +125,13 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
         serving.join(timeout=2)
 
     assert adapter.stopped.is_set()
-    assert adapter.calls[:5] == [
+    assert adapter.calls == [
         ("tune", TUNING, True),
+        ("set_pid_filter_enabled", False),
         ("start",),
-        ("configure_pid_filter", frozenset({0, 1, 16, 17, 18, 20, 100, 200})),
-        ("set_pid_filter_enabled", True),
         ("stop",),
+        ("sleep",),
     ]
-    assert adapter.calls[5:] == [("sleep",)]
     messages = [record.getMessage() for record in caplog.records]
     deadline = monotonic() + 2
     while monotonic() < deadline and not any(
@@ -119,7 +143,7 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
     assert any("<<< Client disconnected:" in message for message in messages)
     assert messages.index(next(message for message in messages if ">>> Client connected:" in message)) < \
         messages.index(next(message for message in messages if "<<< Client disconnected:" in message))
-    assert "Tuning adapter and waiting for frontend lock" in messages
+    assert any("Started multiplex stream at 650000000 Hz" in message for message in messages)
     assert any("path='/service/1.2.3'" in message for message in messages)
     assert "token=secret" not in "\n".join(messages)
 
@@ -240,11 +264,11 @@ def test_server_rejects_malformed_and_unknown_services():
         serving.join(timeout=2)
 
 
-def test_server_returns_unavailable_after_waiting_when_all_adapters_are_leased():
+def test_server_returns_unavailable_for_another_multiplex_when_adapter_is_busy():
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter],
-        make_service_map(),
+        make_service_map_with_another_multiplex(),
         port=0,
         evict_oldest_on_exhaustion=False,
     )
@@ -255,7 +279,7 @@ def test_server_returns_unavailable_after_waiting_when_all_adapters_are_leased()
     try:
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
-        second.request("GET", "/service/1.2.3")
+        second.request("GET", "/service/4.5.6")
         assert second.getresponse().status == 503
     finally:
         first.close()
@@ -265,12 +289,11 @@ def test_server_returns_unavailable_after_waiting_when_all_adapters_are_leased()
         serving.join(timeout=2)
 
 
-def test_server_waits_for_adapter_released_by_another_client(caplog):
-    caplog.set_level(logging.DEBUG, logger="pydvb.server")
+def test_server_waits_for_final_subscriber_before_tuning_another_multiplex():
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter],
-        make_service_map(),
+        make_service_map_with_another_multiplex(),
         port=0,
         evict_oldest_on_exhaustion=False,
     )
@@ -281,7 +304,7 @@ def test_server_waits_for_adapter_released_by_another_client(caplog):
     second_response = []
 
     def request_second_client():
-        second.request("GET", "/service/1.2.3")
+        second.request("GET", "/service/4.5.6")
         second_response.append(second.getresponse())
 
     request_thread = Thread(target=request_second_client)
@@ -289,17 +312,16 @@ def test_server_waits_for_adapter_released_by_another_client(caplog):
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
         request_thread.start()
-        deadline = monotonic() + 1
-        while monotonic() < deadline and len(server._leased_adapters) < 1:
-            sleep(0.01)
+        sleep(0.1)
+        assert request_thread.is_alive()
         first.close()
         request_thread.join(timeout=3)
         assert not request_thread.is_alive()
         assert second_response[0].status == 200
-        assert any(
-            "Adapter became available after" in record.getMessage()
-            for record in caplog.records
-        )
+        assert [call[1] for call in adapter.calls if call[0] == "tune"] == [
+            TUNING,
+            OTHER_TUNING,
+        ]
     finally:
         first.close()
         second.close()
@@ -312,7 +334,7 @@ def test_server_close_interrupts_waiting_adapter_request():
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter],
-        make_service_map(),
+        make_service_map_with_another_multiplex(),
         port=0,
         evict_oldest_on_exhaustion=False,
     )
@@ -323,7 +345,7 @@ def test_server_close_interrupts_waiting_adapter_request():
     second_response = []
 
     def request_second_client():
-        second.request("GET", "/service/1.2.3")
+        second.request("GET", "/service/4.5.6")
         second_response.append(second.getresponse())
 
     request_thread = Thread(target=request_second_client)
@@ -343,7 +365,7 @@ def test_server_close_interrupts_waiting_adapter_request():
         serving.join(timeout=2)
 
 
-def test_server_evicts_oldest_stream_and_reuses_same_tuning_without_sleeping():
+def test_server_shares_same_multiplex_even_when_eviction_is_enabled():
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter], make_service_map(), port=0, evict_oldest_on_exhaustion=True
@@ -361,14 +383,85 @@ def test_server_evicts_oldest_stream_and_reuses_same_tuning_without_sleeping():
         assert response.status == 200
         assert [call[0] for call in adapter.calls] == [
             "tune",
-            "start",
-            "configure_pid_filter",
             "set_pid_filter_enabled",
-            "stop",
             "start",
-            "configure_pid_filter",
-            "set_pid_filter_enabled",
         ]
+        assert len(server._active_sessions) == 1
+        first.close()
+        deadline = monotonic() + 2
+        while monotonic() < deadline:
+            with server._adapters_condition:
+                if len(server._active_sessions[0].subscribers) == 1:
+                    break
+            sleep(0.01)
+        assert len(server._active_sessions) == 1
+        assert not adapter.stopped.is_set()
+        assert server._available_adapters == []
+        second.close()
+        deadline = monotonic() + 2
+        while monotonic() < deadline and not server._available_adapters:
+            sleep(0.01)
+        assert server._available_adapters == [adapter]
+        assert [call[0] for call in adapter.calls].count("stop") == 1
+        assert [call[0] for call in adapter.calls].count("sleep") == 1
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_drops_oldest_filtered_block_when_subscriber_queue_is_full():
+    server = LocalTS_HTTPServer([], make_service_map(), client_queue_size=1, port=0)
+    subscriber = _StreamSubscriber(pids=frozenset({200}), output=Queue(maxsize=1))
+    session = _MultiplexSession(
+        adapter=FakeAdapter(),
+        tuning=TUNING,
+        subscribers={subscriber},
+        pid_routes={200: (subscriber,)},
+        stop_event=Event(),
+        ready_event=Event(),
+        done_event=Event(),
+    )
+    try:
+        server._route_stream_chunk(session, make_ts_packet(200, 1))
+        server._route_stream_chunk(session, make_ts_packet(200, 2))
+        assert subscriber.output.get_nowait() == make_ts_packet(200, 2)
+    finally:
+        server.close()
+
+
+def test_server_routes_each_subscriber_only_its_service_pids():
+    second_service = DVBService(
+        service_id=6,
+        triplet_id=TRIPLET_2,
+        name="Second TV",
+        service_type=DVBServiceType.DIGITAL_TELEVISION,
+        pmt_pid=101,
+        elementary_streams=(DVBElementaryStream(201, 0x1B),),
+    )
+    service_map = make_service_map()
+    service_map.add_stream_info(TUNING, DVBStreamInfo(services=(second_service,)))
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer([adapter], service_map, port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        first_response = first.getresponse()
+        second.request("GET", "/service/4.5.6")
+        second_response = second.getresponse()
+        assert first_response.status == second_response.status == 200
+
+        adapter.chunks.put(make_ts_packet(200) + make_ts_packet(201) + make_ts_packet(0))
+
+        assert first_response.read(376) == make_ts_packet(200) + make_ts_packet(0)
+        assert second_response.read(376) == make_ts_packet(201) + make_ts_packet(0)
+        assert [call[1] for call in adapter.calls if call[0] == "tune"] == [TUNING]
+        assert [call[0] for call in adapter.calls].count("start") == 1
     finally:
         first.close()
         second.close()
@@ -401,6 +494,45 @@ def test_server_retunes_evicted_adapter_for_different_tuning():
     finally:
         first.close()
         second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_eviction_stops_all_subscribers_of_the_old_multiplex():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map_with_another_multiplex(),
+        port=0,
+        evict_oldest_on_exhaustion=True,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=3)
+    second = http.client.HTTPConnection(*server.address, timeout=3)
+    replacement = http.client.HTTPConnection(*server.address, timeout=3)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        second.request("GET", "/service/1.2.3")
+        assert second.getresponse().status == 200
+        old_session = server._sessions[TUNING]
+        assert len(old_session.subscribers) == 2
+
+        replacement.request("GET", "/service/4.5.6")
+        assert replacement.getresponse().status == 200
+        assert old_session.done_event.wait(timeout=2)
+        assert old_session.subscribers == set()
+        assert set(server._sessions) == {OTHER_TUNING}
+        assert [call[1] for call in adapter.calls if call[0] == "tune"] == [
+            TUNING,
+            OTHER_TUNING,
+        ]
+    finally:
+        first.close()
+        second.close()
+        replacement.close()
         server.shutdown()
         server.close()
         serving.join(timeout=2)
