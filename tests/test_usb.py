@@ -170,6 +170,36 @@ def test_open_usb_transport_preserves_manager_context_ownership(monkeypatch):
     ]
 
 
+def test_load_libusb_library_uses_packaged_binary(monkeypatch, tmp_path):
+    library_path = tmp_path / "libusb-1.0.dylib"
+    library = object()
+    opened = []
+    loaded = []
+    monkeypatch.setattr(usb_module.libusb_package, "get_library_path", lambda: library_path)
+
+    def open_library(path):
+        opened.append(path)
+        return library
+
+    monkeypatch.setattr(usb_module.ctypes, "CDLL", open_library)
+    monkeypatch.setattr(usb_module.usb1, "loadLibrary", loaded.append)
+
+    usb_module._load_libusb_library()
+
+    assert opened == [str(library_path)]
+    assert loaded == [library]
+
+
+def test_load_libusb_library_keeps_system_fallback_when_no_binary(monkeypatch):
+    loaded = []
+    monkeypatch.setattr(usb_module.libusb_package, "get_library_path", lambda: None)
+    monkeypatch.setattr(usb_module.usb1, "loadLibrary", loaded.append)
+
+    usb_module._load_libusb_library()
+
+    assert loaded == []
+
+
 class FakeTransport:
     def __init__(self, reply=b"\x00\x00\xaa"):
         self.writes = []

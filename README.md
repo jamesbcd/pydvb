@@ -13,13 +13,9 @@ easy to use AI to add support for other DVB-T devices, using the abstractions pr
 
 - Python 3.10 or later
 - A supported AF9015 receiver for live hardware operations
-- Native libusb 1.0, required by the default USB transport
-
-On macOS, install libusb with your preferred package manager, for example:
-
-```sh
-brew install libusb
-```
+- The default USB transport uses `libusb1` with native libusb supplied by the
+    `libusb-package` Python dependency; a separate libusb installation is normally
+    not required.
 
 Install `mactv` from a checkout:
 
@@ -32,6 +28,9 @@ To install the test dependencies as well:
 ```sh
 python3 -m pip install -e '.[test]'
 ```
+
+On Linux, `libusb-package`'s bundled libusb is built without udev support, so
+USB device permissions may still need to be configured by the OS.
 
 Run the command-line tool's help with:
 

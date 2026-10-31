@@ -7,10 +7,18 @@ name = "mactv"
 version = "0.1.0"
 description = "Python AF9015 DVB-T USB bridge framework"
 requires-python = ">=3.10"
-dependencies = ["libusb1>=3.4.0", "construct>=2.10.70", "requests>=2.34.2"]
+dependencies = [
+	"libusb1>=3.4.0",
+	"libusb-package>=1.0.30.0",
+	"construct>=2.10.70",
+	"requests>=2.34.2",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["mactv*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

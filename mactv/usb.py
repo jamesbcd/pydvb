@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
 from collections.abc import Collection
 from dataclasses import dataclass
 from enum import IntEnum
@@ -11,9 +13,23 @@ from threading import Condition, Event, RLock, Thread, current_thread
 from time import monotonic, sleep
 from typing import Any, Protocol
 
+import libusb_package
 import usb1 as _usb1
 
 usb1: Any = _usb1 # Helps us avoid type-checking errors
+
+
+def _load_libusb_library() -> None:
+    """Load libusb-package's native library when one is available."""
+    library_path = libusb_package.get_library_path()
+    if library_path is not None:
+        library_loader = ctypes.CDLL
+        if sys.platform == "win32":
+            library_loader = ctypes.WinDLL
+        usb1.loadLibrary(library_loader(str(library_path)))
+
+
+_load_libusb_library()
 
 LibUSBError = getattr(usb1, "USBError", OSError)
 
