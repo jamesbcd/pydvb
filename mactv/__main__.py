@@ -19,8 +19,7 @@ from mactv.service_map import DVBServiceMap, map_from_tunings
 from mactv.stream_scanner import DVBServiceType, DVBDoubletID, DVBTripletID
 
 
-TS_PACKET_SIZE = 188
-MAX_CAPTURE_BYTES = ((35 * 1024 * 1024) // TS_PACKET_SIZE) * TS_PACKET_SIZE
+DEFAULT_CAPTURE_DURATION_SECONDS = 15.0
 READ_TIMEOUT_SECONDS = 5.0
 DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
 
@@ -37,6 +36,17 @@ def parse_frequency(value: str) -> int:
     if not math.isfinite(frequency_hz):
         raise argparse.ArgumentTypeError("frequency is too large")
     return round(frequency_hz)
+
+
+def parse_duration(value: str) -> float:
+    """Parse a positive recording duration in seconds."""
+    try:
+        duration = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("duration must be a number of seconds") from None
+    if not math.isfinite(duration) or duration <= 0:
+        raise argparse.ArgumentTypeError("duration must be a positive finite number of seconds")
+    return duration
 
 
 def parse_lcn(value: str) -> int:
@@ -113,29 +123,39 @@ def parse_server_address(value: str) -> tuple[str, int]:
 def capture_stream(
     adapter,
     output_path: Path,
-    max_bytes: int = MAX_CAPTURE_BYTES,
+    duration: float,
     read_timeout: float = READ_TIMEOUT_SECONDS,
 ) -> tuple[int, float]:
     """Capture transport-stream data to disk and return bytes and elapsed seconds."""
-    if max_bytes <= 0:
-        raise ValueError("max_bytes must be positive")
-    if read_timeout < 0:
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("duration must be a positive finite number of seconds")
+    if not math.isfinite(read_timeout) or read_timeout < 0:
         raise ValueError("read_timeout must be non-negative")
 
     bytes_written = 0
     start_time = monotonic()
     try:
-        print(f"Starting capture to {output_path} with max_bytes={max_bytes}")
+        print(f"Starting capture to {output_path} for {duration:g} seconds")
         adapter.start()
-        with output_path.open("wb") as output:
-            while bytes_written < max_bytes:
-                try:
-                    chunk = adapter.read_stream(max(0, int(read_timeout * 1000)))
-                except TimeoutError as error:
-                    raise IOError("transport stream read returned no data") from error
-                remaining = max_bytes - bytes_written
-                output.write(chunk[:remaining])
-                bytes_written += min(len(chunk), remaining)
+        start_time = monotonic()
+        deadline = start_time + duration
+        try:
+            with output_path.open("wb") as output:
+                while True:
+                    remaining = deadline - monotonic()
+                    if remaining <= 0:
+                        break
+                    timeout_ms = math.ceil(min(read_timeout, remaining) * 1000)
+                    try:
+                        chunk = adapter.read_stream(timeout_ms)
+                    except TimeoutError as error:
+                        if monotonic() >= deadline:
+                            break
+                        raise IOError("transport stream read returned no data") from error
+                    output.write(chunk)
+                    bytes_written += len(chunk)
+        except KeyboardInterrupt:
+            print("Capture interrupted by user; keeping partial recording")
     finally:
         adapter.stop()
         if hasattr(adapter, "sleep"):
@@ -380,7 +400,7 @@ def _run_device(device: DVBDevice, args) -> int:
                 print(f"Capture failed: could not configure service PID filter: {error}")
                 return 1
         try:
-            bytes_written, elapsed = capture_stream(adapter, args.record)
+            bytes_written, elapsed = capture_stream(adapter, args.record, args.duration)
         except (OSError, RuntimeError, ValueError) as error:
             print(f"Capture failed: {error}")
             return 1
@@ -525,6 +545,13 @@ def main() -> int:
         parents=[needs_device, needs_tuning, global_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
+    record_parser.add_argument(
+        "--duration",
+        type=parse_duration,
+        default=DEFAULT_CAPTURE_DURATION_SECONDS,
+        metavar="SECONDS",
+        help="Recording duration in seconds (default: 15)",
+    )
     service_selector = record_parser.add_mutually_exclusive_group(required=True)
     service_selector.add_argument(
         "--lcn",

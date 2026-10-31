@@ -24,6 +24,14 @@ def test_parse_lcn_validates_dvb_field_range():
             __main__.parse_lcn(value)
 
 
+def test_parse_duration_requires_positive_finite_seconds():
+    assert __main__.parse_duration("15") == 15.0
+    assert __main__.parse_duration("0.25") == 0.25
+    for value in ("0", "-1", "nan", "inf", "not-a-number"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            __main__.parse_duration(value)
+
+
 def test_parse_triplet_id_validates_dvb_fields():
     assert __main__.parse_triplet_id("1.2.10") == DVBTripletID(1, 2, 10)
     assert __main__.parse_triplet_id("0.65535.65535") == DVBTripletID(0, 65535, 65535)
@@ -348,12 +356,15 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda adapter, output_path: (capture_calls.append((adapter, output_path)) or (10, 1.0)),
+        lambda adapter, output_path, duration: (
+            capture_calls.append((adapter, output_path, duration)) or (10, 1.0)
+        ),
     )
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+        ["mactv", "record", "--doublet-id", "1.2", "--duration", "2.5",
+         "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -362,7 +373,7 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     assert map_calls[0][0][0].frequency_hz == 177_500_000
     assert map_calls[0][1] is device.adapters[0]
     assert device.tuned == [mapped_tuning]
-    assert capture_calls == [(device.adapters[0], tmp_path / "capture.ts")]
+    assert capture_calls == [(device.adapters[0], tmp_path / "capture.ts", 2.5)]
     assert device.close_called
 
 
@@ -376,8 +387,8 @@ def test_recording_selects_lcn_tuning_and_filters_service_pids(monkeypatch, tmp_
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda capture_adapter, output_path: (
-            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        lambda capture_adapter, output_path, duration: (
+            capture_calls.append((capture_adapter, output_path, duration)) or (10, 1.0)
         ),
     )
     monkeypatch.setattr(
@@ -391,7 +402,7 @@ def test_recording_selects_lcn_tuning_and_filters_service_pids(monkeypatch, tmp_
     assert len(map_calls) == 1
     assert device.tuned == [mapped_tuning]
     assert adapter.pid_filters == [pids]
-    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+    assert capture_calls == [(adapter, tmp_path / "capture.ts", 15.0)]
 
 
 def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatch, tmp_path):
@@ -404,8 +415,8 @@ def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatc
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda capture_adapter, output_path: (
-            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        lambda capture_adapter, output_path, duration: (
+            capture_calls.append((capture_adapter, output_path, duration)) or (10, 1.0)
         ),
     )
     monkeypatch.setattr(
@@ -418,7 +429,7 @@ def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatc
     assert __main__.main() == 0
     assert device.tuned == [mapped_tuning]
     assert adapter.pid_filters == [pids]
-    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+    assert capture_calls == [(adapter, tmp_path / "capture.ts", 15.0)]
 
 
 def test_recording_selects_doublet_id_tuning_for_full_multiplex(monkeypatch, tmp_path):
@@ -431,8 +442,8 @@ def test_recording_selects_doublet_id_tuning_for_full_multiplex(monkeypatch, tmp
     monkeypatch.setattr(
         __main__,
         "capture_stream",
-        lambda capture_adapter, output_path: (
-            capture_calls.append((capture_adapter, output_path)) or (10, 1.0)
+        lambda capture_adapter, output_path, duration: (
+            capture_calls.append((capture_adapter, output_path, duration)) or (10, 1.0)
         ),
     )
     monkeypatch.setattr(
@@ -445,7 +456,7 @@ def test_recording_selects_doublet_id_tuning_for_full_multiplex(monkeypatch, tmp
     assert __main__.main() == 0
     assert device.tuned == [mapped_tuning]
     assert adapter.pid_filters == []
-    assert capture_calls == [(adapter, tmp_path / "capture.ts")]
+    assert capture_calls == [(adapter, tmp_path / "capture.ts", 15.0)]
 
 
 def test_recording_unknown_doublet_id_fails_before_tuning_or_capture(
@@ -727,18 +738,44 @@ class FakeStreamAdapter:
         self.events.append("sleep")
 
 
-def test_capture_stream_respects_maximum_and_sleeps_after_stopping(tmp_path):
-    adapter = FakeStreamAdapter([b"abcd", b"efgh", b"ijkl"])
+def test_capture_stream_stops_at_duration_and_sleeps_after_stopping(monkeypatch, tmp_path):
+    class FakeClock:
+        current = 0.0
+
+        def monotonic(self):
+            return self.current
+
+    clock = FakeClock()
+
+    class TimedAdapter(FakeStreamAdapter):
+        def __init__(self):
+            super().__init__([b"abcdefghij"])
+            self.timeouts = []
+
+        def read_stream(self, timeout_ms=2000):
+            self.events.append("read")
+            self.timeouts.append(timeout_ms)
+            if len(self.timeouts) == 1:
+                clock.current += 0.4
+                return next(self.chunks)
+            clock.current += timeout_ms / 1000
+            raise TimeoutError
+
+    monkeypatch.setattr(__main__, "monotonic", clock.monotonic)
+    adapter = TimedAdapter()
     output_path = tmp_path / "capture.ts"
 
-    bytes_written, elapsed = __main__.capture_stream(adapter, output_path, max_bytes=10)
+    bytes_written, elapsed = __main__.capture_stream(
+        adapter, output_path, duration=0.75, read_timeout=5.0
+    )
 
     assert bytes_written == 10
     assert output_path.read_bytes() == b"abcdefghij"
-    assert elapsed >= 0
+    assert elapsed == pytest.approx(0.75)
+    assert adapter.timeouts == [750, 350]
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
-    assert adapter.events.count("read") >= 3
+    assert adapter.events.count("read") == 2
 
 
 def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
@@ -746,7 +783,7 @@ def test_capture_stream_sleeps_after_stopping_when_read_fails(tmp_path):
     output_path = tmp_path / "capture.ts"
 
     with pytest.raises(StopIteration):
-        __main__.capture_stream(adapter, output_path, max_bytes=10)
+        __main__.capture_stream(adapter, output_path, duration=15.0)
 
     assert adapter.events[0] == "start"
     assert adapter.events[-2:] == ["stop", "sleep"]
@@ -763,9 +800,29 @@ def test_capture_stream_fails_after_read_timeout(tmp_path):
     output_path = tmp_path / "capture.ts"
 
     with pytest.raises(IOError, match="transport stream read returned no data"):
-        __main__.capture_stream(adapter, output_path, max_bytes=4, read_timeout=0)
+        __main__.capture_stream(adapter, output_path, duration=15.0, read_timeout=0)
 
     assert adapter.events[0] == "start"
     assert "stop" in adapter.events
     assert adapter.events[-1] == "sleep"
     assert adapter.events.count("read") >= 1
+
+
+def test_capture_stream_keeps_partial_recording_on_keyboard_interrupt(tmp_path, capsys):
+    class InterruptAdapter(FakeStreamAdapter):
+        def read_stream(self, timeout_ms=2000):
+            self.events.append("read")
+            if self.events.count("read") == 1:
+                return next(self.chunks)
+            raise KeyboardInterrupt
+
+    adapter = InterruptAdapter([b"partial stream"])
+    output_path = tmp_path / "capture.ts"
+
+    bytes_written, elapsed = __main__.capture_stream(adapter, output_path, duration=15.0)
+
+    assert bytes_written == len(b"partial stream")
+    assert output_path.read_bytes() == b"partial stream"
+    assert elapsed >= 0
+    assert adapter.events[-2:] == ["stop", "sleep"]
+    assert "Capture interrupted by user" in capsys.readouterr().out

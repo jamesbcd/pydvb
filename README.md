@@ -66,10 +66,12 @@ python3 -m mactv scan --use-table au-Brisbane
 For a single frequency, `--tuning` accepts the same frequency/bandwidth format
 and defaults to 226.5/7.
 
-To capture up to 35 MiB of transport-stream data after tuning:
+Recording runs for 15 seconds by default. Use `--duration SECONDS` to set a
+different duration; press Ctrl-C to stop early and keep the partial recording:
 
 ```sh
 python3 -m mactv record capture.ts --tuning 177.5/7
+python3 -m mactv record capture.ts --duration 60 --tuning 177.5/7
 python3 -m mactv record channel-7.ts --use-table au-Brisbane --lcn 7
 python3 -m mactv record example.ts --use-table au-Brisbane --triplet-id 1.2.10
 python3 -m mactv record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
