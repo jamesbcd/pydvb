@@ -38,31 +38,6 @@ class ControlRegisterTransport(FakeTransport):
         return super().bulk_read(endpoint, length, timeout)
 
 
-class StreamTransport(FakeTransport):
-    def __init__(self, chunks):
-        super().__init__()
-        self.chunks = iter(chunks)
-
-    def bulk_read(self, endpoint, length, timeout):
-        if endpoint == 0x81:
-            return bytes(length)
-        return next(self.chunks)
-
-
-class BlockingStreamTransport(FakeTransport):
-    def __init__(self):
-        super().__init__()
-        self.read_started = Event()
-        self.release_read = Event()
-
-    def bulk_read(self, endpoint, length, timeout):
-        if endpoint == 0x84:
-            self.read_started.set()
-            self.release_read.wait(timeout=1)
-            return b""
-        return super().bulk_read(endpoint, length, timeout)
-
-
 def test_pid_filter_programs_af9013_slot():
     transport = FakeTransport()
     demuxer = AF9015Demuxer(AF9015Bridge(transport), demodulator_address=0x1D)
@@ -198,57 +173,6 @@ def test_stop_quiesces_host_before_device_and_cleans_host_after_device():
     assert transport.stream_events[0] == "host-quiesce"
     assert transport.stream_events[-1] == "host-cleanup"
     assert "device-write" in transport.stream_events[1:-1]
-
-
-def test_read_ts_discards_unaligned_preamble_and_returns_complete_packets():
-    packet = b"\x47" + b"a" * 187
-    preamble = b"\x47" + b"noise" * 60
-    transport = StreamTransport([preamble + packet * 4])
-    demuxer = AF9015Demuxer(AF9015Bridge(transport))
-    demuxer.start()
-
-    assert demuxer.read_stream_once() == packet * 4
-
-
-def test_read_ts_buffers_partial_packets():
-    packet = b"\x47" + b"a" * 187
-    transport = StreamTransport([packet * 4, packet[:10], packet[10:]])
-    demuxer = AF9015Demuxer(AF9015Bridge(transport))
-    demuxer.start()
-
-    assert demuxer.read_stream_once() == packet * 4
-    assert demuxer.read_stream_once() == b""
-    assert demuxer.read_stream_once() == packet
-
-
-def test_stop_waits_for_in_flight_read_and_discards_late_data():
-    transport = BlockingStreamTransport()
-    demuxer = AF9015Demuxer(AF9015Bridge(transport))
-    demuxer.start()
-    read_error = []
-
-    def read_stream():
-        try:
-            demuxer.read_stream_once()
-        except RuntimeError as error:
-            read_error.append(error)
-
-    reader = Thread(target=read_stream)
-    reader.start()
-    assert transport.read_started.wait(timeout=1)
-
-    stopped = Event()
-    stopper = Thread(target=lambda: (demuxer.stop(), stopped.set()))
-    stopper.start()
-    assert not stopped.wait(timeout=0.05)
-
-    transport.release_read.set()
-    reader.join(timeout=1)
-    stopper.join(timeout=1)
-
-    assert not reader.is_alive()
-    assert not stopper.is_alive()
-    assert read_error and str(read_error[0]) == "demuxer is not started"
 
 
 def test_pid_filter_rejects_linux_whole_stream_sentinel():

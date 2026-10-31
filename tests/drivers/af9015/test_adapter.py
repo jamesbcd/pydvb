@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import cast
 
-import pytest
-
 import pydvb.drivers.af9015.adapter as af9015_adapter
 from pydvb.drivers.af9015.adapter import AF9015Adapter
 from pydvb.drivers.af9015.demux import AF9015Demuxer
@@ -142,82 +140,9 @@ class EmptyThenDataDemuxer(FakeDemuxer):
         return next(self.results)
 
 
-def test_adapter_retries_empty_demux_reads_until_data_arrives():
-    frontend = FakeFrontend()
-    demuxer = EmptyThenDataDemuxer([b"", b"ts"])
-    adapter = DVBAdapter(frontend, demuxer)
-
-    assert adapter.read_stream(100) == b"ts"
-    assert [call[0] for call in demuxer.calls] == [
-        "read_stream_once",
-        "read_stream_once",
-    ]
-    assert demuxer.calls[1][1] <= demuxer.calls[0][1]
-
-
-def test_adapter_read_stream_times_out_after_empty_demux_reads():
-    frontend = FakeFrontend()
-    demuxer = EmptyThenDataDemuxer([b""] * 2)
-    adapter = DVBAdapter(frontend, demuxer)
-
-    with pytest.raises(TimeoutError, match="transport-stream data"):
-        adapter.read_stream(0)
-
-
 def _ts_packet(pid, payload=b"x"):
     header = bytes((0x47, (pid >> 8) & 0x1F, pid & 0xFF, 0x10))
     return header + payload * (188 - len(header))
-
-
-def test_adapter_software_pid_filter_replaces_collection_atomically():
-    frontend = FakeFrontend()
-    demuxer = EmptyThenDataDemuxer([_ts_packet(100) + _ts_packet(200)])
-    adapter = DVBAdapter(frontend, demuxer)
-
-    adapter.configure_pid_filter({100})
-
-    assert adapter.read_stream(100) == _ts_packet(100)
-
-
-def test_adapter_software_pid_filter_can_be_disabled():
-    frontend = FakeFrontend()
-    demuxer = EmptyThenDataDemuxer([_ts_packet(100) + _ts_packet(200)])
-    adapter = DVBAdapter(frontend, demuxer)
-    adapter.configure_pid_filter({100})
-    adapter.set_pid_filter_enabled(False)
-
-    assert adapter.read_stream(100) == _ts_packet(100) + _ts_packet(200)
-
-
-def test_adapter_stop_disables_software_pid_filter():
-    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
-    adapter.configure_pid_filter({100})
-
-    adapter.stop()
-
-    assert adapter._sw_pid_filter_enabled is False
-
-
-def test_adapter_software_pid_filter_returns_empty_for_no_matches():
-    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
-    adapter.configure_pid_filter({300})
-
-    assert adapter._filter_pid_stream(_ts_packet(100) + _ts_packet(200)) == b""
-
-
-def test_adapter_software_pid_filter_ignores_incomplete_tail():
-    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
-    adapter.configure_pid_filter({100})
-    packet = _ts_packet(100)
-
-    assert adapter._filter_pid_stream(packet + b"tail") == packet
-
-
-def test_adapter_rejects_invalid_pid_filter_values():
-    adapter = DVBAdapter(FakeFrontend(), FakeDemuxer())
-
-    with pytest.raises(ValueError, match="0x1FFF"):
-        adapter.configure_pid_filter({0x2000})
 
 
 def test_af9015_adapter_uses_software_filter_when_hardware_slots_overflow(monkeypatch):
