@@ -1,4 +1,5 @@
 import http.client
+import logging
 from http.server import BaseHTTPRequestHandler
 from queue import Queue
 from threading import Event, Thread
@@ -75,7 +76,8 @@ def make_service_map():
     return service_map
 
 
-def test_server_streams_requested_service_and_releases_adapter(capsys):
+def test_server_streams_requested_service_and_releases_adapter(caplog):
+    caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
     serving = Thread(target=server.serve_forever)
@@ -83,7 +85,7 @@ def test_server_streams_requested_service_and_releases_adapter(capsys):
     server.start()
     connection = http.client.HTTPConnection(*server.address, timeout=2)
     try:
-        connection.request("GET", "/service/1.2.3")
+        connection.request("GET", "/service/1.2.3?token=secret")
         response = connection.getresponse()
 
         payload = b"\x47" * 188
@@ -106,24 +108,24 @@ def test_server_streams_requested_service_and_releases_adapter(capsys):
         ("stop",),
     ]
     assert adapter.calls[5:] == [("sleep",)]
-    output = ""
+    messages = [record.getMessage() for record in caplog.records]
     deadline = monotonic() + 2
-    while monotonic() < deadline and "Client disconnected:" not in output:
-        output += capsys.readouterr().out
+    while monotonic() < deadline and not any(
+        "Client disconnected:" in message for message in messages
+    ):
         sleep(0.01)
-    output += capsys.readouterr().out
-    assert "Client connected:" in output
-    assert "Client disconnected:" in output
-    lines = output.splitlines()
-    connected = next(line for line in lines if ">>> Client connected:" in line)
-    disconnected = next(line for line in lines if "<<< Client disconnected:" in line)
-    assert connected.startswith("  >>> Client connected:")
-    assert disconnected.startswith("  <<< Client disconnected:")
-    assert lines.index(connected) < lines.index(disconnected)
-    assert "    Tuning adapter and waiting for frontend lock" in output
+        messages = [record.getMessage() for record in caplog.records]
+    assert any(">>> Client connected:" in message for message in messages)
+    assert any("<<< Client disconnected:" in message for message in messages)
+    assert messages.index(next(message for message in messages if ">>> Client connected:" in message)) < \
+        messages.index(next(message for message in messages if "<<< Client disconnected:" in message))
+    assert "Tuning adapter and waiting for frontend lock" in messages
+    assert any("path='/service/1.2.3'" in message for message in messages)
+    assert "token=secret" not in "\n".join(messages)
 
 
-def test_server_suppresses_demuxer_error_when_stopping_stream(capsys):
+def test_server_suppresses_demuxer_error_when_stopping_stream(caplog):
+    caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = ShutdownRaceAdapter()
     server = LocalTS_HTTPServer([adapter], make_service_map(), port=0)
     serving = Thread(target=server.serve_forever)
@@ -138,9 +140,15 @@ def test_server_suppresses_demuxer_error_when_stopping_stream(capsys):
         server.close()
         serving.join(timeout=2)
 
-    output = capsys.readouterr().out
-    assert "Client disconnected:" in output
-    assert "Streaming request failed:" not in output
+    messages = [record.getMessage() for record in caplog.records]
+    deadline = monotonic() + 2
+    while monotonic() < deadline and not any(
+        "Client disconnected:" in message for message in messages
+    ):
+        sleep(0.01)
+        messages = [record.getMessage() for record in caplog.records]
+    assert any("Client disconnected:" in message for message in messages)
+    assert not any("Streaming request failed:" in message for message in messages)
 
 
 def test_server_root_returns_sorted_m3u8_playlist():
@@ -257,7 +265,8 @@ def test_server_returns_unavailable_after_waiting_when_all_adapters_are_leased()
         serving.join(timeout=2)
 
 
-def test_server_waits_for_adapter_released_by_another_client():
+def test_server_waits_for_adapter_released_by_another_client(caplog):
+    caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer(
         [adapter],
@@ -287,6 +296,10 @@ def test_server_waits_for_adapter_released_by_another_client():
         request_thread.join(timeout=3)
         assert not request_thread.is_alive()
         assert second_response[0].status == 200
+        assert any(
+            "Adapter became available after" in record.getMessage()
+            for record in caplog.records
+        )
     finally:
         first.close()
         second.close()

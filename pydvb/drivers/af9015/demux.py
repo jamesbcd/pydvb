@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from threading import Lock
 
 from .bridge import AF9015Bridge
 from ...driver_api.demux import DVBDemuxer
+
+
+logger = logging.getLogger(__name__)
 
 
 class AF9015Demuxer(DVBDemuxer):
@@ -161,9 +165,9 @@ class AF9015Demuxer(DVBDemuxer):
             self._hw_pid_filter_enabled = enabled
             if enabled:
                 pids = frozenset(self._hw_pid_slots)
-                print(f"Hardware PID filter active with {len(pids)} PIDs: {sorted(pids)}")
+                logger.debug("Hardware PID filter active with %d PIDs: %s", len(pids), sorted(pids))
             else:
-                print(f"Hardware PID filter disabled")
+                logger.debug("Hardware PID filter disabled")
 
 
     @property

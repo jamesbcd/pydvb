@@ -1,6 +1,8 @@
 from threading import Event
 from types import SimpleNamespace
 
+import logging
+
 import pytest
 
 from pydvb.drivers.af9015.bridge import AF9015Bridge, Command, ControlRequest
@@ -374,8 +376,8 @@ def test_libusb_none_async_queue_limit_uses_default(monkeypatch):
     assert transport.async_queue_bytes == usb_module.DEFAULT_MAX_QUEUE_SIZE * 1024 * 1024
 
 
-def test_libusb_async_summary_reports_callback_statistics(capsys, monkeypatch):
-    monkeypatch.setattr(usb_module, "LOG", False)
+def test_libusb_async_summary_reports_callback_statistics(caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="pydvb.usb")
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
@@ -391,17 +393,17 @@ def test_libusb_async_summary_reports_callback_statistics(capsys, monkeypatch):
     transfer.callback(transfer)
     transport.log_stats()
 
-    output = capsys.readouterr().out.splitlines()
-    assert len(output) == 1
-    assert output[0].startswith("USB async summary: completions=2 bytes=8")
-    assert "completion_intervals_ms(avg/min/max)=" in output[0]
-    assert "queue_depth(min/max)=1/1" in output[0]
-    assert "queue_size_mib(min/max)=0.000/0.000" in output[0]
-    assert "completed_by_endpoint=0x84=2" in output[0]
-    assert "zero_length=0 cancelled=0" in output[0]
-    assert "transfer_error_statuses=none" in output[0]
-    assert "transfer_errors=0" in output[0]
-    assert "resubmit_errors=0" in output[0]
+    assert len(caplog.messages) == 1
+    message = caplog.messages[0]
+    assert message.startswith("USB async summary: completions=2 bytes=8")
+    assert "completion_intervals_ms(avg/min/max)=" in message
+    assert "queue_depth(min/max)=1/1" in message
+    assert "queue_size_mib(min/max)=0.000/0.000" in message
+    assert "completed_by_endpoint=0x84=2" in message
+    assert "zero_length=0 cancelled=0" in message
+    assert "transfer_error_statuses=none" in message
+    assert "transfer_errors=0" in message
+    assert "resubmit_errors=0" in message
     transport.close()
 
 
@@ -419,7 +421,8 @@ def test_libusb_async_read_endpoint_length_is_stable(monkeypatch):
     transport.close()
 
 
-def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
+def test_libusb_async_transfer_error_is_returned_to_reader(caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="pydvb.usb")
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
@@ -439,15 +442,16 @@ def test_libusb_async_transfer_error_is_returned_to_reader(capsys, monkeypatch):
         transport.bulk_read(0x84, 4, 100)
     transport.log_stats()
 
-    output = capsys.readouterr().out
-    assert "completions=0" in output
-    assert "transfer_errors=1" in output
-    assert "transfer_error_statuses=0x84:99=1" in output
+    message = caplog.messages[-1]
+    assert "completions=0" in message
+    assert "transfer_errors=1" in message
+    assert "transfer_error_statuses=0x84:99=1" in message
 
     transport.close()
 
 
-def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monkeypatch):
+def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="pydvb.usb")
     monkeypatch.setattr(usb_module, "RECORD_STATS", True)
     handle = FakeLibUSBHandle()
     context = FakeUSBContext(handle)
@@ -470,9 +474,9 @@ def test_libusb_recoverable_async_error_is_recorded_and_resubmitted(capsys, monk
     transfer.callback(transfer)
     assert transport.bulk_read(0x84, 4, 100) == b"data"
     transport.log_stats()
-    output = capsys.readouterr().out
-    assert "transfer_errors=1" in output
-    assert "transfer_error_statuses=0x84:3=1" in output
+    message = caplog.messages[-1]
+    assert "transfer_errors=1" in message
+    assert "transfer_error_statuses=0x84:3=1" in message
     transport.close()
 
 

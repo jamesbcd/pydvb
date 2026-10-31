@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ import libusb_package
 import usb1 as _usb1
 
 usb1: Any = _usb1 # Helps us avoid type-checking errors
+
+logger = logging.getLogger(__name__)
 
 
 def _load_libusb_library() -> None:
@@ -33,7 +36,6 @@ _load_libusb_library()
 
 LibUSBError = getattr(usb1, "USBError", OSError)
 
-LOG = False             # Enable or disable general USB logging.
 RECORD_STATS = False    # Enable or disable asynchronous bulk-read statistics.
 
 DEFAULT_MAX_QUEUE_SIZE = 16 # Default maximum size of the asynchronous transfer queue in MiB.
@@ -217,7 +219,7 @@ class _AsynchronousReadStats:
             self._resubmit_errors += 1
 
     def log_summary(self) -> None:
-        """Print aggregate asynchronous transfer statistics."""
+        """Log aggregate asynchronous transfer statistics."""
         if not RECORD_STATS:
             return
         if not self._completions:
@@ -225,12 +227,11 @@ class _AsynchronousReadStats:
                 f"0x{endpoint:02x}:{status}={count}"
                 for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
             ) or "none"
-            print(
+            logger.info(
                 "USB async summary: completions=0 transfer_errors="
                 f"{self._transfer_errors} cancelled={self._cancelled_transfers} "
                 f"transfer_error_statuses={error_statuses} "
-                f"resubmit_errors={self._resubmit_errors}",
-                flush=True,
+                f"resubmit_errors={self._resubmit_errors}"
             )
             return
         interval_text = "n/a" 
@@ -255,7 +256,7 @@ class _AsynchronousReadStats:
             f"0x{endpoint:02x}:{status}={count}"
             for (endpoint, status), count in sorted(self._transfer_error_statuses.items())
         ) or "none"
-        print(
+        logger.info(
             f"USB async summary: completions={self._completions} bytes={self._bytes} "
             f"completion_intervals_ms(avg/min/max)={interval_text} "
             f"queue_depth(min/max)={self._min_queue_depth}/{self._max_queue_depth} "
@@ -266,8 +267,7 @@ class _AsynchronousReadStats:
             f"cancelled={self._cancelled_transfers} "
             f"transfer_errors={self._transfer_errors} "
             f"transfer_error_statuses={error_statuses} "
-            f"resubmit_errors={self._resubmit_errors}",
-            flush=True,
+            f"resubmit_errors={self._resubmit_errors}"
         )
 
 
@@ -426,8 +426,7 @@ class _LibUSB1Transport:
 
     def bulk_write(self, endpoint: int, data: bytes, timeout: int) -> None:
         """Write a bulk packet using libusb's synchronous API."""
-        if LOG:
-            print(f"{monotonic():.6f} OUT ep=0x{endpoint:02x} {bytes(data).hex()}", flush=True)
+        logger.debug("%.6f OUT ep=0x%02x %s", monotonic(), endpoint, bytes(data).hex())
         self._require_open()
         self.usb_handle.bulkWrite(endpoint, bytes(data), timeout=timeout)
 
@@ -439,8 +438,7 @@ class _LibUSB1Transport:
             if endpoint in self.async_endpoints
             else bytes(self.usb_handle.bulkRead(endpoint, length, timeout=timeout)) # Synchronous bulk read
         )
-        if LOG:
-            print(f"{monotonic():.6f} IN  ep=0x{endpoint:02x} {data.hex()}", flush=True)
+        logger.debug("%.6f IN  ep=0x%02x %s", monotonic(), endpoint, data.hex())
         return data
 
     def _require_open(self) -> None:

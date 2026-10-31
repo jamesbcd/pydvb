@@ -1,5 +1,6 @@
 
 from collections.abc import Mapping
+import logging
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Collection, cast
@@ -9,6 +10,9 @@ from pydvb.driver_api.tuner import DVBTuning
 from pydvb.scan_tables import parse_table
 from pydvb.serialize import Context, serializable, standard_serializer
 from pydvb.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBDoubletID, DVBTripletID, ScanPolicy
+
+
+logger = logging.getLogger(__name__)
 
 
 @serializable
@@ -65,7 +69,11 @@ class DVBServiceMap:
         for service in stream_info.services:
             triplet_id = service.triplet_id
             if triplet_id is None:
-                print(f"No triplet ID for service {service.name} ID={service.service_id}")
+                logger.warning(
+                    "No triplet ID for service %s ID=%s",
+                    service.name,
+                    service.service_id,
+                )
                 continue
             self._tuning_dict[triplet_id] = tuning
             self._stream_info_dict[triplet_id] = stream_info
@@ -147,9 +155,9 @@ class DVBServiceMap:
 
 
 def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True):
-    print(f"Parsing scan table from {scan_table}...", end="", flush=True)
+    logger.info("Parsing scan table from %s", scan_table)
     tunings = parse_table(scan_table, prefer_auto=prefer_auto)
-    print("Done.")
+    logger.info("Parsed %d tunings from %s", len(tunings), scan_table)
     return map_from_tunings(tunings, adapter)
 
 def map_from_tunings(
@@ -167,20 +175,23 @@ def map_from_tunings(
 
     try:
         for index, tuning in enumerate(tunings):
-            print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
-                    f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+            logger.info(
+                "Tuning %d of %d: Frequency %s MHz with bandwidth %s MHz",
+                index + 1,
+                len(tunings),
+                tuning.frequency_hz / 1_000_000,
+                tuning.bandwidth_hz / 1_000_000,
+            )
             status = adapter.tune(tuning, wait_for_lock=True)
-            print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
+            logger.info("Lock result: %s", "LOCKED" if status and status.lock else "NO LOCK")
 
             if status and status.lock:
                 scanner = DVBScanner()
                 try:
-                    print("\tStarting stream...", end="", flush=True)
+                    logger.info("Starting stream")
                     adapter.start()
-                    print("Done.")
-                    print("\tScanning for services...", end="", flush=True)
+                    logger.info("Scanning for services")
                     stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
-                    print("Done.")
                     channel_map.add_stream_info(tuning, stream_info)
                 except Exception as error:
                     if on_scan_error is not None:
@@ -190,9 +201,8 @@ def map_from_tunings(
                             raise error from diagnostic_error
                     raise
                 finally:
-                    print("\tStopping stream...", end="", flush=True)
+                    logger.info("Stopping stream")
                     adapter.stop()
-                    print("Done.")
     except BaseException as scan_error:
         try:
             adapter.sleep()

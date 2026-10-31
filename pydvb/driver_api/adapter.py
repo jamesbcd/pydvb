@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from collections.abc import Iterable
 from threading import RLock
 from time import monotonic
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class DVBAdapter:
@@ -139,11 +144,11 @@ class DVBAdapter:
         if not enabled or not pids:
             # We're not filtering.
             if first_filter_call:
-                print(f"Software PID filter inactive")
+                logger.debug("Software PID filter inactive")
             return data
         # We are filtering.
         if first_filter_call:
-            print(f"Software PID filter active with {len(pids)} PIDs: {sorted(pids)}")
+            logger.debug("Software PID filter active with %d PIDs: %s", len(pids), sorted(pids))
         packet_size = 188
         # For efficiency We use memoryviews to reduce unnecessary copying of the original data.
         data_view = memoryview(data)

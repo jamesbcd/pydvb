@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 from types import SimpleNamespace
 
@@ -191,7 +192,8 @@ def test_device_rejects_removed_device_id_options(monkeypatch, option):
     assert error.value.code == 2
 
 
-def test_init_initializes_without_tuning(monkeypatch, capsys):
+def test_init_initializes_without_tuning(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="pydvb.__main__")
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["pydvb", "init"])
@@ -199,7 +201,7 @@ def test_init_initializes_without_tuning(monkeypatch, capsys):
     assert __main__.main() == 0
     assert device.init_hardware_called
     assert not device.tune_called
-    assert "Device is cold; initializing device..." in capsys.readouterr().out
+    assert "Device is cold; initializing device" in caplog.text
 
 
 def test_status_initializes_reports_and_exits(monkeypatch, capsys):
@@ -215,7 +217,8 @@ def test_status_initializes_reports_and_exits(monkeypatch, capsys):
     assert "Adapter count: 1" in output
 
 
-def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
+def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="pydvb.__main__")
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(sys, "argv", ["pydvb", "sleep"])
@@ -224,7 +227,7 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     assert device.init_hardware_called
     assert device.sleep_called
     assert not device.tune_called
-    assert "Putting device to sleep..." in capsys.readouterr().out
+    assert "Putting device to sleep" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -720,7 +723,8 @@ def test_usb_options_are_opt_in(monkeypatch, arguments, expected_log, expected_s
     monkeypatch.setattr(sys, "argv", ["pydvb", "discover", *arguments])
 
     assert __main__.main() == 0
-    assert __main__.usb.LOG is expected_log
+    expected_level = logging.DEBUG if expected_log else logging.NOTSET
+    assert logging.getLogger("pydvb.usb").level == expected_level
     assert __main__.usb.RECORD_STATS is expected_stats
 
 
@@ -874,7 +878,8 @@ def test_capture_stream_fails_after_read_timeout(tmp_path):
     assert adapter.events.count("read") >= 1
 
 
-def test_capture_stream_keeps_partial_recording_on_keyboard_interrupt(tmp_path, capsys):
+def test_capture_stream_keeps_partial_recording_on_keyboard_interrupt(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="pydvb.__main__")
     class InterruptAdapter(FakeStreamAdapter):
         def read_stream(self, timeout_ms=2000):
             self.events.append("read")
@@ -891,4 +896,4 @@ def test_capture_stream_keeps_partial_recording_on_keyboard_interrupt(tmp_path, 
     assert output_path.read_bytes() == b"partial stream"
     assert elapsed >= 0
     assert adapter.events[-2:] == ["stop", "sleep"]
-    assert "Capture interrupted by user" in capsys.readouterr().out
+    assert "Capture interrupted by user" in caplog.text

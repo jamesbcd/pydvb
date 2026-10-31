@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import logging
 from queue import Empty
 import select
 from socketserver import BaseServer
@@ -17,6 +18,8 @@ from pydvb.driver_api.adapter import DVBAdapter
 from .service_map import DVBServiceMap
 from .stream_scanner import DVBTripletID
 
+
+logger = logging.getLogger(__name__)
 
 ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
@@ -106,6 +109,11 @@ class LocalTS_HTTPServer:
             if self.evict_oldest_on_exhaustion:
                 if not self._leased_adapters:
                     deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
+                    wait_started = monotonic()
+                    logger.debug(
+                        "Waiting up to %.1f seconds for an adapter to become available",
+                        ADAPTER_LEASE_RETRY_TIMEOUT,
+                    )
                     while not self._available_adapters and not self._leased_adapters:
                         if self._stop_event.is_set():
                             return None
@@ -116,11 +124,20 @@ class LocalTS_HTTPServer:
                             min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
                         )
                     if self._available_adapters:
+                        logger.info(
+                            "Adapter became available after %.3f seconds",
+                            monotonic() - wait_started,
+                        )
                         lease = _AdapterLease(self._available_adapters.pop())
                         self._leased_adapters.append(lease)
                         return lease
             else:
                 deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
+                wait_started = monotonic()
+                logger.debug(
+                    "Waiting up to %.1f seconds for an adapter to become available",
+                    ADAPTER_LEASE_RETRY_TIMEOUT,
+                )
                 while not self._available_adapters:
                     if self._stop_event.is_set():
                         return None
@@ -130,6 +147,10 @@ class LocalTS_HTTPServer:
                     self._adapters_condition.wait(
                         min(ADAPTER_LEASE_RETRY_INTERVAL, remaining)
                     )
+                logger.info(
+                    "Adapter became available after %.3f seconds",
+                    monotonic() - wait_started,
+                )
                 lease = _AdapterLease(self._available_adapters.pop())
                 self._leased_adapters.append(lease)
                 return lease
@@ -215,17 +236,18 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             return
 
     @staticmethod
-    def _log(message: str, *, depth: int = 1) -> None:
-        """Print a handler diagnostic with nested indentation."""
-        print(f"{'  ' * depth}{message}", flush=True)
+    def _log(message: str, *, level: int = logging.DEBUG) -> None:
+        """Log a handler diagnostic at the requested level."""
+        logger.log(level, message)
 
     def do_GET(self) -> None:
         owner = cast(_HTTPServer, self.server).owner
         path = urlsplit(self.path).path
-        print(
-            f"HTTP GET from {self.client_address[0]}:{self.client_address[1]} "
-            f"path={self.path!r}",
-            flush=True,
+        logger.info(
+            "HTTP GET from %s:%s path=%r",
+            self.client_address[0],
+            self.client_address[1],
+            path,
         )
         if path in ("/", "/playlist.m3u8"):
             authority = self.headers.get("Host")
@@ -250,7 +272,10 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 or parsed_authority.fragment
                 or any(character.isspace() for character in authority)
             ):
-                self._log(f"Rejecting playlist request with invalid Host header: {authority!r}")
+                self._log(
+                    f"Rejecting playlist request with invalid Host header: {authority!r}",
+                    level=logging.WARNING,
+                )
                 self.send_error(400, "invalid Host header")
                 return
             body = owner._playlist(f"http://{authority}")
@@ -264,14 +289,14 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
         prefix = "/service/"
         if not path.startswith(prefix):
-            self._log(f"Rejecting unknown HTTP path: {path!r}")
+            self._log(f"Rejecting unknown HTTP path: {path!r}", level=logging.WARNING)
             self.send_error(404, "stream endpoint is /service/X.Y.Z")
             return
 
         try:
             triplet = DVBTripletID.from_dotted(path.removeprefix(prefix))
         except (TypeError, ValueError):
-            self._log(f"Rejecting malformed service path: {path!r}")
+            self._log(f"Rejecting malformed service path: {path!r}", level=logging.WARNING)
             self.send_error(400, "service path must be /service/X.Y.Z")
             return
         self._log(f"Resolved service triplet: {triplet}")
@@ -280,7 +305,10 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             tuning = owner.service_map.tunings[triplet]
             service = owner.service_map.services[triplet]
         except KeyError:
-            self._log(f"Service triplet not found in service map: {triplet}")
+            self._log(
+                f"Service triplet not found in service map: {triplet}",
+                level=logging.WARNING,
+            )
             self.send_error(404, "service was not found")
             return
         self._log(
@@ -290,35 +318,35 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
         lease = owner._lease_adapter()
         if lease is None:
-            self._log("No adapter available for service request")
+            self._log("No adapter available for service request", level=logging.WARNING)
             self.send_error(503, "no adapter is currently available")
             return
         adapter = lease.adapter
 
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
-        self._log(f">>> Client connected: {client_address}")
+        self._log(f">>> Client connected: {client_address}", level=logging.INFO)
         chunk_count = 0
         byte_count = 0
         timeout_count = 0
         try:
             if lease.tuning == tuning:
-                self._log("Reusing adapter tuning for requested service", depth=2)
+                self._log("Reusing adapter tuning for requested service")
             else:
-                self._log("Tuning adapter and waiting for frontend lock", depth=2)
+                self._log("Tuning adapter and waiting for frontend lock")
                 status = adapter.tune(tuning, wait_for_lock=True)
-                self._log(f"Frontend tune returned status: {status!r}", depth=2)
+                self._log(f"Frontend tune returned status: {status!r}")
                 if status is not None and not status.lock:
-                    self._log("Frontend did not lock requested service", depth=2)
+                    self._log("Frontend did not lock requested service", level=logging.WARNING)
                     self.send_error(503, "adapter did not lock the requested service")
                     return
                 owner._set_lease_tuning(lease, tuning)
                 if status and status.lock:
-                    self._log("Adapter successfully locked the requested service", depth=2)
+                    self._log("Adapter successfully locked the requested service")
             adapter.start()
-            self._log("Started adapter for streaming", depth=2)
+            self._log("Started adapter for streaming")
             adapter.configure_pid_filter(service.pids())
             adapter.set_pid_filter_enabled(True)
-            self._log("Configured PID filter for streaming", depth=2)
+            self._log("Configured PID filter for streaming")
             
             self.protocol_version = "HTTP/1.1"
             self.send_response(200)
@@ -326,10 +354,10 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
-            self._log("Sent HTTP 200 video/mp2t response headers", depth=2)
+            self._log("Sent HTTP 200 video/mp2t response headers")
             while not owner._stop_event.is_set():
                 if self._client_disconnected():
-                    self._log("Client disconnected before next stream read", depth=2)
+                    self._log("Client disconnected before next stream read")
                     break
                 try:
                     chunk = adapter.read_stream(1000)
@@ -338,7 +366,6 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                     if timeout_count == 1 or timeout_count % 10 == 0:
                         self._log(
                             f"Transport-stream read timed out ({timeout_count} timeouts)",
-                            depth=2,
                         )
                     continue
                 chunk_count += 1
@@ -354,20 +381,24 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError) as error:
-            self._log(f"Client connection closed while streaming: {error!r}", depth=2)
+            self._log(f"Client connection closed while streaming: {error!r}")
         except RuntimeError as error:
             if not (lease.stopped and str(error) == "demuxer is not started"):
                 self._log(
                     f"Streaming request failed: {type(error).__name__}: {error}",
-                    depth=2,
+                    level=logging.ERROR,
                 )
         except (TimeoutError, OSError) as error:
-            self._log(f"Streaming request failed: {type(error).__name__}: {error}", depth=2)
+            self._log(
+                f"Streaming request failed: {type(error).__name__}: {error}",
+                level=logging.ERROR,
+            )
         finally:
             owner._finish_lease(lease)
             self._log(
                 f"<<< Client disconnected: {client_address}; "
                 f"chunks={chunk_count} bytes={byte_count} read_timeouts={timeout_count}",
+                level=logging.INFO,
             )
 
     def _client_disconnected(self) -> bool:

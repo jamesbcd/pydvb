@@ -1,6 +1,7 @@
 """Test command-line tool for the Leadtek AF9015 device."""
 
 import argparse
+import logging
 import math
 import pprint
 from pathlib import Path
@@ -18,6 +19,8 @@ from pydvb.server import LocalTS_HTTPServer
 from pydvb.service_map import DVBServiceMap, map_from_tunings
 from pydvb.stream_scanner import DVBServiceType, DVBDoubletID, DVBTripletID
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTURE_DURATION_SECONDS = 15.0
 READ_TIMEOUT_SECONDS = 5.0
@@ -135,7 +138,7 @@ def capture_stream(
     bytes_written = 0
     start_time = monotonic()
     try:
-        print(f"Starting capture to {output_path} for {duration:g} seconds")
+        logger.info("Starting capture to %s for %g seconds", output_path, duration)
         adapter.start()
         start_time = monotonic()
         deadline = start_time + duration
@@ -155,7 +158,7 @@ def capture_stream(
                     output.write(chunk)
                     bytes_written += len(chunk)
         except KeyboardInterrupt:
-            print("Capture interrupted by user; keeping partial recording")
+            logger.warning("Capture interrupted by user; keeping partial recording")
     finally:
         adapter.stop()
         if hasattr(adapter, "sleep"):
@@ -168,14 +171,14 @@ def wait_for_lock_with_diagnostics(device, adapter_index: int, timeout: float = 
     deadline = monotonic() + timeout
     while True:
         status = device.read_status(adapter_index=adapter_index)
-        print(f"Frontend status: {status}")
+        logger.info("Frontend status: %s", status)
         if status.lock or monotonic() >= deadline:
             return status
         sleep(1.0)
 
 
-def print_tuning_hardware_diagnostics(device, adapter_index: int) -> None:
-    """Print physical tuner and demodulator registers after a nonblocking tune."""
+def log_tuning_hardware_diagnostics(device, adapter_index: int) -> None:
+    """Log physical tuner and demodulator registers after a nonblocking tune."""
     try:
         adapters = getattr(device, "adapters", None)
         if adapters is None:
@@ -204,23 +207,23 @@ def print_tuning_hardware_diagnostics(device, adapter_index: int) -> None:
             dict[int, int], cast(Callable[[], dict[int, int]], read_frontend_registers)()
         )
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"Hardware register readback failed: {error}")
+        logger.warning("Hardware register readback failed: %s", error)
         return
 
     register_dump = " ".join(
         f"{register:02x}:{value:02x}" for register, value in enumerate(tuner_registers)
     )
-    print("TDA18271 cached registers 08-0f: " + cached_registers[8:16].hex(" "))
+    logger.info("TDA18271 cached registers 08-0f: %s", cached_registers[8:16].hex(" "))
     frequency_registers = (3, 4, 5, 6, 7, 28, 29, 37, 12, 13, 14, 15)
-    print("TDA18271 cached frequency registers: " + " ".join(
+    logger.info("TDA18271 cached frequency registers: %s", " ".join(
         f"{register:02x}:{cached_registers[register]:02x}" for register in frequency_registers
     ))
     mpd = tuner_registers[tuner.REG_MPD]
-    print(f"TDA18271 physical registers: {register_dump}")
-    print(f"TDA18271 physical MPD (0x{tuner.REG_MPD:02x}): 0x{mpd:02x}; "
-          f"digital IF notch={'on' if mpd & 0x80 else 'off'}")
-    print(f"TDA18271 direct MPD read (0x{tuner.REG_MPD:02x}): 0x{direct_mpd:02x}")
-    print("AF9013 physical registers: " + " ".join(
+    logger.info("TDA18271 physical registers: %s", register_dump)
+    logger.info("TDA18271 physical MPD (0x%02x): 0x%02x; digital IF notch=%s",
+                tuner.REG_MPD, mpd, "on" if mpd & 0x80 else "off")
+    logger.info("TDA18271 direct MPD read (0x%02x): 0x%02x", tuner.REG_MPD, direct_mpd)
+    logger.info("AF9013 physical registers: %s", " ".join(
         f"0x{register:04x}={value.hex(' ') if isinstance(value, bytes) else f'{value:02x}'}"
         for register, value in frontend_registers.items()
     ))
@@ -252,23 +255,20 @@ def _report_scan_failure_diagnostics(
     device: DVBDevice, adapter_index: int, error: Exception
 ) -> None:
     """Report frontend state and optional USB transfer statistics after a scan error."""
-    print(
-        f"Scan failed with {type(error).__name__}: {error}; collecting diagnostics.",
-        flush=True,
-    )
+    logger.error("Scan failed with %s: %s; collecting diagnostics.", type(error).__name__, error)
     adapter = device.adapters[adapter_index]
     try:
-        print(f"Frontend status at scan failure: {adapter.read_status()}", flush=True)
+        logger.info("Frontend status at scan failure: %s", adapter.read_status())
     except Exception as diagnostic_error:
-        print(f"Frontend status read failed: {diagnostic_error}", flush=True)
+        logger.warning("Frontend status read failed: %s", diagnostic_error)
 
     if usb.RECORD_STATS:
         try:
             device.log_transport_stats()
         except Exception as diagnostic_error:
-            print(f"USB transfer statistics failed: {diagnostic_error}", flush=True)
+            logger.warning("USB transfer statistics failed: %s", diagnostic_error)
     else:
-        print("USB transfer statistics are disabled; rerun with --usb-stats to collect them.")
+        logger.info("USB transfer statistics are disabled; rerun with --usb-stats to collect them.")
 
 
 def _run_device(device: DVBDevice, args) -> int:
@@ -278,12 +278,12 @@ def _run_device(device: DVBDevice, args) -> int:
         return 0
 
     if not device.is_warm():
-        print("Device is cold; initializing device...", end="", flush=True)
+        logger.info("Device is cold; initializing device")
         device.init_hardware()
     else:
-        print("Device is warm; reinitializing hardware...", end="", flush=True)
+        logger.info("Device is warm; reinitializing hardware")
         device.init_hardware()
-    print("Done.")
+    logger.info("Hardware initialization complete")
 
     if args.command == "init":
         return 0
@@ -293,19 +293,19 @@ def _run_device(device: DVBDevice, args) -> int:
         return 0
 
     if args.command == "sleep":
-        print("Putting device to sleep...", end="", flush=True)
+        logger.info("Putting device to sleep")
         device.sleep()
-        print("Done.")
+        logger.info("Device is asleep")
         return 0
 
     tunings: list[DVBTuning] = []
     if args.command == "tune" or args.load_services is None:
         if args.use_table is not None:
-            print(f"Parsing scan table from {args.use_table}...", end="", flush=True)
+            logger.info("Parsing scan table from %s", args.use_table)
             tunings = parse_table(args.use_table, prefer_auto=True)
             if not tunings:
                 raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
-            print("Done.")
+            logger.info("Parsed %d tunings", len(tunings))
         else:
             tunings = [DVBTuning(frequency_hz=args.tuning[0], bandwidth_hz=args.tuning[1])]
 
@@ -313,12 +313,17 @@ def _run_device(device: DVBDevice, args) -> int:
     if args.command == "tune":
         locks_acquired = []
         for index, tuning in enumerate(tunings):
-            print(f"Tuning {index+1} of {len(tunings)}: Frequency {tuning.frequency_hz / 1_000_000} MHz" +
-                  f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+            logger.info(
+                "Tuning %d of %d: Frequency %s MHz with bandwidth %s MHz",
+                index + 1,
+                len(tunings),
+                tuning.frequency_hz / 1_000_000,
+                tuning.bandwidth_hz / 1_000_000,
+            )
             status = device.tune(tuning, adapter_index=args.adapter_index,
                                  wait_for_lock=not args.hardware_diagnostics)
             if args.hardware_diagnostics:
-                print_tuning_hardware_diagnostics(device, args.adapter_index)
+                log_tuning_hardware_diagnostics(device, args.adapter_index)
                 if hasattr(device, "read_status"):
                     status = wait_for_lock_with_diagnostics(device, args.adapter_index)
             print(f"Lock result: {'LOCKED' if status and status.lock else 'NO LOCK'}")
@@ -382,21 +387,22 @@ def _run_device(device: DVBDevice, args) -> int:
             tuning = list(channel_map.tunings.values())[0]
 
         if service is not None:
-            print(f"Recording service {service.name} ({service.triplet_id}, LCN {service.logical_channel_number})")
+                logger.info("Recording service %s (%s, LCN %s)", service.name,
+                    service.triplet_id, service.logical_channel_number)
         elif args.doublet_id is not None:
             stream_info = channel_map.stream_infos_by_doublet.get(args.doublet_id)
             if stream_info is not None:
-                print(f"Recording multiplex {stream_info.network_name} ({args.doublet_id})")
+                logger.info("Recording multiplex %s (%s)", stream_info.network_name, args.doublet_id)
         
-        print(f"Tuning to frequency {tuning.frequency_hz / 1_000_000} MHz" +
-                f" with bandwidth {tuning.bandwidth_hz / 1_000_000} MHz: ", end="", flush=True)
+            logger.info("Tuning to frequency %s MHz with bandwidth %s MHz",
+                    tuning.frequency_hz / 1_000_000, tuning.bandwidth_hz / 1_000_000)
         tuning_status = device.tune(tuning, adapter_index=args.adapter_index, wait_for_lock=True)
         print(f"Lock result: {'LOCKED' if tuning_status and tuning_status.lock else 'NO LOCK'}")
 
         if tuning_status is None or not tuning_status.lock:
             print("Capture failed: frontend did not lock; no transport stream is available")
             return 2
-        print(f"Frontend lock acquired. Starting capture to {args.record}")
+        logger.info("Frontend lock acquired. Starting capture to %s", args.record)
         adapter = device.adapters[args.adapter_index]
         if service is not None:
             try:
@@ -426,8 +432,13 @@ def _run_device(device: DVBDevice, args) -> int:
             port=port,
         )
         bound_host, bound_port = server.address
-        print(f"Serving playlist at http://{bound_host}:{bound_port} and " +
-              f"http://{bound_host}:{bound_port}/playlist.m3u8")
+        logger.info(
+            "Serving playlist at http://%s:%s and http://%s:%s/playlist.m3u8",
+            bound_host,
+            bound_port,
+            bound_host,
+            bound_port,
+        )
         try:
             server.start()
             server.serve_forever()
@@ -435,7 +446,7 @@ def _run_device(device: DVBDevice, args) -> int:
             print(f"Server failed: {error}")
             return 1
         except KeyboardInterrupt:
-            print("Stopping transport-stream server")
+            logger.info("Stopping transport-stream server")
         finally:
             server.close()
             device.log_transport_stats()
@@ -625,7 +636,11 @@ def main() -> int:
         pprint.pprint(parse_table(args.scan), underscore_numbers=True)
         return 0
 
-    usb.LOG = args.usb_log
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("pydvb.usb").setLevel(
+        logging.DEBUG if args.usb_log else logging.NOTSET
+    )
+
     usb.RECORD_STATS = args.usb_stats
 
     with DVBDeviceManager([AF9015Device]) as manager:
