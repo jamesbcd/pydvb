@@ -58,7 +58,28 @@ class _ScanTableLinkParser(HTMLParser):
 
 def known_table_names() -> list[str]:
     """Download LinuxTV DVB-T filenames, falling back to the Tvheadend mirror."""
-    response = _get_from_urls(DVB_T_SCAN_TABLES_URL)
+    last_error: requests.RequestException | None = None
+    for url in DVB_T_SCAN_TABLES_URL:
+        try:
+            response = _get_from_urls([url])
+        except requests.RequestException as error:
+            last_error = error
+            continue
+
+        try:
+            names = _parse_table_names(response)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            continue
+        if names:
+            return names
+
+    if last_error is not None:
+        raise last_error
+    return []
+
+
+def _parse_table_names(response: Response) -> list[str]:
+    """Extract table filenames from a LinuxTV HTML page or mirror JSON response."""
     content = response.content.lstrip()
     if content.startswith(b"["):
         entries = json.loads(content)

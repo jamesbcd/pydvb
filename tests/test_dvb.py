@@ -365,6 +365,28 @@ def test_scanner_lists_known_tables_from_mirror_when_linux_tv_fails(monkeypatch)
     ]
 
 
+def test_scanner_falls_back_when_linux_tv_returns_no_table_links(monkeypatch):
+    class Response:
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            pass
+
+    calls = []
+
+    def get(url, timeout):
+        calls.append(url)
+        if url == scan_tables_module.DVB_T_SCAN_TABLES_URL[0]:
+            return Response(b"<!doctype html><title>Making sure you're not a bot!</title>")
+        return Response(b'[{"name":"au-Brisbane","type":"file"}]')
+
+    monkeypatch.setattr(scan_tables_module.requests, "get", get)
+
+    assert scan_tables_module.known_table_names() == ["au-Brisbane"]
+    assert calls == scan_tables_module.DVB_T_SCAN_TABLES_URL
+
+
 def test_scanner_parses_local_scan_table(tmp_path):
     scan_path = tmp_path / "au-Brisbane"
     scan_path.write_text(
