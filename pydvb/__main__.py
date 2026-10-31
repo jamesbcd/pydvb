@@ -8,15 +8,15 @@ from time import monotonic, sleep
 from typing import Any, Callable, cast
 
 
-from mactv import usb, serialize
-from mactv.device_manager import DVBDeviceManager
-from mactv.driver_api.device import DVBDevice
-from mactv.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
-from mactv.drivers.af9015.device import AF9015Device
-from mactv.scan_tables import known_table_names, parse_table
-from mactv.server import LocalTS_HTTPServer
-from mactv.service_map import DVBServiceMap, map_from_tunings
-from mactv.stream_scanner import DVBServiceType, DVBDoubletID, DVBTripletID
+from pydvb import usb, serialize
+from pydvb.device_manager import DVBDeviceManager
+from pydvb.driver_api.device import DVBDevice
+from pydvb.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
+from pydvb.drivers.af9015.device import AF9015Device
+from pydvb.scan_tables import known_table_names, parse_table
+from pydvb.server import LocalTS_HTTPServer
+from pydvb.service_map import DVBServiceMap, map_from_tunings
+from pydvb.stream_scanner import DVBServiceType, DVBDoubletID, DVBTripletID
 
 
 DEFAULT_CAPTURE_DURATION_SECONDS = 15.0

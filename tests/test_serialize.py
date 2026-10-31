@@ -7,7 +7,7 @@ from dataclasses import FrozenInstanceError, dataclass
 
 import pytest
 
-from mactv.serialize import (
+from pydvb.serialize import (
     DATA_KEY,
     TYPE_KEY,
     _Registry,

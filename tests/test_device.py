@@ -4,12 +4,12 @@ from pathlib import Path
 import pytest
 import requests
 
-from mactv.drivers.af9015 import device as device_module
-from mactv.drivers.af9015.device import AF9015Device
-from mactv.drivers.af9015.frontend import DVBFrontendStatus
-from mactv.driver_api import device as driver_device_module
-from mactv.driver_api.tuner import DVBTuning
-from mactv.usb import USBDeviceID, USBDeviceInfo
+from pydvb.drivers.af9015 import device as device_module
+from pydvb.drivers.af9015.device import AF9015Device
+from pydvb.drivers.af9015.frontend import DVBFrontendStatus
+from pydvb.driver_api import device as driver_device_module
+from pydvb.driver_api.tuner import DVBTuning
+from pydvb.usb import USBDeviceID, USBDeviceInfo
 
 
 class FakeTransport:

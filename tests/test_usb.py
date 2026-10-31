@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv.drivers.af9015.bridge import AF9015Bridge, Command, ControlRequest
-from mactv import usb as usb_module
-from mactv.usb import USBSpeed
-from mactv.usb import _LibUSB1Transport as LibUSB1Transport
+from pydvb.drivers.af9015.bridge import AF9015Bridge, Command, ControlRequest
+from pydvb import usb as usb_module
+from pydvb.usb import USBSpeed
+from pydvb.usb import _LibUSB1Transport as LibUSB1Transport
 
 
 class FakeAsyncTransfer:

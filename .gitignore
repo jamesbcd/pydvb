@@ -1,10 +1,10 @@
 .DS_Store
 /.pytest_cache
 /.venv
-/mactv.egg-info
+/*.egg-info
 /docs
 /linux
-/mactv/drivers/af9015/firmware/*
+/pydvb/drivers/af9015/firmware/*
 # Ignore all __pycache__ directories
 **/__pycache__/
 .VSCodeCounter/

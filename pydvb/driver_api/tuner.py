@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
 
-from mactv.serialize import serializable
+from pydvb.serialize import serializable
 from .locking import ControlLockMixin
 
 

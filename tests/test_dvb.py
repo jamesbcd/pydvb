@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv import DVBDescriptor, DVBElementaryStream
-from mactv.scan_tables import parse_table
-from mactv.stream_scanner import (
+from pydvb import DVBDescriptor, DVBElementaryStream
+from pydvb.scan_tables import parse_table
+from pydvb.stream_scanner import (
     DVBScanner,
     DVBService,
     DVBServiceMetatype,
@@ -12,16 +12,16 @@ from mactv.stream_scanner import (
     DVBTripletID,
     ScanPolicy,
 )
-from mactv.driver_api.adapter import DVBAdapter
-from mactv.driver_api.tuner import (
+from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.driver_api.tuner import (
     CodeRate,
     GuardInterval,
     Hierarchy,
     Modulation,
     TransmissionMode,
 )
-import mactv.scan_tables as scan_tables_module
-import mactv.stream_scanner as scanner_module
+import pydvb.scan_tables as scan_tables_module
+import pydvb.stream_scanner as scanner_module
 
 
 def mpeg_crc(data):

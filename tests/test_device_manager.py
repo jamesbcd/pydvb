@@ -2,10 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv.device_manager import DVBDeviceManager
-from mactv import device_manager as manager_module
-from mactv.driver_api.device import DVBDevice
-from mactv.usb import USBDeviceID
+from pydvb.device_manager import DVBDeviceManager
+from pydvb import device_manager as manager_module
+from pydvb.driver_api.device import DVBDevice
+from pydvb.usb import USBDeviceID
 
 
 class FakeTransport:

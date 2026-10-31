@@ -498,7 +498,7 @@ class _LibUSB1Transport:
         self._async_read_callbacks[endpoint] = 0
         if self._event_thread is None:
             # Start the event thread if it hasn't been started yet. It will handle USB events asynchronously
-            self._event_thread = Thread(target=self._run_events, name="mactv-libusb-events", daemon=True)
+            self._event_thread = Thread(target=self._run_events, name="pydvb-libusb-events", daemon=True)
             self._event_thread.start()
         try:
             for _ in range(self.async_transfer_count):

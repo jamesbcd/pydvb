@@ -13,8 +13,8 @@ from typing import Any, ClassVar
 
 import requests
 
-from mactv.driver_api.adapter import DVBAdapter
-from mactv.usb import USBDeviceID, USBDeviceInfo, USBTransport
+from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.usb import USBDeviceID, USBDeviceInfo, USBTransport
 
 
 class DVBDevice(ABC):

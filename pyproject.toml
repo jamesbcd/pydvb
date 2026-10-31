@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mactv"
+name = "pydvb"
 version = "0.1.0"
 description = "Python AF9015 DVB-T USB bridge framework"
 requires-python = ">=3.10"
@@ -18,7 +18,7 @@ dependencies = [
 test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["mactv*"]
+include = ["pydvb*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

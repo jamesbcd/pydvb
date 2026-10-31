@@ -4,10 +4,10 @@ from queue import Queue
 from threading import Event, Thread
 from time import monotonic, sleep
 
-from mactv.server import LocalTS_HTTPServer, _StreamRequestHandler
-from mactv.service_map import DVBServiceMap
-from mactv.stream_scanner import DVBElementaryStream, DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
-from mactv.driver_api.tuner import DVBTuning
+from pydvb.server import LocalTS_HTTPServer, _StreamRequestHandler
+from pydvb.service_map import DVBServiceMap
+from pydvb.stream_scanner import DVBElementaryStream, DVBService, DVBServiceType, DVBStreamInfo, DVBTripletID
+from pydvb.driver_api.tuner import DVBTuning
 
 
 class FakeScanner:

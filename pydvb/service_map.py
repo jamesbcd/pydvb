@@ -4,11 +4,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Collection, cast
 
-from mactv.driver_api.adapter import DVBAdapter
-from mactv.driver_api.tuner import DVBTuning
-from mactv.scan_tables import parse_table
-from mactv.serialize import Context, serializable, standard_serializer
-from mactv.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBDoubletID, DVBTripletID, ScanPolicy
+from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.driver_api.tuner import DVBTuning
+from pydvb.scan_tables import parse_table
+from pydvb.serialize import Context, serializable, standard_serializer
+from pydvb.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBDoubletID, DVBTripletID, ScanPolicy
 
 
 @serializable

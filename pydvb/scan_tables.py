@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 from requests import Response
 
-from mactv.driver_api.tuner import (
+from pydvb.driver_api.tuner import (
     CodeRate,
     DVBTuning,
     GuardInterval,

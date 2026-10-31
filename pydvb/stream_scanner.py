@@ -10,8 +10,8 @@ from typing import Any, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
 
-from mactv.driver_api.adapter import DVBAdapter
-from mactv.serialize import Context, serializable, standard_serializer
+from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.serialize import Context, serializable, standard_serializer
 
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes

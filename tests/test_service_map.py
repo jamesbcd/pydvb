@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv import service_map
-from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import DVBStreamInfo
+from pydvb import service_map
+from pydvb.driver_api.tuner import DVBTuning
+from pydvb.stream_scanner import DVBStreamInfo
 
 
 class FakeAdapter:

@@ -3,13 +3,13 @@ from typing import cast
 
 import pytest
 
-import mactv.drivers.af9015.adapter as af9015_adapter
-from mactv.drivers.af9015.adapter import AF9015Adapter
-from mactv.drivers.af9015.demux import AF9015Demuxer
-from mactv.driver_api.adapter import DVBAdapter
-from mactv.drivers.af9015.frontend import DVBFrontendStatus
-from mactv.drivers.af9015.frontend import AF9013Frontend
-from mactv.driver_api.tuner import DVBTuning
+import pydvb.drivers.af9015.adapter as af9015_adapter
+from pydvb.drivers.af9015.adapter import AF9015Adapter
+from pydvb.drivers.af9015.demux import AF9015Demuxer
+from pydvb.driver_api.adapter import DVBAdapter
+from pydvb.drivers.af9015.frontend import DVBFrontendStatus
+from pydvb.drivers.af9015.frontend import AF9013Frontend
+from pydvb.driver_api.tuner import DVBTuning
 
 
 @dataclass

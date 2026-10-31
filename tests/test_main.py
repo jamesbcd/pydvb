@@ -4,16 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from mactv import __main__
-from mactv.driver_api.tuner import DVBTuning
-from mactv.stream_scanner import (
+from pydvb import __main__
+from pydvb.driver_api.tuner import DVBTuning
+from pydvb.stream_scanner import (
     DVBDoubletID,
     DVBService,
     DVBServiceType,
     DVBStreamInfo,
     DVBTripletID,
 )
-from mactv.drivers.af9015.frontend import DVBFrontendStatus
+from pydvb.drivers.af9015.frontend import DVBFrontendStatus
 
 
 def test_parse_lcn_validates_dvb_field_range():
@@ -165,7 +165,7 @@ class FakeStatusDevice(FakeDevice):
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "discover"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "discover"])
 
     assert __main__.main() == 0
     assert not device.initialize_called
@@ -175,7 +175,7 @@ def test_safe_probe_does_not_initialize(monkeypatch, capsys):
 def test_device_uses_supported_device_discovery(monkeypatch):
     device = FakeDevice()
     calls = install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "discover"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "discover"])
 
     assert __main__.main() == 0
     assert calls == [None]
@@ -183,7 +183,7 @@ def test_device_uses_supported_device_discovery(monkeypatch):
 
 @pytest.mark.parametrize("option", ["--vendor-id", "--product-id"])
 def test_device_rejects_removed_device_id_options(monkeypatch, option):
-    monkeypatch.setattr(sys, "argv", ["mactv", "discover", option, "0x1234"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "discover", option, "0x1234"])
 
     with pytest.raises(SystemExit) as error:
         __main__.main()
@@ -194,7 +194,7 @@ def test_device_rejects_removed_device_id_options(monkeypatch, option):
 def test_init_initializes_without_tuning(monkeypatch, capsys):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "init"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "init"])
 
     assert __main__.main() == 0
     assert device.init_hardware_called
@@ -205,7 +205,7 @@ def test_init_initializes_without_tuning(monkeypatch, capsys):
 def test_status_initializes_reports_and_exits(monkeypatch, capsys):
     device = FakeStatusDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "status"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "status"])
 
     assert __main__.main() == 0
     assert device.init_hardware_called
@@ -218,7 +218,7 @@ def test_status_initializes_reports_and_exits(monkeypatch, capsys):
 def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "sleep"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "sleep"])
 
     assert __main__.main() == 0
     assert device.init_hardware_called
@@ -237,7 +237,7 @@ def test_sleep_puts_device_to_sleep_instead_of_tuning(monkeypatch, capsys):
 def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_code, expected_output):
     device = device_class()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--tuning", "177.5/8"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune", "--tuning", "177.5/8"])
 
     assert __main__.main() == expected_code
     assert device.tune_called
@@ -247,7 +247,7 @@ def test_tune_returns_lock_result(monkeypatch, capsys, device_class, expected_co
 def test_tune_requires_explicit_tuning(monkeypatch):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune"])
 
     with pytest.raises(SystemExit) as error:
         __main__.main()
@@ -259,7 +259,7 @@ def test_tune_rejects_both_tuning_sources(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "tune", "--tuning", "177.5/8", "--use-table", "au-Brisbane"],
+        ["pydvb", "tune", "--tuning", "177.5/8", "--use-table", "au-Brisbane"],
     )
 
     with pytest.raises(SystemExit) as error:
@@ -269,7 +269,7 @@ def test_tune_rejects_both_tuning_sources(monkeypatch):
 
 
 def test_tune_rejects_load_services(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--load-services", "services.json"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune", "--load-services", "services.json"])
 
     with pytest.raises(SystemExit) as error:
         __main__.main()
@@ -281,7 +281,7 @@ def test_load_services_rejects_tuning_source(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "scan", "--tuning", "177.5/8", "--load-services", "services.json"],
+        ["pydvb", "scan", "--tuning", "177.5/8", "--load-services", "services.json"],
     )
 
     with pytest.raises(SystemExit) as error:
@@ -298,7 +298,7 @@ def test_tune_passes_combined_tuning_to_device(monkeypatch):
 
     device = CapturingDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--tuning", "177.5/8"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune", "--tuning", "177.5/8"])
 
     assert __main__.main() == 2
     assert device.last_tuning.frequency_hz == 177_500_000
@@ -307,7 +307,7 @@ def test_tune_passes_combined_tuning_to_device(monkeypatch):
 
 @pytest.mark.parametrize("flag", ["--frequency", "--bandwidth"])
 def test_tune_rejects_removed_tuning_flags(monkeypatch, flag):
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", flag, "177.5"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune", flag, "177.5"])
 
     with pytest.raises(SystemExit) as error:
         __main__.main()
@@ -325,7 +325,7 @@ def test_tunable_commands_accept_scan_table_name_or_path(monkeypatch, tmp_path):
         "_run_device",
         lambda _device, args: (parsed_args.append(args) or 0),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "tune", "--use-table", str(scan_path)])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "tune", "--use-table", str(scan_path)])
 
     assert __main__.main() == 0
     assert parsed_args[0].use_table == str(scan_path)
@@ -368,7 +368,7 @@ def test_recording_stops_before_usb_read_when_frontend_does_not_lock(monkeypatch
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+        ["pydvb", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -398,7 +398,7 @@ def test_recording_closes_device_after_capture(monkeypatch, tmp_path):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.2", "--duration", "2.5",
+        ["pydvb", "record", "--doublet-id", "1.2", "--duration", "2.5",
          "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
@@ -429,7 +429,7 @@ def test_recording_selects_lcn_tuning_and_filters_service_pids(monkeypatch, tmp_
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--lcn", "7", "--tuning", "177.5/8",
+        ["pydvb", "record", "--lcn", "7", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -457,7 +457,7 @@ def test_recording_selects_triplet_id_tuning_and_filters_service_pids(monkeypatc
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--triplet-id", "1.2.10", "--tuning", "177.5/8",
+        ["pydvb", "record", "--triplet-id", "1.2.10", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -484,7 +484,7 @@ def test_recording_selects_doublet_id_tuning_for_full_multiplex(monkeypatch, tmp
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
+        ["pydvb", "record", "--doublet-id", "1.2", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -507,7 +507,7 @@ def test_recording_unknown_doublet_id_fails_before_tuning_or_capture(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.3", "--tuning", "177.5/8",
+        ["pydvb", "record", "--doublet-id", "1.3", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -521,7 +521,7 @@ def test_recording_doublet_id_is_exclusive_with_service_selectors(monkeypatch, t
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--doublet-id", "1.2", "--lcn", "7", "--tuning",
+        ["pydvb", "record", "--doublet-id", "1.2", "--lcn", "7", "--tuning",
          "177.5/8", str(tmp_path / "capture.ts")],
     )
 
@@ -535,7 +535,7 @@ def test_recording_requires_a_service_selector(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
+        ["pydvb", "record", "--tuning", "177.5/8", str(tmp_path / "capture.ts")],
     )
 
     with pytest.raises(SystemExit) as error:
@@ -560,7 +560,7 @@ def test_recording_unknown_triplet_id_fails_before_tuning_or_capture(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--triplet-id", "1.2.11", "--tuning", "177.5/8",
+        ["pydvb", "record", "--triplet-id", "1.2.11", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -581,7 +581,7 @@ def test_recording_unknown_lcn_fails_before_tuning_or_capture(monkeypatch, tmp_p
     monkeypatch.setattr(
         sys,
         "argv",
-        ["mactv", "record", "--lcn", "8", "--tuning", "177.5/8",
+        ["pydvb", "record", "--lcn", "8", "--tuning", "177.5/8",
          str(tmp_path / "capture.ts")],
     )
 
@@ -619,7 +619,7 @@ def test_scan_maps_tunings_and_prints_services(monkeypatch, capsys):
         "map_from_tunings",
         lambda tunings, adapter, **_kwargs: (calls.append((tunings, adapter)) or channel_map),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "scan", "--tuning", "177.5/8"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "scan", "--tuning", "177.5/8"])
 
     assert __main__.main() == 0
     assert len(calls) == 1
@@ -652,7 +652,7 @@ def test_scan_loads_services_without_tuning_or_scan_table(monkeypatch, tmp_path)
         lambda *_args, **_kwargs: pytest.fail("unexpected live scan"),
     )
     monkeypatch.setattr(
-        sys, "argv", ["mactv", "scan", "--load-services", str(services_path)]
+        sys, "argv", ["pydvb", "scan", "--load-services", str(services_path)]
     )
 
     assert __main__.main() == 0
@@ -672,7 +672,7 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
         "DVBDeviceManager",
         lambda *_args: pytest.fail("known scan tables should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "known-tables"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "known-tables"])
 
     assert __main__.main() == 0
     assert calls == [True]
@@ -693,7 +693,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
         "DVBDeviceManager",
         lambda *_args: pytest.fail("parse scan should not open a device"),
     )
-    monkeypatch.setattr(sys, "argv", ["mactv", "parse-table", "au-Brisbane"])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "parse-table", "au-Brisbane"])
 
     assert __main__.main() == 0
     assert calls == ["au-Brisbane"]
@@ -712,7 +712,7 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 def test_usb_options_are_opt_in(monkeypatch, arguments, expected_log, expected_stats):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
-    monkeypatch.setattr(sys, "argv", ["mactv", "discover", *arguments])
+    monkeypatch.setattr(sys, "argv", ["pydvb", "discover", *arguments])
 
     assert __main__.main() == 0
     assert __main__.usb.LOG is expected_log

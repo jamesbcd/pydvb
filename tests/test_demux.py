@@ -2,8 +2,8 @@ from threading import Event, Thread
 
 import pytest
 
-from mactv.drivers.af9015.bridge import AF9015Bridge
-from mactv.drivers.af9015.demux import AF9015Demuxer
+from pydvb.drivers.af9015.bridge import AF9015Bridge
+from pydvb.drivers.af9015.demux import AF9015Demuxer
 
 
 class FakeTransport:

@@ -13,7 +13,7 @@ from time import monotonic
 from typing import cast
 from urllib.parse import urlsplit
 
-from mactv.driver_api.adapter import DVBAdapter
+from pydvb.driver_api.adapter import DVBAdapter
 from .service_map import DVBServiceMap
 from .stream_scanner import DVBTripletID
 

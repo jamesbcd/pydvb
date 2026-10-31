@@ -1,6 +1,6 @@
-# mactv
+# pydvb
 
-`mactv` is a Python framework and command-line tool for using DVB-T receivrs. It
+`pydvb` is a Python framework and command-line tool for using DVB-T receivers. It
 currently only supports a single device and chipset: the the **Leadtek WinFast DTV Dongle Gold** (USB ID `0413:6029`), which uses the Afateach AF9015 bridge, AF9013 demodulator
 and TDA18271 HDC1/HDC2 tuner.
 
@@ -17,7 +17,7 @@ easy to use AI to add support for other DVB-T devices, using the abstractions pr
     `libusb-package` Python dependency; a separate libusb installation is normally
     not required.
 
-Install `mactv` from a checkout:
+Install `pydvb` from a checkout:
 
 ```sh
 python3 -m pip install -e .
@@ -35,7 +35,7 @@ USB device permissions may still need to be configured by the OS.
 Run the command-line tool's help with:
 
 ```sh
-python3 -m mactv --help
+python3 -m pydvb --help
 ```
 
 Live tuning, firmware upload, recording, and streaming require a connected
@@ -47,7 +47,7 @@ that tune or stream initialize the hardware and may upload firmware.
 Tune to a channel at 177.5 MHz with 7 MHz bandwidth:
 
 ```sh
-python3 -m mactv tune --tuning 177.5/7
+python3 -m pydvb tune --tuning 177.5/7
 ```
 
 The tuning format is `FREQUENCY_MHZ/BANDWIDTH_MHZ`; supported bandwidths are
@@ -57,20 +57,20 @@ when all requested tunings lock and status 2 if any fails to lock.
 Scan a LinuxTV DVB-T table and list its services:
 
 ```sh
-python3 -m mactv scan --use-table au-Brisbane
+python3 -m pydvb scan --use-table au-Brisbane
 ```
 
 Capture a selected service or an entire multiplex:
 
 ```sh
-python3 -m mactv record channel.ts --use-table au-Brisbane --lcn 7
-python3 -m mactv record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
+python3 -m pydvb record channel.ts --use-table au-Brisbane --lcn 7
+python3 -m pydvb record multiplex.ts --use-table au-Brisbane --doublet-id 1.2
 ```
 
 Serve discovered services and live streams to a local network:
 
 ```sh
-python3 -m mactv serve --use-table au-Brisbane
+python3 -m pydvb serve --use-table au-Brisbane
 ```
 
 By default, the HTTP server binds to `127.0.0.1:8080`. Open
@@ -78,7 +78,7 @@ By default, the HTTP server binds to `127.0.0.1:8080`. Open
 To allow other devices on your network to connect, bind to all interfaces:
 
 ```sh
-python3 -m mactv serve 0.0.0.0:8080 --use-table au-Brisbane
+python3 -m pydvb serve 0.0.0.0:8080 --use-table au-Brisbane
 ```
 
 Then use the server computer's LAN address in the playlist URL. Stop a running
@@ -112,10 +112,10 @@ service-map inputs cannot be combined.
 Use the LinuxTV DVB-T table name for your location or pass a local table path:
 
 ```sh
-python3 -m mactv known-tables
-python3 -m mactv parse-table au-Brisbane
-python3 -m mactv parse-table ./my-scan-table
-python3 -m mactv scan --use-table ./my-scan-table
+python3 -m pydvb known-tables
+python3 -m pydvb parse-table au-Brisbane
+python3 -m pydvb parse-table ./my-scan-table
+python3 -m pydvb scan --use-table ./my-scan-table
 ```
 
 `scan`, `record`, and `serve` can save a scanned service map as JSON with
@@ -152,7 +152,7 @@ supported receivers. The result separates connected devices, supported
 devices that could not be opened, and unsupported USB devices:
 
 ```python
-from mactv import AF9015Device, DVBDeviceManager, DVBTuning
+from pydvb import AF9015Device, DVBDeviceManager, DVBTuning
 
 with DVBDeviceManager([AF9015Device]) as manager:
     result = manager.connect_all()

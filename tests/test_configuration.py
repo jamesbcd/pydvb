@@ -1,9 +1,9 @@
-from mactv.drivers.af9015.device import (
+from pydvb.drivers.af9015.device import (
     DEMODULATOR_ADDRESS,
     EEPROM_ADDRESS,
     AF9015Device,
 )
-from mactv.usb import USBSpeed
+from pydvb.usb import USBSpeed
 
 
 class FakeTransport:

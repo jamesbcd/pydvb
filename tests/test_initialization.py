@@ -1,5 +1,5 @@
-from mactv.drivers.af9015.device import AF9015Device
-from mactv.usb import USBSpeed
+from pydvb.drivers.af9015.device import AF9015Device
+from pydvb.usb import USBSpeed
 
 
 class FakeTransport:
