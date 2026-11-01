@@ -3,11 +3,14 @@
 import argparse
 import logging
 import math
+import os
 import pprint
 from pathlib import Path
+import signal
 from time import monotonic, sleep
 from typing import Any, Callable, cast
 
+# from gooey import Gooey
 
 from pydvb import usb, serialize
 from pydvb.device_manager import DVBDeviceManager
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTURE_DURATION_SECONDS = 15.0
 READ_TIMEOUT_SECONDS = 5.0
-DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
+DEFAULT_SERVER_ADDRESS = "127.0.0.1:8080"
 
 
 def parse_frequency(value: str) -> int:
@@ -333,6 +336,7 @@ def _run_device(device: DVBDevice, args) -> int:
     if args.load_services is not None:
         channel_map = cast(DVBServiceMap, serialize.load(args.load_services))
     else:
+        # Perform a scan to create a channel map
         channel_map = map_from_tunings(
             tunings,
             device.adapters[args.adapter_index],
@@ -345,6 +349,7 @@ def _run_device(device: DVBDevice, args) -> int:
         serialize.save(channel_map, args.save_services)
 
     if args.command == "scan":
+        # Print the results of the channel scan
         for service in channel_map.services_sorted():
             network_name = None if service is None or service.triplet_id is None else \
                             channel_map.stream_infos[service.triplet_id].network_name
@@ -450,13 +455,15 @@ def _run_device(device: DVBDevice, args) -> int:
         finally:
             server.close()
             device.log_transport_stats()
-
     return 0
 
 
+# @Gooey(program_name="PyDVB", default_size=(800, 600), disable_progress_bar_animation=True,
+#        shutdown_signal=(signal.CTRL_C_EVENT if os.name == "nt" else signal.SIGINT),
+#        required_cols=1, optional_cols=1)
 def main() -> int:
-    needs_device = argparse.ArgumentParser(add_help=False)
-    needs_device.add_argument(
+    adapter_options = argparse.ArgumentParser(add_help=False)
+    adapter_options.add_argument(
         "--adapter-index",
         dest="adapter_index",
         type=int,
@@ -465,7 +472,11 @@ def main() -> int:
     )
 
     needs_tuning = argparse.ArgumentParser(add_help=False)
-    tuning_source = needs_tuning.add_mutually_exclusive_group()
+    tuning_group = needs_tuning.add_argument_group(
+        title="Tuning options",
+        description="Specify either a frequency/bandwidth or a known scan table",
+    )
+    tuning_source = tuning_group.add_mutually_exclusive_group()
     tuning_source.add_argument(
         "--tuning",
         type=parse_tuning,
@@ -479,35 +490,33 @@ def main() -> int:
         metavar="scan-table-name-or-path",
         help="Use a known or local DVB-T scan table",
     )
-    needs_tuning.add_argument(
+
+    can_save_services = argparse.ArgumentParser(add_help=False)
+    can_save_services.add_argument(
         "--save-services",
         type=Path,
         metavar="path-to-save-services-json",
         help="Path to save the scanned DVB-T services",
     )
-    needs_services = argparse.ArgumentParser(add_help=False)
-    needs_services.add_argument(
+
+    can_load_services = argparse.ArgumentParser(add_help=False)
+    can_load_services.add_argument(
         "--load-services",
         type=Path,
         metavar="path-to-load-services-json",
         help="Path to load previously saved DVB-T services",
     )
  
-    global_options = argparse.ArgumentParser(add_help=False)
-    global_options.add_argument(
+    usb_options = argparse.ArgumentParser(add_help=False)
+    usb_options.add_argument(
         "--usb-log",
         action="store_true",
         help="Log USB bulk transfers",
     )
-    global_options.add_argument(
+    usb_options.add_argument(
         "--usb-stats",
         action="store_true",
         help="Log stream USB read timing and returned byte counts",
-    )
-    global_options.add_argument(
-        "--hardware-diagnostics",
-        action="store_true",
-        help="Print tuner and demodulator register diagnostics after tuning",
     )
 
     main_parser = argparse.ArgumentParser(
@@ -517,53 +526,59 @@ def main() -> int:
         dest="command",
         title="commands",
         help="Available commands",
+        required=True,
     )
 
     subparsers.add_parser(
         "discover",
         help="Discover if a known DVB-T device is connected, without initializing it.",
-        parents=[needs_device, global_options],
+        parents=[],
     )
     subparsers.add_parser(
         "init",
         help="Initialize the device without tuning",
-        parents=[needs_device, global_options],
+        parents=[adapter_options, usb_options],
     )
     subparsers.add_parser(
         "status",
         help="Initialize the device, print status information, and exit",
-        parents=[needs_device, global_options],
+        parents=[adapter_options, usb_options],
     )
     subparsers.add_parser(
         "sleep",
         help="Initialize the device, put it into its low-power state, and exit",
-        parents=[needs_device, global_options],
-    )
-    subparsers.add_parser(
-        "tune",
-        help="Initialize the device, tune it, and exit with the lock result",
-        parents=[needs_device, needs_tuning, global_options],
+        parents=[adapter_options, usb_options],
     )
     subparsers.add_parser(
         "known-tables",
         help="Print known LinuxTV DVB-T scan-table names (from online repository)",
-        parents=[global_options],
+        parents=[],
     )
     parse_scan_parser = subparsers.add_parser(
         "parse-table",
         help="Parse a known DVB scan-table name or local scan-table file",
-        parents=[global_options],
+        parents=[],
+    )
+    parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
+    tune_parser = subparsers.add_parser(
+        "tune",
+        help="Initialize the device, tune it, and exit with the lock result",
+        parents=[needs_tuning, adapter_options, usb_options],
+    )
+    tune_parser.add_argument(
+        "--hardware-diagnostics",
+        action="store_true",
+        help="Print tuner and demodulator register diagnostics after tuning",
     )
     subparsers.add_parser(
         "scan",
         help="Tune and scan live MPEG-TS stream for its service metadata (ie. channels)",
-        parents=[needs_device, needs_tuning, needs_services, global_options],
+        parents=[needs_tuning, can_save_services, adapter_options, usb_options],
     )
-    parse_scan_parser.add_argument("scan", metavar="scan-table-name-or-path")
     record_parser = subparsers.add_parser(
         "record",
         help="Record a live MPEG-TS stream to a file",
-        parents=[needs_device, needs_tuning, needs_services, global_options],
+        parents=[needs_tuning, can_load_services, can_save_services, adapter_options, usb_options],
     )
     record_parser.add_argument("record", type=Path, metavar="OUTPUT_PATH")
     record_parser.add_argument(
@@ -595,7 +610,7 @@ def main() -> int:
     serve_parser = subparsers.add_parser(
         "serve",
         help="Serve live MPEG-TS streams over HTTP",
-        parents=[needs_device, needs_tuning, needs_services, global_options],
+        parents=[needs_tuning, can_load_services, can_save_services, adapter_options, usb_options],
     )
     serve_parser.add_argument(
         "serve",

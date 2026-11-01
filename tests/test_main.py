@@ -163,6 +163,16 @@ class FakeStatusDevice(FakeDevice):
         self.bridge = type("Bridge", (), {"transport": transport})()
 
 
+def test_main_requires_a_command(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["pydvb"])
+
+    with pytest.raises(SystemExit) as error:
+        __main__.main()
+
+    assert error.value.code == 2
+    assert "the following arguments are required: command" in capsys.readouterr().err
+
+
 def test_safe_probe_does_not_initialize(monkeypatch, capsys):
     device = FakeDevice()
     install_fake_manager(monkeypatch, device)
