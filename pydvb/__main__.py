@@ -10,7 +10,6 @@ import signal
 from time import monotonic, sleep
 from typing import Any, Callable, cast
 
-# from gooey import Gooey
 
 from pydvb import usb, serialize
 from pydvb.device_manager import DVBDeviceManager
@@ -458,9 +457,6 @@ def _run_device(device: DVBDevice, args) -> int:
     return 0
 
 
-# @Gooey(program_name="PyDVB", default_size=(800, 600), disable_progress_bar_animation=True,
-#        shutdown_signal=(signal.CTRL_C_EVENT if os.name == "nt" else signal.SIGINT),
-#        required_cols=1, optional_cols=1)
 def main() -> int:
     adapter_options = argparse.ArgumentParser(add_help=False)
     adapter_options.add_argument(
