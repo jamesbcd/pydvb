@@ -55,7 +55,7 @@ def test_secondary_register_writes_use_single_byte_i2c_transactions():
         adapter_index=1,
     )
 
-    frontend._write_register(0xD3C0, b"\x01\x02")
+    frontend.register_map.write(0xD3C0, b"\x01\x02")
 
     assert bus.writes == [
         (0x1D, 0xD3C0, b"\x01", 3, 3),

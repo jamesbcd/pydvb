@@ -4,5 +4,6 @@ from .adapter import DVBAdapter
 from .demux import DVBDemuxer
 from .device import DVBDevice
 from .frontend import DVBFrontend, DVBFrontendStatus
+from .registers import RegisterIO, RegisterMap
 
-__all__ = ["DVBAdapter", "DVBDemuxer", "DVBDevice", "DVBFrontend", "DVBFrontendStatus"]
+__all__ = ["DVBAdapter", "DVBDemuxer", "DVBDevice", "DVBFrontend", "DVBFrontendStatus", "RegisterIO", "RegisterMap"]

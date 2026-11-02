@@ -10,10 +10,85 @@ from typing import Any
 from .bridge import AF9015Bridge
 from ...driver_api.frontend import DVBFrontend, DVBFrontendStatus
 from ...driver_api.locking import with_control_lock
+from ...driver_api.registers import RegisterIO, RegisterMap
 from ...driver_api.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 15.0
+
+
+class _AF9013RegisterIO(RegisterIO):
+    """Translate logical AF9013 register accesses to AF9015 bridge commands."""
+
+    def __init__(self, bridge: AF9015Bridge, address: int, adapter_index: int) -> None:
+        self.bridge = bridge
+        self.address = address
+        self.adapter_index = adapter_index
+
+    def read(self, address: int, length: int) -> bytes:
+        """Read AF9013 register bytes using the selected adapter's protocol."""
+        command = ((length - 1) << 2) | 0x02
+        if self.adapter_index == 1:
+            return b"".join(
+                self.bridge.read_i2c(
+                    self.address,
+                    address + offset,
+                    1,
+                    address_length=3,
+                    mailbox=0x02,
+                )
+                for offset in range(length)
+            )
+        if address & 0xFF00 == 0xAE00:
+            return b"".join(
+                self.bridge.read_memory(
+                    address + offset,
+                    1,
+                    address_length=3,
+                    mailbox=0x02,
+                    i2c_address=self.address,
+                )
+                for offset in range(length)
+            )
+        return self.bridge.read_memory(
+            address,
+            length,
+            address_length=3,
+            mailbox=command,
+            i2c_address=self.address,
+        )
+
+    def write(self, address: int, data: bytes) -> None:
+        """Write AF9013 register bytes using the selected adapter's protocol."""
+        command = ((len(data) - 1) << 2) | 0x03
+        if self.adapter_index == 1:
+            for offset, value in enumerate(data):
+                self.bridge.write_i2c(
+                    self.address,
+                    address + offset,
+                    bytes((value,)),
+                    address_length=3,
+                    mailbox=0x03,
+                )
+            return
+        if address & 0xFF00 == 0xAE00:
+            for offset, value in enumerate(data):
+                self.bridge.write_memory(
+                    address + offset,
+                    bytes((value,)),
+                    address_length=3,
+                    mailbox=0x03,
+                    i2c_address=self.address,
+                )
+            return
+        self.bridge.write_memory(
+            address,
+            data,
+            address_length=3,
+            mailbox=command,
+            i2c_address=self.address,
+        )
+
 
 class AF9013Frontend(DVBFrontend):
     """Control one AF9013 DVB-T demodulator and its attached tuner.
@@ -171,6 +246,7 @@ class AF9013Frontend(DVBFrontend):
         self.adapter_index = adapter_index
         self.mt2060_if = mt2060_if
         super().__init__(control_lock)
+        self.register_map = RegisterMap(_AF9013RegisterIO(bridge, demodulator_address, adapter_index))
         self.ts_mode = self.TS_MODE_SERIAL if adapter_index == 1 else self.TS_MODE_USB
         self.ts_output_pin = self.TS_OUTPUT_PIN_7 if adapter_index == 1 else self.TS_OUTPUT_PIN_DEFAULT
         self.gpio = (
@@ -206,72 +282,10 @@ class AF9013Frontend(DVBFrontend):
                 "last_bandwidth_hz": self._last_bandwidth_hz,
             }
 
-    def _read_register(self, register: int, length: int = 1) -> bytes:
-        command = ((length - 1) << 2) | 0x02
-        if self.adapter_index == 1:
-            return b"".join(
-                self.bridge.read_i2c(
-                    self.demodulator_address,
-                    register + offset,
-                    1,
-                    address_length=3,
-                    mailbox=0x02,
-                )
-                for offset in range(length)
-            )
-        if register & 0xFF00 == 0xAE00:
-            return b"".join(
-                self.bridge.read_memory(
-                    register + offset,
-                    1,
-                    address_length=3,
-                    mailbox=0x02,
-                    i2c_address=self.demodulator_address,
-                )
-                for offset in range(length)
-            )
-        return self.bridge.read_memory(
-            register,
-            length,
-            address_length=3,
-            mailbox=command,
-            i2c_address=self.demodulator_address,
-        )
-
-    def _write_register(self, register: int, data: bytes) -> None:
-        command = ((len(data) - 1) << 2) | 0x03
-        if self.adapter_index == 1:
-            for offset, value in enumerate(data):
-                self.bridge.write_i2c(
-                    self.demodulator_address,
-                    register + offset,
-                    bytes((value,)),
-                    address_length=3,
-                    mailbox=0x03,
-                )
-            return
-        if register & 0xFF00 == 0xAE00:
-            for offset, value in enumerate(data):
-                self.bridge.write_memory(
-                    register + offset,
-                    bytes((value,)),
-                    address_length=3,
-                    mailbox=0x03,
-                    i2c_address=self.demodulator_address,
-                )
-            return
-        self.bridge.write_memory(
-            register,
-            data,
-            address_length=3,
-            mailbox=command,
-            i2c_address=self.demodulator_address,
-        )
-
     def _set_gate(self, enabled: bool) -> None:
-        current = self._read_register(self.GATE_REGISTER)[0]
+        current = self.register_map.read(self.GATE_REGISTER)[0]
         value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
-        self._write_register(self.GATE_REGISTER, bytes((value,)))
+        self.register_map.write(self.GATE_REGISTER, bytes((value,)))
 
     def gated_read_register(self, address: int, register: int, length: int) -> bytes:
         """Read from the tuner behind this demodulator's I2C gate."""
@@ -291,25 +305,21 @@ class AF9013Frontend(DVBFrontend):
             finally:
                 self._set_gate(False)
 
-    def _update_bits(self, register: int, mask: int, value: int) -> None:
-        current = self._read_register(register)[0]
-        self._write_register(register, bytes(((current & ~mask) | (value & mask),)))
-
     def read_hardware_diagnostics(self) -> dict[int, int | bytes]:
         """Read the AF9013 registers most useful for tuning diagnostics."""
         with self._control_lock:
-            frequency_control = self._read_register(self.REG_FREQUENCY_CONTROL, 3)
-            frequency_control_ext = self._read_register(self.REG_FREQUENCY_CONTROL_EXT, 6)
+            frequency_control = self.register_map.read(self.REG_FREQUENCY_CONTROL, 3)
+            frequency_control_ext = self.register_map.read(self.REG_FREQUENCY_CONTROL_EXT, 6)
             return {
                 self.REG_FREQUENCY_CONTROL: frequency_control,
                 self.REG_FREQUENCY_CONTROL_EXT: frequency_control_ext,
-                self.REG_TPS_STATUS: self._read_register(self.REG_TPS_STATUS)[0],
-                self.REG_MPEG_STATUS: self._read_register(self.REG_MPEG_STATUS)[0],
+                self.REG_TPS_STATUS: self.register_map.read(self.REG_TPS_STATUS)[0],
+                self.REG_MPEG_STATUS: self.register_map.read(self.REG_MPEG_STATUS)[0],
             }
 
     def _apply_table(self, table: tuple[tuple[int, int, int], ...]) -> None:
         for register, mask, value in table:
-            self._update_bits(register, mask, value)
+            self.register_map.update_bits(register, mask, value)
 
     def _set_gpio(self, gpio: int, value: int) -> None:
         if gpio in (0, 1):
@@ -319,7 +329,7 @@ class AF9013Frontend(DVBFrontend):
         else:
             raise ValueError("AF9013 GPIO index must be between 0 and 3")
         position = 0 if gpio in (0, 2) else 4
-        self._update_bits(register, 0x0F << position, value << position)
+        self.register_map.update_bits(register, 0x0F << position, value << position)
 
     @with_control_lock
     def init_hardware(self) -> None:
@@ -330,13 +340,13 @@ class AF9013Frontend(DVBFrontend):
         clock_code = self.CLOCK_CODES.get(self.clock_hz)
         if clock_code is None:
             raise ValueError("AF9013 clock must be 20.48, 25, 28, or 28.8 MHz")
-        self._update_bits(self.REG_ADC_CONTROL, 0x08, 0)
-        self._update_bits(self.REG_RESET, 0x02, 0)
-        self._update_bits(self.REG_RESET, 0x10, 0)
-        self._write_register(self.REG_API_VERSION, self.API_VERSION)
-        self._update_bits(self.REG_ADC_CLOCK, 0x0F, clock_code)
+        self.register_map.update_bits(self.REG_ADC_CONTROL, 0x08, 0)
+        self.register_map.update_bits(self.REG_RESET, 0x02, 0)
+        self.register_map.update_bits(self.REG_RESET, 0x10, 0)
+        self.register_map.write(self.REG_API_VERSION, self.API_VERSION)
+        self.register_map.update_bits(self.REG_ADC_CLOCK, 0x0F, clock_code)
         sampling_clock = (self.clock_hz * 0x80000) // 1_000_000
-        self._write_register(self.REG_SAMPLING_CLOCK, sampling_clock.to_bytes(3, "little"))
+        self.register_map.write(self.REG_SAMPLING_CLOCK, sampling_clock.to_bytes(3, "little"))
         for gpio, value in enumerate(self.gpio):
             self._set_gpio(gpio, value)
         self._apply_table(self.DEMOD_INIT)
@@ -345,8 +355,8 @@ class AF9013Frontend(DVBFrontend):
         ts_control = self.ts_mode << 1
         if self.ts_output_pin == self.TS_OUTPUT_PIN_7:
             ts_control |= 0x08
-        self._update_bits(self.REG_TS_CONTROL, 0x0E, ts_control)
-        self._update_bits(self.REG_LOCK_LED, 0x01, 0x01)
+        self.register_map.update_bits(self.REG_TS_CONTROL, 0x0E, ts_control)
+        self.register_map.update_bits(self.REG_LOCK_LED, 0x01, 0x01)
         self.tuner.init_hardware() if self.tuner is not None else None
         self._initialized = True
         self._sleeping = False
@@ -450,7 +460,7 @@ class AF9013Frontend(DVBFrontend):
         if coefficients is None:
             raise ValueError("unsupported AF9013 clock and bandwidth combination")
         if tuning.bandwidth_hz != self._last_bandwidth_hz:
-            self._write_register(self.REG_CFOE, coefficients)
+            self.register_map.write(self.REG_CFOE, coefficients)
 
         # Configure the AF9013 demodulator with the appropriate frequency control settings, based on the
         # intermediate frequency and the demodulator clock frequency.
@@ -480,24 +490,24 @@ class AF9013Frontend(DVBFrontend):
                 (complement >> 16) & 0x7F,
             )
         )
-        self._write_register(self.REG_FREQUENCY_CONTROL, frequency_data)
-        self._write_register(self.REG_FREQUENCY_CONTROL_EXT, frequency_data + complement_data)
+        self.register_map.write(self.REG_FREQUENCY_CONTROL, frequency_data)
+        self.register_map.write(self.REG_FREQUENCY_CONTROL_EXT, frequency_data + complement_data)
 
         # Clear status flags
-        self._update_bits(self.REG_TPS_STATUS, 0x08, 0x08)  # Clear TPS lock flag
-        self._update_bits(self.REG_MPEG_STATUS, 0x40, 0)    # Clear MPEG2 lock flag
-        self._update_bits(self.REG_EMPTY_CHANNEL, 0x01, 0)  # Clear empty channel flag
-        self._update_bits(self.REG_EMPTY_DVBT_CHANNEL, 0x01, 0)  # Clear empty DVB-T channel flag
+        self.register_map.update_bits(self.REG_TPS_STATUS, 0x08, 0x08)  # Clear TPS lock flag
+        self.register_map.update_bits(self.REG_MPEG_STATUS, 0x40, 0)    # Clear MPEG2 lock flag
+        self.register_map.update_bits(self.REG_EMPTY_CHANNEL, 0x01, 0)  # Clear empty channel flag
+        self.register_map.update_bits(self.REG_EMPTY_DVBT_CHANNEL, 0x01, 0)  # Clear empty DVB-T channel flag
 
         # Configure transmission parameters and easy mode settings based on the current tuning
         transmission, auto_mode = self._transmission_parameters(tuning)
         transmission = bytearray(transmission)
         transmission[1] |= {6_000_000: 0, 7_000_000: 1 << 2, 8_000_000: 2 << 2}[tuning.bandwidth_hz]
-        self._write_register(self.REG_TRANSMISSION, bytes(transmission))
-        self._write_register(self.REG_EASY_MODE, bytes((0 if auto_mode else 1,)))
+        self.register_map.write(self.REG_TRANSMISSION, bytes(transmission))
+        self.register_map.write(self.REG_EASY_MODE, bytes((0 if auto_mode else 1,)))
         if not auto_mode:
-            self._write_register(self.REG_EASY_MODE_VALUE, b"\x00")
-        self._write_register(0xFFFF, b"\x00")
+            self.register_map.write(self.REG_EASY_MODE_VALUE, b"\x00")
+        self.register_map.write(0xFFFF, b"\x00")
         self._last_bandwidth_hz = tuning.bandwidth_hz
         self.current_tuning = tuning
         self._sleeping = False
@@ -505,8 +515,8 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def read_status(self) -> DVBFrontendStatus:
-        mpeg_locked = bool(self._read_register(self.REG_MPEG_STATUS)[0] & 0x40)
-        tps_locked = bool(self._read_register(self.REG_TPS_STATUS)[0] & 0x08)
+        mpeg_locked = bool(self.register_map.read(self.REG_MPEG_STATUS)[0] & 0x40)
+        tps_locked = bool(self.register_map.read(self.REG_TPS_STATUS)[0] & 0x08)
         if mpeg_locked:
             signal = carrier = viterbi = sync = lock = True
         else:
@@ -514,14 +524,14 @@ class AF9013Frontend(DVBFrontend):
             sync = lock = False
 
         strength = snr = bit_errors = block_errors = None
-        if viterbi and self._read_register(0x9BEE)[0] & 1:
-            rf = self._read_register(0xD07C, 2)
-            limits = self._read_register(0x9BBD)[0] + self._read_register(0x9BD0)[0], self._read_register(0x9BE2)[0] + self._read_register(0x9BE4)[0]
+        if viterbi and self.register_map.read(0x9BEE)[0] & 1:
+            rf = self.register_map.read(0xD07C, 2)
+            limits = self.register_map.read(0x9BBD)[0] + self.register_map.read(0x9BD0)[0], self.register_map.read(0x9BE2)[0] + self.register_map.read(0x9BE4)[0]
             if limits[0] != limits[1]:
                 strength = int(30000 * (sum(rf) - limits[1]) / (limits[0] - limits[1]) - 80000)
-        if viterbi and self._read_register(self.REG_CNR_READY)[0] & 0x08:
-            value = int.from_bytes(self._read_register(self.REG_CNR, 3), "little")
-            modulation = (self._read_register(self.REG_MODULATION)[0] >> 6) & 3
+        if viterbi and self.register_map.read(self.REG_CNR_READY)[0] & 0x08:
+            value = int.from_bytes(self.register_map.read(self.REG_CNR, 3), "little")
+            modulation = (self.register_map.read(self.REG_MODULATION)[0] >> 6) & 3
             bounds = {
                 0: (653799, 1689999, 0, 1690000, 13, 3355443),
                 1: (371105, 827999, 370000, 828000, 6, 43900382),
@@ -531,8 +541,8 @@ class AF9013Frontend(DVBFrontend):
                 low, high, lower_offset, top, factor, offset = bounds
                 value = max(low, min(high, value))
                 snr = (log10(value - lower_offset) - log10(top - value) + offset / 2**24) * factor
-        if sync and self._read_register(self.REG_BER_READY)[0] & 0x10:
-            counter = self._read_register(self.REG_BER_COUNTER, 7)
+        if sync and self.register_map.read(self.REG_BER_READY)[0] & 0x10:
+            counter = self.register_map.read(self.REG_BER_COUNTER, 7)
             packet_count = int.from_bytes(counter[0:2], "little")
             bit_errors = int.from_bytes(counter[2:5], "little")
             block_errors = int.from_bytes(counter[5:7], "little")
@@ -541,8 +551,8 @@ class AF9013Frontend(DVBFrontend):
             self._block_count += packet_count
             self._block_errors += block_errors
             if packet_count != 10_000:
-                self._write_register(self.REG_BER_COUNTER, (10_000).to_bytes(2, "little"))
-            self._update_bits(self.REG_BER_READY, 0x20, 0x20)
+                self.register_map.write(self.REG_BER_COUNTER, (10_000).to_bytes(2, "little"))
+            self.register_map.update_bits(self.REG_BER_READY, 0x20, 0x20)
             block_errors = self._block_errors
             bit_count = self._bit_count
             block_count = self._block_count
@@ -566,7 +576,7 @@ class AF9013Frontend(DVBFrontend):
     def read_tuning(self) -> DVBTuning | None:
         if self.current_tuning is None:
             return None
-        transmission = self._read_register(self.REG_TRANSMISSION, 3)
+        transmission = self.register_map.read(self.REG_TRANSMISSION, 3)
         modulation = {
             0: Modulation.QPSK,
             1: Modulation.QAM16,
@@ -626,15 +636,15 @@ class AF9013Frontend(DVBFrontend):
     def sleep(self) -> None:
         if not self._initialized or self._sleeping:
             return
-        self._update_bits(self.REG_LOCK_LED, 0x01, 0)
-        self._update_bits(self.REG_RESET, 0x10, 0x10)
-        self._write_register(self.REG_RESET_EXECUTION, b"\x01")
+        self.register_map.update_bits(self.REG_LOCK_LED, 0x01, 0)
+        self.register_map.update_bits(self.REG_RESET, 0x10, 0x10)
+        self.register_map.write(self.REG_RESET_EXECUTION, b"\x01")
         deadline = monotonic() + 1.0
-        while monotonic() < deadline and not self._read_register(self.REG_RESET)[0] & 0x02:
+        while monotonic() < deadline and not self.register_map.read(self.REG_RESET)[0] & 0x02:
             sleep(0.005)
-        if not self._read_register(self.REG_RESET)[0] & 0x02:
+        if not self.register_map.read(self.REG_RESET)[0] & 0x02:
             raise TimeoutError("AF9013 reset timed out")
-        self._update_bits(self.REG_ADC_CONTROL, 0x08, 0x08)
+        self.register_map.update_bits(self.REG_ADC_CONTROL, 0x08, 0x08)
         if self.tuner is not None:
             self.tuner.sleep()
         self._sleeping = True
