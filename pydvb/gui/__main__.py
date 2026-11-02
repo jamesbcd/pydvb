@@ -15,7 +15,7 @@ from .controller import AppController
 
 def main() -> int:
     """Start the QML application and return its exit status."""
-    QQuickStyle.setStyle("macOS" if sys.platform == "darwin" else "Fusion")
+    QQuickStyle.setStyle("Fusion") # if sys.platform == "darwin" else "Fusion")
     application = QGuiApplication(sys.argv)
     application.setApplicationName("PyDVB")
     application.setOrganizationName("pydvb")
