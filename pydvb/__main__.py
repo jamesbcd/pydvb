@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CAPTURE_DURATION_SECONDS = 15.0
 READ_TIMEOUT_SECONDS = 5.0
-DEFAULT_SERVER_ADDRESS = "127.0.0.1:8080"
+DEFAULT_SERVER_ADDRESS = ("127.0.0.1", 8080)
 
 
 def parse_frequency(value: str) -> int:
@@ -528,7 +528,7 @@ def main() -> int:
     subparsers.add_parser(
         "discover",
         help="Discover if a known DVB-T device is connected, without initializing it.",
-        parents=[],
+        parents=[usb_options],
     )
     subparsers.add_parser(
         "init",
@@ -569,7 +569,7 @@ def main() -> int:
     subparsers.add_parser(
         "scan",
         help="Tune and scan live MPEG-TS stream for its service metadata (ie. channels)",
-        parents=[needs_tuning, can_save_services, adapter_options, usb_options],
+        parents=[needs_tuning, can_load_services, can_save_services, adapter_options, usb_options],
     )
     record_parser = subparsers.add_parser(
         "record",
