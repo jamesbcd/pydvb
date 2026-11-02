@@ -91,6 +91,28 @@ python3 -m pydvb serve 0.0.0.0:8080 --use-table au-Brisbane
 Then use the server computer's LAN address in the playlist URL. Stop a running
 tune, recording, or server with Ctrl-C where applicable.
 
+## Desktop GUI
+
+Install the optional Qt Quick desktop dependencies and launch the app:
+
+```sh
+python3 -m pip install -e '.[gui]'
+pydvb-gui
+```
+
+The GUI discovers supported receivers, initializes the selected device on
+request, and displays per-adapter signal status. In **Tuning**, refresh the
+known LinuxTV scan tables (network access required), choose a table, or add and
+edit individual DVB-T frequencies. Scan to populate **Channels**, then start
+the HTTP server from **Server**. The server defaults to `127.0.0.1:8080`; use
+the displayed playlist URL with VLC or another MPEG-TS client. Binding to a
+non-loopback address makes streams reachable on the network and is not
+authenticated.
+
+Use **Open** and **Save** to load or save a JSON profile containing tuning and
+server preferences plus the scanned service map. Profiles do not preserve
+connected devices, active streams, or clients.
+
 ## Commands
 
 Command options go after the subcommand. Use `--adapter INDEX` (also

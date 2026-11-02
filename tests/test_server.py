@@ -113,11 +113,21 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
         connection.request("GET", "/service/1.2.3?token=secret")
         response = connection.getresponse()
 
+        clients = server.client_statuses
+        assert len(clients) == 1
+        assert clients[0].service_name == "Test TV"
+        assert clients[0].service_id == "1.2.3"
+        assert clients[0].peer.startswith("127.0.0.1:")
+
         payload = b"\x47\x00\xc8" + b"\x00" * 185
         adapter.chunks.put(payload)
 
         assert response.status == 200
         assert response.read(188) == payload
+        deadline = monotonic() + 2
+        while monotonic() < deadline and server.client_statuses[0].bytes_sent != 188:
+            sleep(0.01)
+        assert server.client_statuses[0].bytes_sent == 188
     finally:
         connection.close()
         server.shutdown()

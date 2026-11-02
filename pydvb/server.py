@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import logging
 from queue import Empty, Full, Queue
@@ -30,6 +30,22 @@ ADAPTER_LEASE_RETRY_INTERVAL = 0.1
 class _StreamSubscriber:
     pids: frozenset[int]
     output: Queue[bytes]
+    peer: str = ""
+    service_name: str = ""
+    service_id: str = ""
+    connected_at: float = field(default_factory=monotonic)
+    bytes_sent: int = 0
+
+
+@dataclass(frozen=True)
+class HTTPClientStatus:
+    """Immutable snapshot of one connected HTTP stream client."""
+
+    peer: str
+    service_name: str
+    service_id: str
+    bytes_sent: int
+    connected_seconds: float
 
 
 @dataclass(eq=False)
@@ -83,6 +99,23 @@ class LocalTS_HTTPServer:
         address = self.httpd.server_address
         return cast(str, address[0]), address[1]
 
+    @property
+    def client_statuses(self) -> tuple[HTTPClientStatus, ...]:
+        """Return a thread-safe snapshot of active HTTP stream clients."""
+        now = monotonic()
+        with self._adapters_condition:
+            return tuple(
+                HTTPClientStatus(
+                    peer=subscriber.peer,
+                    service_name=subscriber.service_name,
+                    service_id=subscriber.service_id,
+                    bytes_sent=subscriber.bytes_sent,
+                    connected_seconds=max(0.0, now - subscriber.connected_at),
+                )
+                for session in self._active_sessions
+                for subscriber in session.subscribers
+            )
+
     def start(self) -> None:
         """Mark the server ready to accept service requests."""
 
@@ -111,7 +144,13 @@ class LocalTS_HTTPServer:
             session.done_event.wait(remaining)
 
     def _subscribe(
-        self, tuning: DVBTuning, pids: frozenset[int]
+        self,
+        tuning: DVBTuning,
+        pids: frozenset[int],
+        *,
+        peer: str = "",
+        service_name: str = "",
+        service_id: str = "",
     ) -> tuple[_MultiplexSession, _StreamSubscriber] | None:
         deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
         wait_started = monotonic()
@@ -120,7 +159,9 @@ class LocalTS_HTTPServer:
             while not self._stop_event.is_set():
                 session = self._sessions.get(tuning)
                 if session is not None and not session.stop_event.is_set():
-                    subscriber = self._add_subscriber_locked(session, pids)
+                    subscriber = self._add_subscriber_locked(
+                        session, pids, peer, service_name, service_id
+                    )
                     return session, subscriber
 
                 if self._available_adapters:
@@ -138,7 +179,9 @@ class LocalTS_HTTPServer:
                         ready_event=Event(),
                         done_event=Event(),
                     )
-                    subscriber = self._add_subscriber_locked(session, pids)
+                    subscriber = self._add_subscriber_locked(
+                        session, pids, peer, service_name, service_id
+                    )
                     self._sessions[tuning] = session
                     self._active_sessions.append(session)
                     session.producer = Thread(
@@ -190,11 +233,19 @@ class LocalTS_HTTPServer:
         return None
 
     def _add_subscriber_locked(
-        self, session: _MultiplexSession, pids: frozenset[int]
+        self,
+        session: _MultiplexSession,
+        pids: frozenset[int],
+        peer: str = "",
+        service_name: str = "",
+        service_id: str = "",
     ) -> _StreamSubscriber:
         subscriber = _StreamSubscriber(
             pids=pids,
             output=Queue(maxsize=self.client_queue_size),
+            peer=peer,
+            service_name=service_name,
+            service_id=service_id,
         )
         session.subscribers.add(subscriber)
         self._refresh_pid_routes_locked(session)
@@ -221,6 +272,17 @@ class LocalTS_HTTPServer:
             if not session.subscribers:
                 session.stop_event.set()
             self._adapters_condition.notify_all()
+
+    def _record_client_bytes(
+        self,
+        session: _MultiplexSession,
+        subscriber: _StreamSubscriber,
+        count: int,
+    ) -> None:
+        """Update delivered-byte telemetry while holding the session lock."""
+        with self._adapters_condition:
+            if subscriber in session.subscribers:
+                subscriber.bytes_sent += count
 
     def _run_session(self, session: _MultiplexSession) -> None:
         try:
@@ -422,14 +484,20 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             f"frequency_hz={tuning.frequency_hz} bandwidth_hz={tuning.bandwidth_hz}"
         )
 
-        subscription = owner._subscribe(tuning, service.pids())
+        client_address = f"{self.client_address[0]}:{self.client_address[1]}"
+        subscription = owner._subscribe(
+            tuning,
+            service.pids(),
+            peer=client_address,
+            service_name=service.name or "Unnamed service",
+            service_id=triplet.dotted(),
+        )
         if subscription is None:
             self._log("No adapter available for service request", level=logging.WARNING)
             self.send_error(503, "no adapter is currently available")
             return
         session, subscriber = subscription
 
-        client_address = f"{self.client_address[0]}:{self.client_address[1]}"
         self._log(f">>> Client connected: {client_address}", level=logging.INFO)
         chunk_count = 0
         byte_count = 0
@@ -476,6 +544,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
+                owner._record_client_bytes(session, subscriber, len(chunk))
         except (BrokenPipeError, ConnectionResetError) as error:
             self._log(f"Client connection closed while streaming: {error!r}")
         except OSError as error:

@@ -16,8 +16,16 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+gui = ["PySide6-Essentials>=6.8"]
+
+[project.scripts]
+pydvb-gui = "pydvb.gui.__main__:main"
+
 [tool.setuptools.packages.find]
 include = ["pydvb*"]
+
+[tool.setuptools.package-data]
+"pydvb.gui" = ["*.qml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
