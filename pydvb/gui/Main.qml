@@ -296,9 +296,19 @@ ApplicationWindow {
                             required property var modelData
                             width: adapterList.width
                             height: 54
-                            text: modelData.name + "     " + modelData.state + "     " + modelData.signal
                             onClicked: controller.selectAdapter(modelData.adapterIndex)
                             highlighted: modelData.selected
+                            contentItem: Label {
+                                text: modelData.name + "     " + modelData.state + "     " + modelData.signal
+                                color: "#26362c"
+                                elide: Text.ElideRight
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: modelData.selected ? "#e4eee6" : (parent.hovered ? "#f8faf8" : "transparent")
+                                border.color: modelData.selected ? "#b8cdbd" : "transparent"
+                                radius: 5
+                            }
                         }
                         Label {
                             anchors.centerIn: parent
