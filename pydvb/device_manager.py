@@ -19,12 +19,22 @@ class DeviceConnectionFailure:
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceRemovalFailure:
+    """Describe a detached device whose resources could not be fully closed."""
+
+    device: DVBDevice
+    error: Exception
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceConnectionResult:
     """Report successful and unsuccessful connection attempts."""
 
     connected: tuple[DVBDevice, ...]
     unavailable: tuple[DeviceConnectionFailure, ...]
     unsupported: tuple[USBDeviceInfo, ...]
+    removed: tuple[DVBDevice, ...] = ()
+    removal_failures: tuple[DeviceRemovalFailure, ...] = ()
 
 
 class DVBDeviceManager:
@@ -36,6 +46,8 @@ class DVBDeviceManager:
         self._drivers_by_id = self._build_driver_index()
         self._context: Any | None = None
         self._devices: list[DVBDevice] = []
+        self._connected_usb_addresses: set[tuple[int, int, int, int]] = set()
+        self._usb_address_by_device: dict[int, tuple[int, int, int, int]] = {}
 
     def _build_driver_index(self) -> dict[USBDeviceID, type[DVBDevice]]:
         drivers: dict[USBDeviceID, type[DVBDevice]] = {}
@@ -71,11 +83,47 @@ class DVBDeviceManager:
     ) -> DeviceConnectionResult:
         """Connect to every available supported device matching optional IDs."""
         requested_ids = self.supported_ids() if ids is None else frozenset(ids)
+        return self._connect(self.enumerate(), requested_ids, only_new=False)
+
+    def connect_new(
+        self,
+        ids: Collection[USBDeviceID] | None = None,
+    ) -> DeviceConnectionResult:
+        """Connect to supported devices not already opened by this manager."""
+        requested_ids = self.supported_ids() if ids is None else frozenset(ids)
+        return self._connect(self.enumerate(), requested_ids, only_new=True)
+
+    def _connect(
+        self,
+        devices: Iterable[USBDeviceInfo],
+        requested_ids: Collection[USBDeviceID],
+        *,
+        only_new: bool,
+    ) -> DeviceConnectionResult:
+        """Open matching enumerated devices, optionally skipping existing connections."""
         connected: list[DVBDevice] = []
         unavailable: list[DeviceConnectionFailure] = []
         unsupported: list[USBDeviceInfo] = []
+        removed: list[DVBDevice] = []
+        removal_failures: list[DeviceRemovalFailure] = []
+        devices = tuple(devices)
+        present_usb_addresses = {self._usb_address(device) for device in devices}
 
-        for device in self.enumerate():
+        for connected_device in tuple(self._devices):
+            usb_address = self._usb_address_by_device[id(connected_device)]
+            if usb_address in present_usb_addresses:
+                continue
+            self._devices.remove(connected_device)
+            del self._usb_address_by_device[id(connected_device)]
+            removed.append(connected_device)
+            try:
+                connected_device.close()
+            except Exception as error:
+                removal_failures.append(DeviceRemovalFailure(connected_device, error))
+
+        self._connected_usb_addresses = set(self._usb_address_by_device.values())
+
+        for device in devices:
             if device.device_id not in requested_ids:
                 unsupported.append(device)
                 continue
@@ -83,13 +131,36 @@ class DVBDeviceManager:
             if device_type is None:
                 unsupported.append(device)
                 continue
+            usb_address = self._usb_address(device)
+            if only_new and usb_address in self._connected_usb_addresses:
+                continue
             try:
-                connected.append(device_type.open_usb_device(device))
+                connected_device = device_type.open_usb_device(device)
             except (LibUSBError, OSError, PermissionError, RuntimeError, ValueError) as error:
                 unavailable.append(DeviceConnectionFailure(device, error))
+            else:
+                connected.append(connected_device)
+                self._connected_usb_addresses.add(usb_address)
+                self._usb_address_by_device[id(connected_device)] = usb_address
 
         self._devices.extend(connected)
-        return DeviceConnectionResult(tuple(connected), tuple(unavailable), tuple(unsupported))
+        return DeviceConnectionResult(
+            tuple(connected),
+            tuple(unavailable),
+            tuple(unsupported),
+            tuple(removed),
+            tuple(removal_failures),
+        )
+
+    @staticmethod
+    def _usb_address(device: USBDeviceInfo) -> tuple[int, int, int, int]:
+        """Return the identity for one device at its current USB bus address."""
+        return (
+            device.vendor_id,
+            device.product_id,
+            device.bus_number,
+            device.device_address,
+        )
 
     def close(self) -> None:
         """Close connected devices and release the manager's libusb context."""
@@ -98,6 +169,8 @@ class DVBDeviceManager:
                 device.close()
         finally:
             self._devices.clear()
+            self._connected_usb_addresses.clear()
+            self._usb_address_by_device.clear()
             if self._context is not None:
                 self._context.close()
                 self._context = None

@@ -17,6 +17,38 @@ ApplicationWindow {
     property int editingTuningIndex: -1
     readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
 
+    function sectionStatus(index) {
+        switch (index) {
+        case 0:
+            return controller.deviceSummary
+        case 1:
+            return controller.tunings.length > 0
+                ? controller.tunings.length + " tuning(s) loaded"
+                : "No tunings loaded"
+        case 2:
+            return controller.hasChannelMap ? "A channel map is active" : "No channel map loaded"
+        case 3:
+            return controller.serverState === "Running" ? "Server is running" : "Server is not running"
+        default:
+            return ""
+        }
+    }
+
+    function sectionReady(index) {
+        switch (index) {
+        case 0:
+            return controller.devices.some(function(device) { return device.adapterCount > 0 })
+        case 1:
+            return controller.tunings.length > 0
+        case 2:
+            return controller.hasChannelMap
+        case 3:
+            return controller.serverState === "Running"
+        default:
+            return false
+        }
+    }
+
     onClosing: function(closeEvent) {
         if (!controller.shuttingDown) {
             closeEvent.accepted = false
@@ -105,17 +137,42 @@ ApplicationWindow {
                 Repeater {
                     model: window.sectionNames
                     delegate: Button {
+                        id: sectionButton
                         required property int index
                         required property string modelData
                         Layout.fillWidth: true
-                        // text: (index + 1).toString().padStart(2, "0") + "     " + modelData
                         text: modelData
                         checkable: true
                         checked: window.sectionIndex === index
                         highlighted: checked
                         onClicked: window.sectionIndex = index
                         horizontalPadding: 13
-                        height: 44
+                        height: 46
+                        Accessible.description: window.sectionStatus(index)
+                        ToolTip.visible: hovered
+                        ToolTip.text: window.sectionStatus(index)
+                        background: Rectangle {
+                            radius: 5
+                            color: checked ? "#d8e5da" : (parent.hovered ? "#f0f3f0" : "transparent")
+                            border.color: checked ? "#b8cdbd" : "transparent"
+                        }
+                        contentItem: RowLayout {
+                            spacing: 10
+                            Label {
+                                text: modelData
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignLeft
+                                font.pixelSize: 14
+                                font.weight: sectionButton.checked ? Font.DemiBold : Font.Normal
+                                color: "#26362c"
+                            }
+                            Rectangle {
+                                Layout.preferredWidth: 10
+                                Layout.preferredHeight: 10
+                                radius: 5
+                                color: window.sectionReady(index) ? "#338457" : "#d7a63b"
+                            }
+                        }
                     }
                 }
 
@@ -165,6 +222,11 @@ ApplicationWindow {
                             Label { text: "USB receivers and configured adapters"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
+                        CheckBox {
+                            text: "Auto-discover and initialize devices"
+                            checked: controller.autoDiscoverAndInitializeDevices
+                            onToggled: controller.autoDiscoverAndInitializeDevices = checked
+                        }
                         CheckBox {
                             text: "Show unsupported USB devices"
                             checked: controller.showUnsupportedDevices

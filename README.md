@@ -100,14 +100,17 @@ python3 -m pip install -e '.[gui]'
 pydvb-gui
 ```
 
-The GUI discovers supported receivers, initializes the selected device on
-request, and displays per-adapter signal status. In **Tuning**, refresh the
-known LinuxTV scan tables (network access required), choose a table, or add and
-edit individual DVB-T frequencies. Scan to populate **Channels**, then start
-the HTTP server from **Server**. The server defaults to `127.0.0.1:8080`; use
-the displayed playlist URL with VLC or another MPEG-TS client. Binding to a
-non-loopback address makes streams reachable on the network and is not
-authenticated.
+The GUI checks for supported USB receivers every two seconds, initializes newly
+discovered devices, removes devices that are no longer connected, and displays
+per-adapter signal status.
+Toggle **Auto-discover and initialize devices** on the **Devices** page to
+disable or resume this behavior; use **Discover** to check immediately. In
+**Tuning**, refresh the known LinuxTV scan tables (network access required),
+choose a table, or add and edit individual DVB-T frequencies. Scan to populate
+**Channels**, then start the HTTP server from **Server**. The server defaults
+to `127.0.0.1:8080`; use the displayed playlist URL with VLC or another MPEG-TS
+client. Binding to a non-loopback address makes streams reachable on the
+network and is not authenticated.
 
 Use **Open** and **Save** to load or save a JSON profile containing tuning and
 server preferences plus the scanned service map. Profiles do not preserve
@@ -199,8 +202,9 @@ with DVBDeviceManager([AF9015Device]) as manager:
 The manager closes connected devices and its libusb context when leaving the
 `with` block. `device.adapters` contains the configured adapter objects.
 `DVBDeviceManager.connect_all()` returns `connected`, `unavailable`, and
-`unsupported` collections; use `device.model_name` to inspect a registered
-model name.
+`unsupported` collections. `connect_new()` can be called repeatedly to connect
+only devices that are not already open through that manager. Use
+`device.model_name` to inspect a registered model name.
 
 For lower-level streaming, start an adapter after initializing and tuning its
 frontend, then stop it when finished:

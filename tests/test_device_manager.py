@@ -10,7 +10,7 @@ from pydvb.usb import USBDeviceID
 
 class FakeTransport:
     def close(self):
-        pass
+        self.closed = True
 
 
 class FakeDevice(DVBDevice):
@@ -89,6 +89,40 @@ def test_manager_connects_supported_devices_and_reports_failures(monkeypatch):
         assert manager.devices == result.connected
 
     assert context.closed
+
+
+def test_manager_connect_new_opens_only_devices_not_already_connected(monkeypatch):
+    first = FakeUSBDevice(0x1111, 0x2222, address=1)
+    context = FakeContext([first])
+    monkeypatch.setattr(manager_module, "usb1", SimpleNamespace(USBContext=lambda: context))
+
+    with DVBDeviceManager([FakeDevice]) as manager:
+        initial = manager.connect_new()
+        context.devices.append(FakeUSBDevice(0x1111, 0x2222, address=2))
+
+        newly_discovered = manager.connect_new()
+        no_new_devices = manager.connect_new()
+
+        assert len(initial.connected) == 1
+        assert len(newly_discovered.connected) == 1
+        assert no_new_devices.connected == ()
+        assert len(manager.devices) == 2
+
+
+def test_manager_connect_new_detects_and_closes_removed_devices(monkeypatch):
+    context = FakeContext([FakeUSBDevice(0x1111, 0x2222, address=1)])
+    monkeypatch.setattr(manager_module, "usb1", SimpleNamespace(USBContext=lambda: context))
+
+    with DVBDeviceManager([FakeDevice]) as manager:
+        initial = manager.connect_new()
+        removed_device = initial.connected[0]
+        context.devices.clear()
+
+        result = manager.connect_new()
+
+        assert result.removed == (removed_device,)
+        assert manager.devices == ()
+        assert removed_device.transport.closed
 
 
 def test_manager_rejects_duplicate_supported_ids():

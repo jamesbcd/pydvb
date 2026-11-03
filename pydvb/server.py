@@ -120,15 +120,27 @@ class LocalTS_HTTPServer:
         """Mark the server ready to accept service requests."""
 
     def serve_forever(self) -> None:
-        """Serve HTTP requests until ``shutdown`` or ``close`` is called."""
+        """Serve HTTP requests until ``shutdown()`` is called from another thread.
+
+        Calling ``close()`` alone does not stop this request loop.
+        """
         self.httpd.serve_forever()
 
     def shutdown(self) -> None:
-        """Stop accepting HTTP requests while allowing active handlers to exit."""
+        """Stop the ``serve_forever()`` loop without closing the listening socket.
+
+        Call this from a different thread than ``serve_forever()``. Call
+        ``close()`` afterward to stop active stream sessions and release the socket.
+        """
         self.httpd.shutdown()
 
     def close(self) -> None:
-        """Stop HTTP serving and wait for active multiplex sessions to finish."""
+        """Stop active streams, close the listening socket, and wait briefly.
+
+        If ``serve_forever()`` is running in another thread, call ``shutdown()``
+        first; this method does not stop that request loop. Waits up to two
+        seconds total for active multiplex sessions to finish.
+        """
         self._stop_event.set()
         with self._adapters_condition:
             sessions = tuple(self._active_sessions)

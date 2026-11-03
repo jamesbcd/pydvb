@@ -11,8 +11,10 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QCoreApplication, QThread, QTimer
 
 from pydvb.driver_api.tuner import DVBTuning
+from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.controller import AppController
 from pydvb.gui.profile import GuiProfile
+from pydvb.service_map import DVBServiceMap
 from pydvb.usb import USBDeviceID
 
 
@@ -98,17 +100,112 @@ def test_shutdown_continues_device_cleanup_after_server_error(qt_application):
 
 
 def test_discovery_is_blocked_while_server_owns_adapters(qt_application):
+    class FakeManager:
+        def __init__(self):
+            self.discovery_count = 0
+
+        def connect_new(self):
+            self.discovery_count += 1
+            return DeviceConnectionResult((), (), ())
+
     controller = AppController()
     controller._server = object()
+    manager = FakeManager()
+    controller._manager = manager
 
     controller.discover()
+    controller._auto_discover()
 
     assert not controller.busy
     assert controller.statusMessage == "Stop the server before rediscovering devices"
+    assert manager.discovery_count == 0
+
+
+def test_auto_discovery_defaults_enabled_and_can_be_disabled(qt_application):
+    controller = AppController()
+
+    assert controller.autoDiscoverAndInitializeDevices is True
+    assert controller._discovery_timer.interval() == 2000
+    assert controller._discovery_timer.isActive()
+
+    controller.autoDiscoverAndInitializeDevices = False
+
+    assert not controller._discovery_timer.isActive()
+
+
+def test_auto_discovery_initializes_only_new_devices(qt_application):
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = []
+
+        def __init__(self):
+            self.initialization_count = 0
+
+        def init_hardware(self):
+            self.initialization_count += 1
+
+    device = FakeDevice()
+
+    class FakeManager:
+        def __init__(self):
+            self.discovery_count = 0
+
+        def connect_new(self):
+            self.discovery_count += 1
+            connected = (device,) if self.discovery_count == 1 else ()
+            return DeviceConnectionResult(connected, (), ())
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    manager = FakeManager()
+    controller._manager = manager
+
+    def run_discovery():
+        controller.devicesChanged.connect(qt_application.quit)
+        controller._auto_discover()
+        QTimer.singleShot(2000, qt_application.quit)
+        qt_application.exec()
+
+    run_discovery()
+    run_discovery()
+
+    assert controller.devices[0]["state"] == "Connected"
+    assert device.initialization_count == 1
+    assert manager.discovery_count == 2
+
+
+def test_auto_discovery_removes_detached_device_and_adapters(qt_application):
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+    device = FakeDevice()
+
+    class FakeManager:
+        def connect_new(self):
+            return DeviceConnectionResult((), (), (), (device,))
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._manager = FakeManager()
+    controller._devices = [device]
+    controller._select_first_device()
+
+    controller.devicesChanged.connect(qt_application.quit)
+    controller._auto_discover()
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller.devices == []
+    assert controller.adapters == []
+    assert controller.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
 
 
 def test_worker_result_callback_runs_on_the_qt_thread(qt_application):
     controller = AppController()
+    controller.autoDiscoverAndInitializeDevices = False
     outcomes = []
     controller._run_task(
         lambda: QThread.currentThread() == qt_application.thread(),
@@ -191,6 +288,35 @@ def test_adapters_are_listed_and_selectable(qt_application):
     assert controller._selected_adapter(device) is adapter_one
 
 
+def test_device_summary_counts_connected_devices_and_active_adapters(qt_application):
+    controller = AppController()
+    device_id = USBDeviceID(0x0413, 0x6029)
+    uninitialized = type(
+        "Device",
+        (),
+        {"device_id": device_id, "model_name": "Receiver", "adapters": []},
+    )()
+    adapters = [
+        type("Adapter", (), {"adapter_index": index})()
+        for index in range(2)
+    ]
+    initialized = type(
+        "Device",
+        (),
+        {
+            "device_id": device_id,
+            "model_name": "Receiver",
+            "adapters": adapters,
+        },
+    )()
+
+    assert controller.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
+
+    controller._devices = [uninitialized, initialized]
+
+    assert controller.deviceSummary == "2 device(s) connected; 1 initialized; 2 active adapter(s)"
+
+
 def test_manual_tunings_can_be_added_edited_and_removed(qt_application):
     profile = GuiProfile(tunings=(DVBTuning(frequency_hz=650_000_000),))
     controller = AppController(profile=profile)
@@ -206,3 +332,15 @@ def test_manual_tunings_can_be_added_edited_and_removed(qt_application):
     assert len(controller.tunings) == 2
     controller.removeTuning(0)
     assert controller.tunings[0]["frequency"] == 177.5
+
+
+def test_channel_map_status_is_independent_of_channel_count(qt_application):
+    controller = AppController()
+
+    assert controller.hasChannelMap is False
+    assert controller.channels == []
+
+    controller._profile.service_map = DVBServiceMap()
+
+    assert controller.hasChannelMap is True
+    assert controller.channels == []

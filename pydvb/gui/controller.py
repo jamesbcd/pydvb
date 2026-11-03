@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import isfinite
 from os import PathLike
 from pathlib import Path
@@ -20,7 +21,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from pydvb.device_manager import DVBDeviceManager
+from pydvb.device_manager import DeviceConnectionResult, DVBDeviceManager
 from pydvb.driver_api.device import DVBDevice
 from pydvb.driver_api.frontend import DVBFrontendStatus
 from pydvb.driver_api.tuner import DVBTuning
@@ -30,6 +31,13 @@ from pydvb.server import LocalTS_HTTPServer
 from pydvb.service_map import DVBServiceMap, map_from_tunings
 
 from .profile import GuiProfile, load_profile, save_profile
+
+
+@dataclass(frozen=True, slots=True)
+class _DiscoveryOutcome:
+    manager: DVBDeviceManager
+    connection_result: DeviceConnectionResult
+    initialization_failures: tuple[tuple[DVBDevice, Exception], ...]
 
 
 class _WorkerSignals(QObject):
@@ -79,6 +87,8 @@ class AppController(QObject):
         self._selected_device_index: int | None = None
         self._discovery_rows: list[dict[str, object]] = []
         self._show_unsupported_devices = False
+        self._auto_discover_and_initialize_devices = True
+        self._initialization_errors: dict[int, str] = {}
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
         self._busy = False
@@ -103,6 +113,10 @@ class AppController(QObject):
         self._status_timer.setInterval(2000)
         self._status_timer.timeout.connect(self._poll_status)
         self._status_timer.start()
+        self._discovery_timer = QTimer(self)
+        self._discovery_timer.setInterval(2000)
+        self._discovery_timer.timeout.connect(self._auto_discover)
+        self._discovery_timer.start()
 
     @Property(bool, notify=stateChanged)
     def busy(self) -> bool:
@@ -126,7 +140,13 @@ class AppController(QObject):
                     "deviceIndex": index,
                     "deviceId": device_id,
                     "name": device.model_name or "DVB device",
-                    "state": "Initialized" if device.adapters else "Connected",
+                    "state": (
+                        "Initialization failed"
+                        if id(device) in self._initialization_errors
+                        else "Initialized"
+                        if device.adapters
+                        else "Connected"
+                    ),
                     "adapterCount": len(device.adapters),
                     "signal": (
                         "; ".join(
@@ -147,6 +167,16 @@ class AppController(QObject):
         )
         return rows
 
+    @Property(str, notify=devicesChanged)
+    def deviceSummary(self) -> str:
+        """Summarize connected devices and their initialized adapters."""
+        initialized_devices = sum(bool(device.adapters) for device in self._devices)
+        active_adapters = sum(len(device.adapters) for device in self._devices)
+        return (
+            f"{len(self._devices)} device(s) connected; "
+            f"{initialized_devices} initialized; {active_adapters} active adapter(s)"
+        )
+
     @Property(bool, notify=devicesChanged)
     def showUnsupportedDevices(self) -> bool:
         return self._show_unsupported_devices
@@ -156,6 +186,21 @@ class AppController(QObject):
         if self._show_unsupported_devices != value:
             self._show_unsupported_devices = value
             self.devicesChanged.emit()
+
+    @Property(bool, notify=stateChanged)
+    def autoDiscoverAndInitializeDevices(self) -> bool:
+        return self._auto_discover_and_initialize_devices
+
+    @autoDiscoverAndInitializeDevices.setter
+    def autoDiscoverAndInitializeDevices(self, value: bool) -> None:
+        if self._auto_discover_and_initialize_devices == value:
+            return
+        self._auto_discover_and_initialize_devices = value
+        if value:
+            self._discovery_timer.start()
+        else:
+            self._discovery_timer.stop()
+        self.stateChanged.emit()
 
     @Property("QVariantList", notify=devicesChanged)
     def adapters(self) -> list[dict[str, object]]:
@@ -207,6 +252,11 @@ class AppController(QObject):
                 }
             )
         return rows
+
+    @Property(bool, notify=channelsChanged)
+    def hasChannelMap(self) -> bool:
+        """Report whether a channel map is loaded, even if it has no services."""
+        return self._profile.service_map is not None
 
     @Property("QVariantList", notify=knownTablesChanged)
     def knownTables(self) -> list[str]:
@@ -278,58 +328,129 @@ class AppController(QObject):
 
     @Slot()
     def discover(self) -> None:
-        """Enumerate and connect supported receivers in the hardware worker."""
+        """Discover new receivers, initializing them when automatic mode is enabled."""
         if self._server is not None:
             self._set_status("Stop the server before rediscovering devices")
             return
-        self._set_status("Discovering USB DVB devices...")
+        self._discover_devices(
+            auto_initialize=self._auto_discover_and_initialize_devices,
+            automatic=False,
+        )
 
-        def operation() -> tuple[DVBDeviceManager, object]:
-            if self._manager is not None:
-                self._manager.close()
-            manager = DVBDeviceManager(self._device_types)
-            return manager, manager.connect_all()
+    @Slot()
+    def _auto_discover(self) -> None:
+        """Poll for newly connected receivers while automatic discovery is enabled."""
+        if (
+            not self._auto_discover_and_initialize_devices
+            or self._server is not None
+            or self._busy
+            or self._shutting_down
+        ):
+            return
+        self._discover_devices(auto_initialize=True, automatic=True)
+
+    def _discover_devices(self, *, auto_initialize: bool, automatic: bool) -> None:
+        """Connect and optionally initialize newly discovered devices in the worker."""
+        if not automatic:
+            self._set_status("Discovering USB DVB devices...")
+
+        def operation() -> _DiscoveryOutcome:
+            manager = self._manager or DVBDeviceManager(self._device_types)
+            connection_result = manager.connect_new()
+            initialization_failures: list[tuple[DVBDevice, Exception]] = []
+            if auto_initialize:
+                for device in connection_result.connected:
+                    try:
+                        device.init_hardware()
+                    except Exception as error:
+                        initialization_failures.append((device, error))
+            return _DiscoveryOutcome(
+                manager,
+                connection_result,
+                tuple(initialization_failures),
+            )
 
         def complete(result: object) -> None:
-            manager, connection_result = result  # type: ignore[misc]
-            self._manager = manager
-            self._devices = list(connection_result.connected)
-            self._selected_device_index = None
-            self._discovery_rows = []
-            for failure in connection_result.unavailable:
-                self._discovery_rows.append(
-                    {
-                        "deviceIndex": -1,
-                        "deviceId": self._usb_id(failure.device.device_id),
-                        "name": "Supported DVB device",
-                        "state": f"Unavailable: {failure.error}",
-                        "adapterCount": 0,
-                        "signal": "Not available",
-                        "selected": False,
-                    }
-                )
-            for device in connection_result.unsupported:
-                self._discovery_rows.append(
-                    {
-                        "deviceIndex": -1,
-                        "deviceId": self._usb_id(device.device_id),
-                        "name": "Unsupported USB device",
-                        "state": "No registered driver",
-                        "adapterCount": 0,
-                        "signal": "Not available",
-                        "selected": False,
-                        "unsupported": True,
-                    }
-                )
+            if not isinstance(result, _DiscoveryOutcome):
+                raise TypeError("discovery worker returned an unexpected result")
+            self._manager = result.manager
+            selected_device = self._selected_device()
+            removed_device_ids = {
+                id(device) for device in result.connection_result.removed
+            }
+            self._devices = [
+                device for device in self._devices if id(device) not in removed_device_ids
+            ]
+            self._devices.extend(result.connection_result.connected)
+            self._selected_device_index = next(
+                (
+                    index
+                    for index, device in enumerate(self._devices)
+                    if device is selected_device
+                ),
+                None,
+            )
+            for device in result.connection_result.removed:
+                self._initialization_errors.pop(id(device), None)
+            for device, error in result.initialization_failures:
+                self._initialization_errors[id(device)] = str(error)
+            self._discovery_rows = [
+                {
+                    "deviceIndex": -1,
+                    "deviceId": self._usb_id(failure.device.device_id),
+                    "name": "Supported DVB device",
+                    "state": f"Unavailable: {failure.error}",
+                    "adapterCount": 0,
+                    "signal": "Not available",
+                    "selected": False,
+                }
+                for failure in result.connection_result.unavailable
+            ]
+            self._discovery_rows.extend(
+                {
+                    "deviceIndex": -1,
+                    "deviceId": self._usb_id(device.device_id),
+                    "name": "Unsupported USB device",
+                    "state": "No registered driver",
+                    "adapterCount": 0,
+                    "signal": "Not available",
+                    "selected": False,
+                    "unsupported": True,
+                }
+                for device in result.connection_result.unsupported
+            )
             self._signal_by_adapter.clear()
             self._select_first_device()
             self.devicesChanged.emit()
-            self._set_status(
-                f"Connected to {len(self._devices)} supported device(s); "
-                f"{len(connection_result.unavailable)} unavailable"
-            )
+            if (
+                not automatic
+                or result.connection_result.connected
+                or result.connection_result.unavailable
+                or result.connection_result.removed
+                or result.connection_result.removal_failures
+            ):
+                message = (
+                    f"Connected to {len(self._devices)} supported device(s); "
+                    f"{len(result.connection_result.unavailable)} unavailable; "
+                    f"{len(result.connection_result.removed)} removed"
+                )
+                if result.initialization_failures:
+                    failures = "; ".join(
+                        f"{device.model_name or 'DVB device'}: {error}"
+                        for device, error in result.initialization_failures
+                    )
+                    message += f"; initialization failed for {failures}"
+                elif auto_initialize and result.connection_result.connected:
+                    message += "; newly discovered devices initialized"
+                if result.connection_result.removal_failures:
+                    failures = "; ".join(
+                        f"{failure.device.model_name or 'DVB device'}: {failure.error}"
+                        for failure in result.connection_result.removal_failures
+                    )
+                    message += f"; cleanup failed for removed devices: {failures}"
+                self._set_status(message)
 
-        self._run_task(operation, complete)
+        self._run_task(operation, complete, report_status=not automatic)
 
     @Slot(int)
     def selectDevice(self, index: int) -> None:
@@ -361,6 +482,7 @@ class AppController(QObject):
             return
 
         def complete(_result: object) -> None:
+            self._initialization_errors.pop(id(device), None)
             self.devicesChanged.emit()
             self._set_status(f"Initialized {device.model_name or 'DVB device'}")
 
@@ -579,6 +701,7 @@ class AppController(QObject):
         if not self._shutting_down:
             self._shutting_down = True
             self._status_timer.stop()
+            self._discovery_timer.stop()
             self.stateChanged.emit()
         if self._busy:
             QTimer.singleShot(100, self.shutdown)
@@ -616,6 +739,7 @@ class AppController(QObject):
             self._server_thread = None
             self._manager = None
             self._devices.clear()
+            self._initialization_errors.clear()
             self._server_state = "Stopped"
             self.devicesChanged.emit()
             self.serverChanged.emit()
