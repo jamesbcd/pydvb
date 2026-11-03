@@ -36,15 +36,15 @@ ApplicationWindow {
     function sectionStatus(index) {
         switch (index) {
         case 0:
-            return controller.deviceSummary
+            return controller.devicesController.deviceSummary
         case 1:
-            return controller.tunings.length > 0
-                ? controller.tunings.length + " tuning(s) loaded"
+            return controller.tuningController.tunings.length > 0
+                ? controller.tuningController.tunings.length + " tuning(s) loaded"
                 : "No tunings loaded"
         case 2:
-            return controller.hasChannelMap ? "A channel map is active" : "No channel map loaded"
+            return controller.channelController.hasChannelMap ? "A channel map is active" : "No channel map loaded"
         case 3:
-            return controller.serverState === "Running" ? "Server is running" : "Server is not running"
+            return controller.serverController.serverState === "Running" ? "Server is running" : "Server is not running"
         default:
             return ""
         }
@@ -53,13 +53,13 @@ ApplicationWindow {
     function sectionReady(index) {
         switch (index) {
         case 0:
-            return controller.devices.some(function(device) { return device.adapterCount > 0 })
+            return controller.devicesController.devices.some(function(device) { return device.adapterCount > 0 })
         case 1:
-            return controller.tunings.length > 0
+            return controller.tuningController.tunings.length > 0
         case 2:
-            return controller.hasChannelMap
+            return controller.channelController.hasChannelMap
         case 3:
-            return controller.serverState === "Running"
+            return controller.serverController.serverState === "Running"
         default:
             return false
         }
@@ -224,20 +224,20 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         CheckBox {
                             text: "Auto-discover and initialize devices"
-                            checked: controller.autoDiscoverAndInitializeDevices
-                            onToggled: controller.autoDiscoverAndInitializeDevices = checked
+                            checked: controller.devicesController.autoDiscoverAndInitializeDevices
+                            onToggled: controller.devicesController.autoDiscoverAndInitializeDevices = checked
                         }
                         CheckBox {
                             text: "Show unsupported USB devices"
-                            checked: controller.showUnsupportedDevices
-                            onToggled: controller.showUnsupportedDevices = checked
+                            checked: controller.devicesController.showUnsupportedDevices
+                            onToggled: controller.devicesController.showUnsupportedDevices = checked
                         }
-                        Button { text: "Discover"; enabled: !controller.busy; onClicked: controller.discover() }
+                        Button { text: "Discover"; enabled: !controller.busy; onClicked: controller.devicesController.discover() }
                         Button {
                             text: "Initialize selected"
-                            enabled: !controller.busy && controller.devices.length > 0
+                            enabled: !controller.busy && controller.devicesController.devices.length > 0
                             highlighted: true
-                            onClicked: controller.initializeSelectedDevice()
+                            onClicked: controller.devicesController.initializeSelectedDevice()
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
@@ -254,12 +254,12 @@ ApplicationWindow {
                         Layout.preferredHeight: 270
                         Layout.minimumHeight: 160
                         clip: true
-                        model: controller.devices
+                        model: controller.devicesController.devices
                         delegate: ItemDelegate {
                             required property var modelData
                             width: deviceList.width
                             height: 76
-                            onClicked: controller.selectDevice(modelData.deviceIndex)
+                            onClicked: controller.devicesController.selectDevice(modelData.deviceIndex)
                             background: Rectangle {
                                 color: modelData.selected ? "#e4eee6" : (parent.hovered ? "#f8faf8" : "transparent")
                                 border.color: modelData.selected ? "#b8cdbd" : "transparent"
@@ -291,12 +291,12 @@ ApplicationWindow {
                         Layout.fillHeight: true
                         Layout.minimumHeight: 90
                         clip: true
-                        model: controller.adapters
+                        model: controller.devicesController.adapters
                         delegate: ItemDelegate {
                             required property var modelData
                             width: adapterList.width
                             height: 54
-                            onClicked: controller.selectAdapter(modelData.adapterIndex)
+                            onClicked: controller.devicesController.selectAdapter(modelData.adapterIndex)
                             highlighted: modelData.selected
                             contentItem: Label {
                                 text: modelData.name + "     " + modelData.state + "     " + modelData.signal
@@ -335,8 +335,8 @@ ApplicationWindow {
                         Button {
                             text: "Scan services"
                             highlighted: true
-                            enabled: !controller.busy && controller.tunings.length > 0
-                            onClicked: controller.scan()
+                            enabled: !controller.busy && controller.tuningController.tunings.length > 0
+                            onClicked: controller.tuningController.scan()
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
@@ -345,13 +345,13 @@ ApplicationWindow {
                         ComboBox {
                             id: tableBox
                             Layout.fillWidth: true
-                            model: controller.knownTables
+                            model: controller.tuningController.knownTables
                             editable: true
                             displayText: currentText || "Select a known scan table"
-                            onActivated: controller.selectScanTable(currentText)
-                            onAccepted: controller.selectScanTable(editText)
+                            onActivated: controller.tuningController.selectScanTable(currentText)
+                            onAccepted: controller.tuningController.selectScanTable(editText)
                         }
-                        Button { text: "Refresh tables"; enabled: !controller.busy; onClicked: controller.refreshKnownTables() }
+                        Button { text: "Refresh tables"; enabled: !controller.busy; onClicked: controller.tuningController.refreshKnownTables() }
                         Button { text: "Open local table"; onClicked: scanTableDialog.open() }
                     }
                     Label { text: "Manual tuning"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -370,9 +370,9 @@ ApplicationWindow {
                             enabled: !controller.busy
                             onClicked: {
                                 if (window.editingTuningIndex < 0)
-                                    controller.addTuning(frequencyField.text, bandwidthBox.currentText)
+                                    controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
                                 else
-                                    controller.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
+                                    controller.tuningController.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
                                 frequencyField.clear()
                                 window.editingTuningIndex = -1
                             }
@@ -386,7 +386,7 @@ ApplicationWindow {
                             }
                         }
                         Item { Layout.fillWidth: true }
-                        Label { text: controller.tunings.length + " tuning(s)"; color: "#68766d" }
+                        Label { text: controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     ListView {
@@ -394,7 +394,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.tunings
+                        model: controller.tuningController.tunings
                         delegate: RowLayout {
                             required property var modelData
                             width: tuningList.width
@@ -411,7 +411,7 @@ ApplicationWindow {
                                     bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(modelData.bandwidth)))
                                 }
                             }
-                            ToolButton { text: "Remove"; onClicked: controller.removeTuning(modelData.index) }
+                            ToolButton { text: "Remove"; onClicked: controller.tuningController.removeTuning(modelData.index) }
                             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#e1e6e2" }
                         }
                         Label {
@@ -433,7 +433,7 @@ ApplicationWindow {
                         ColumnLayout {
                             spacing: 3
                             Label { text: "Channels"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
-                            Label { text: controller.channels.length + " service(s) in the current map"; color: "#68766d" }
+                            Label { text: controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
                         Button { text: "Open profile"; onClicked: openProfileDialog.open() }
@@ -452,7 +452,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.channels
+                        model: controller.channelController.channels
                         delegate: RowLayout {
                             required property var modelData
                             width: channelList.width
@@ -488,9 +488,9 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Rectangle {
                             width: 10; height: 10; radius: 5
-                            color: controller.serverState === "Running" ? "#338457" : "#a4aaa5"
+                            color: controller.serverController.serverState === "Running" ? "#338457" : "#a4aaa5"
                         }
-                        Label { text: controller.serverState; color: "#526158" }
+                        Label { text: controller.serverController.serverState; color: "#526158" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     Label { text: "Listener"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -499,57 +499,57 @@ ApplicationWindow {
                         TextField {
                             id: hostField
                             Layout.fillWidth: true
-                            text: controller.serverHost
+                            text: controller.serverController.serverHost
                             placeholderText: "Bind address"
-                            enabled: controller.serverState !== "Running"
-                            onEditingFinished: controller.serverHost = text
+                            enabled: controller.serverController.serverState !== "Running"
+                            onEditingFinished: controller.serverController.serverHost = text
                         }
                         TextField {
                             id: portField
                             Layout.preferredWidth: 130
-                            text: controller.serverPort.toString()
+                            text: controller.serverController.serverPort.toString()
                             placeholderText: "Port"
                             validator: IntValidator { bottom: 0; top: 65535 }
-                            enabled: controller.serverState !== "Running"
+                            enabled: controller.serverController.serverState !== "Running"
                             onEditingFinished: {
                                 if (acceptableInput)
-                                    controller.serverPort = Number(text)
+                                    controller.serverController.serverPort = Number(text)
                             }
                         }
                         Button {
                             text: "Start"
                             highlighted: true
-                            enabled: controller.serverState === "Stopped" && !controller.busy
-                            onClicked: controller.startServer()
+                            enabled: controller.serverController.serverState === "Stopped" && !controller.busy
+                            onClicked: controller.serverController.startServer()
                         }
                         Button {
                             text: "Stop"
-                            enabled: controller.serverState === "Running" && !controller.busy
-                            onClicked: controller.stopServer()
+                            enabled: controller.serverController.serverState === "Running" && !controller.busy
+                            onClicked: controller.serverController.stopServer()
                         }
                     }
                     Label { text: "Playlist URL"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     TextField {
                         Layout.fillWidth: true
                         readOnly: true
-                        text: controller.playlistUrl || "Start the server to expose the playlist"
+                        text: controller.serverController.playlistUrl || "Start the server to expose the playlist"
                         selectByMouse: true
                     }
                     Label { text: "Adapter signal"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
-                    Label { text: controller.serverSignalSummary; color: "#526158"; wrapMode: Text.Wrap }
+                    Label { text: controller.serverController.serverSignalSummary; color: "#526158"; wrapMode: Text.Wrap }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: "CONNECTED CLIENTS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                         Item { Layout.fillWidth: true }
-                        Label { text: controller.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
+                        Label { text: controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
                     }
                     ListView {
                         id: clientList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.serverClients
+                        model: controller.serverController.serverClients
                         delegate: RowLayout {
                             required property var modelData
                             width: clientList.width
@@ -598,7 +598,7 @@ ApplicationWindow {
         id: scanTableDialog
         title: "Open DVB-T scan table"
         fileMode: FileDialog.OpenFile
-        onAccepted: controller.loadLocalScanTable(selectedFile.toString())
+        onAccepted: controller.tuningController.loadLocalScanTable(selectedFile.toString())
     }
 
     Component {
@@ -628,13 +628,13 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Label {
-                        text: appController.logMessages.length + " recent log message(s)"
+                        text: appController.logController.logMessages.length + " recent log message(s)"
                         color: "#526158"
                     }
                     Item { Layout.fillWidth: true }
                     Button {
                         text: "Clear"
-                        onClicked: appController.clearLogs()
+                        onClicked: appController.logController.clearLogs()
                     }
                     Button {
                         text: "Close"
@@ -646,7 +646,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     TextArea {
-                        text: appController.logMessages.join("\n")
+                        text: appController.logController.logMessages.join("\n")
                         readOnly: true
                         selectByMouse: true
                         textFormat: TextEdit.PlainText

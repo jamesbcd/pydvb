@@ -13,7 +13,7 @@ from PySide6.QtCore import QCoreApplication, QThread, QTimer
 
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
-from pydvb.gui.controller import AppController
+from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
 from pydvb.gui.profile import GuiProfile
 from pydvb.service_map import DVBServiceMap
@@ -44,8 +44,8 @@ def test_log_handler_forwards_records_from_worker_threads(qt_application):
     qt_application.processEvents()
 
     assert not worker.is_alive()
-    assert len(controller.logMessages) == 1
-    assert controller.logMessages[0].endswith("WARNING pydvb.test: Example warning")
+    assert len(controller.logController.logMessages) == 1
+    assert controller.logController.logMessages[0].endswith("WARNING pydvb.test: Example warning")
     handler.close()
 
 
@@ -67,13 +67,16 @@ def test_gui_logging_captures_server_debug_without_usb_trace(qt_application):
 
             assert any(
                 message.endswith("DEBUG pydvb.server: Server request diagnostic")
-                for message in controller.logMessages
+                for message in controller.logController.logMessages
             )
             assert any(
                 message.endswith("INFO pydvb.usb: USB transfer summary")
-                for message in controller.logMessages
+                for message in controller.logController.logMessages
             )
-            assert not any("USB transfer trace" in message for message in controller.logMessages)
+            assert not any(
+                "USB transfer trace" in message
+                for message in controller.logController.logMessages
+            )
     finally:
         root_logger.setLevel(original_root_level)
         server_logger.setLevel(original_server_level)
@@ -84,15 +87,15 @@ def test_log_messages_are_bounded_and_can_be_cleared(qt_application):
     controller = AppController()
 
     for index in range(1001):
-        controller._append_log_message(f"entry {index}")
+        controller.logController._append_log_message(f"entry {index}")
 
-    assert len(controller.logMessages) == 1000
-    assert controller.logMessages[0] == "entry 1"
-    assert controller.logMessages[-1] == "entry 1000"
+    assert len(controller.logController.logMessages) == 1000
+    assert controller.logController.logMessages[0] == "entry 1"
+    assert controller.logController.logMessages[-1] == "entry 1000"
 
-    controller.clearLogs()
+    controller.logController.clearLogs()
 
-    assert controller.logMessages == []
+    assert controller.logController.logMessages == []
 
 
 def test_shutdown_waits_for_current_work_and_closes_server_before_devices(qt_application):
@@ -185,8 +188,8 @@ def test_discovery_is_blocked_while_server_owns_adapters(qt_application):
     manager = FakeManager()
     controller._manager = manager
 
-    controller.discover()
-    controller._auto_discover()
+    controller.devicesController.discover()
+    controller.devicesController._auto_discover()
 
     assert not controller.busy
     assert controller.statusMessage == "Stop the server before rediscovering devices"
@@ -196,11 +199,11 @@ def test_discovery_is_blocked_while_server_owns_adapters(qt_application):
 def test_auto_discovery_defaults_enabled_and_can_be_disabled(qt_application):
     controller = AppController()
 
-    assert controller.autoDiscoverAndInitializeDevices is True
+    assert controller.devicesController.autoDiscoverAndInitializeDevices is True
     assert controller._discovery_timer.interval() == 2000
     assert controller._discovery_timer.isActive()
 
-    controller.autoDiscoverAndInitializeDevices = False
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
 
     assert not controller._discovery_timer.isActive()
 
@@ -239,14 +242,14 @@ def test_auto_discovery_initializes_only_new_devices(qt_application):
         controller.devicesChanged.connect(
             lambda: qt_application.quit() if device.initialization_finished else None
         )
-        controller._auto_discover()
+        controller.devicesController._auto_discover()
         QTimer.singleShot(2000, qt_application.quit)
         qt_application.exec()
 
     run_discovery()
     run_discovery()
 
-    assert controller.devices[0]["state"] == "Connected"
+    assert controller.devicesController.devices[0]["state"] == "Connected"
     assert device.initialization_count == 1
     assert manager.discovery_count == 2
 
@@ -282,17 +285,17 @@ def test_auto_discovery_shows_device_before_initialization_finishes(qt_applicati
         nonlocal visible_before_initialization
         if initialization_started.is_set() and not allow_initialization_to_finish.is_set():
             visible_before_initialization = (
-                controller.devices[0]["state"] == "Connected"
-                and controller.devices[0]["adapterCount"] == 0
-                and controller.adapters == []
+                controller.devicesController.devices[0]["state"] == "Connected"
+                and controller.devicesController.devices[0]["adapterCount"] == 0
+                and controller.devicesController.adapters == []
             )
             allow_initialization_to_finish.set()
-        if controller.adapters:
+        if controller.devicesController.adapters:
             qt_application.quit()
             return
         QTimer.singleShot(10, check_initialization_state)
 
-    controller._auto_discover()
+    controller.devicesController._auto_discover()
     QTimer.singleShot(10, check_initialization_state)
     QTimer.singleShot(
         3000,
@@ -301,9 +304,9 @@ def test_auto_discovery_shows_device_before_initialization_finishes(qt_applicati
     qt_application.exec()
 
     assert visible_before_initialization
-    assert controller.devices[0]["state"] == "Initialized"
-    assert controller.devices[0]["adapterCount"] == 1
-    assert len(controller.adapters) == 1
+    assert controller.devicesController.devices[0]["state"] == "Initialized"
+    assert controller.devicesController.devices[0]["adapterCount"] == 1
+    assert len(controller.devicesController.adapters) == 1
 
 
 def test_auto_discovery_removes_detached_device_and_adapters(qt_application):
@@ -325,13 +328,13 @@ def test_auto_discovery_removes_detached_device_and_adapters(qt_application):
     controller._select_first_device()
 
     controller.devicesChanged.connect(qt_application.quit)
-    controller._auto_discover()
+    controller.devicesController._auto_discover()
     QTimer.singleShot(2000, qt_application.quit)
     qt_application.exec()
 
-    assert controller.devices == []
-    assert controller.adapters == []
-    assert controller.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
+    assert controller.devicesController.devices == []
+    assert controller.devicesController.adapters == []
+    assert controller.devicesController.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
 
 
 def test_status_poll_removes_device_after_libusb_no_device(qt_application):
@@ -367,14 +370,14 @@ def test_status_poll_removes_device_after_libusb_no_device(qt_application):
     qt_application.exec()
 
     assert manager.removed_devices == [device]
-    assert controller.devices == []
-    assert controller.adapters == []
+    assert controller.devicesController.devices == []
+    assert controller.devicesController.adapters == []
     assert "Removed 1 disconnected device" in controller.statusMessage
 
 
 def test_worker_result_callback_runs_on_the_qt_thread(qt_application):
     controller = AppController()
-    controller.autoDiscoverAndInitializeDevices = False
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
     outcomes = []
     controller._run_task(
         lambda: QThread.currentThread() == qt_application.thread(),
@@ -398,11 +401,11 @@ def test_identical_devices_can_be_selected_independently(qt_application):
     controller._devices = [first, second]
     controller._select_first_device()
 
-    controller.selectDevice(1)
+    controller.devicesController.selectDevice(1)
 
     assert controller._selected_device() is second
-    assert controller.devices[0]["selected"] is False
-    assert controller.devices[1]["selected"] is True
+    assert controller.devicesController.devices[0]["selected"] is False
+    assert controller.devicesController.devices[1]["selected"] is True
 
 
 def test_unsupported_devices_are_hidden_until_enabled(qt_application):
@@ -412,12 +415,12 @@ def test_unsupported_devices_are_hidden_until_enabled(qt_application):
         {"deviceIndex": -1, "name": "Unsupported USB device", "unsupported": True},
     ]
 
-    assert controller.showUnsupportedDevices is False
-    assert [row["name"] for row in controller.devices] == ["Supported DVB device"]
+    assert controller.devicesController.showUnsupportedDevices is False
+    assert [row["name"] for row in controller.devicesController.devices] == ["Supported DVB device"]
 
-    controller.showUnsupportedDevices = True
+    controller.devicesController.showUnsupportedDevices = True
 
-    assert [row["name"] for row in controller.devices] == [
+    assert [row["name"] for row in controller.devicesController.devices] == [
         "Supported DVB device",
         "Unsupported USB device",
     ]
@@ -436,9 +439,9 @@ def test_adapters_are_listed_and_selectable(qt_application):
     controller._devices = [device]
     controller._select_first_device()
 
-    controller.selectAdapter(1)
+    controller.devicesController.selectAdapter(1)
 
-    assert controller.adapters == [
+    assert controller.devicesController.adapters == [
         {
             "adapterIndex": 0,
             "name": "Adapter 0",
@@ -479,37 +482,56 @@ def test_device_summary_counts_connected_devices_and_active_adapters(qt_applicat
         },
     )()
 
-    assert controller.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
+    assert controller.devicesController.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
 
     controller._devices = [uninitialized, initialized]
 
-    assert controller.deviceSummary == "2 device(s) connected; 1 initialized; 2 active adapter(s)"
+    assert controller.devicesController.deviceSummary == "2 device(s) connected; 1 initialized; 2 active adapter(s)"
 
 
 def test_manual_tunings_can_be_added_edited_and_removed(qt_application):
     profile = GuiProfile(tunings=(DVBTuning(frequency_hz=650_000_000),))
     controller = AppController(profile=profile)
 
-    controller.updateTuning(0, "666.5", "7")
-    assert controller.tunings[0] == {
+    controller.tuningController.updateTuning(0, "666.5", "7")
+    assert controller.tuningController.tunings[0] == {
         "index": 0,
         "frequency": 666.5,
         "bandwidth": 7,
     }
 
-    controller.addTuning("177.5", "8")
-    assert len(controller.tunings) == 2
-    controller.removeTuning(0)
-    assert controller.tunings[0]["frequency"] == 177.5
+    controller.tuningController.addTuning("177.5", "8")
+    assert len(controller.tuningController.tunings) == 2
+    controller.tuningController.removeTuning(0)
+    assert controller.tuningController.tunings[0]["frequency"] == 177.5
 
 
 def test_channel_map_status_is_independent_of_channel_count(qt_application):
     controller = AppController()
 
-    assert controller.hasChannelMap is False
-    assert controller.channels == []
+    assert controller.channelController.hasChannelMap is False
+    assert controller.channelController.channels == []
 
     controller._profile.service_map = DVBServiceMap()
 
-    assert controller.hasChannelMap is True
-    assert controller.channels == []
+    assert controller.channelController.hasChannelMap is True
+    assert controller.channelController.channels == []
+
+
+def test_server_settings_are_exposed_by_server_controller(qt_application):
+    controller = AppController()
+
+    controller.serverController.serverHost = " 127.0.0.1 "
+    controller.serverController.serverPort = 8080
+
+    assert controller.serverController.serverHost == "127.0.0.1"
+    assert controller.serverController.serverPort == 8080
+    assert controller.serverController.serverState == "Stopped"
+    assert controller.serverController.serverAddress == "Not listening"
+    assert controller.serverController.playlistUrl == ""
+
+    controller.serverController.serverHost = " "
+    controller.serverController.serverPort = 65536
+
+    assert controller.serverController.serverHost == "127.0.0.1"
+    assert controller.serverController.serverPort == 8080

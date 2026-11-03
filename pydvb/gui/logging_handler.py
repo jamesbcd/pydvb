@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 import logging
 
-from .controller import AppController
+from .app_controller import AppController
 
 
 class QtLogHandler(logging.Handler):
