@@ -78,6 +78,7 @@ class AppController(QObject):
         self._devices: list[DVBDevice] = []
         self._selected_device_index: int | None = None
         self._discovery_rows: list[dict[str, object]] = []
+        self._show_unsupported_devices = False
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
         self._busy = False
@@ -139,8 +140,22 @@ class AppController(QObject):
                     "selected": index == self._selected_device_index,
                 }
             )
-        rows.extend(self._discovery_rows)
+        rows.extend(
+            row
+            for row in self._discovery_rows
+            if self._show_unsupported_devices or not row.get("unsupported", False)
+        )
         return rows
+
+    @Property(bool, notify=devicesChanged)
+    def showUnsupportedDevices(self) -> bool:
+        return self._show_unsupported_devices
+
+    @showUnsupportedDevices.setter
+    def showUnsupportedDevices(self, value: bool) -> None:
+        if self._show_unsupported_devices != value:
+            self._show_unsupported_devices = value
+            self.devicesChanged.emit()
 
     @Property("QVariantList", notify=devicesChanged)
     def adapters(self) -> list[dict[str, object]]:
@@ -303,6 +318,7 @@ class AppController(QObject):
                         "adapterCount": 0,
                         "signal": "Not available",
                         "selected": False,
+                        "unsupported": True,
                     }
                 )
             self._signal_by_adapter.clear()

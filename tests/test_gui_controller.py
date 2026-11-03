@@ -139,6 +139,24 @@ def test_identical_devices_can_be_selected_independently(qt_application):
     assert controller.devices[1]["selected"] is True
 
 
+def test_unsupported_devices_are_hidden_until_enabled(qt_application):
+    controller = AppController()
+    controller._discovery_rows = [
+        {"deviceIndex": -1, "name": "Supported DVB device"},
+        {"deviceIndex": -1, "name": "Unsupported USB device", "unsupported": True},
+    ]
+
+    assert controller.showUnsupportedDevices is False
+    assert [row["name"] for row in controller.devices] == ["Supported DVB device"]
+
+    controller.showUnsupportedDevices = True
+
+    assert [row["name"] for row in controller.devices] == [
+        "Supported DVB device",
+        "Unsupported USB device",
+    ]
+
+
 def test_adapters_are_listed_and_selectable(qt_application):
     controller = AppController()
     device_id = USBDeviceID(0x0413, 0x6029)

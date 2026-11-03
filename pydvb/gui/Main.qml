@@ -41,14 +41,14 @@ ApplicationWindow {
             spacing: 14
 
             Label {
-                text: "pydvb"
+                text: "PyDVB"
                 font.pixelSize: 20
                 font.bold: true
                 color: "#17251e"
             }
             Rectangle { width: 1; height: 22; color: "#d5ddd7" }
             Label {
-                text: "Receiver console"
+                text: "Digital TV receiver and streaming server"
                 font.pixelSize: 14
                 color: "#526158"
             }
@@ -63,7 +63,7 @@ ApplicationWindow {
                 text: controller.statusMessage
                 color: "#526158"
                 elide: Text.ElideRight
-                Layout.maximumWidth: 330
+                // Layout.maximumWidth: 330
             }
             ToolButton {
                 text: "Open"
@@ -108,7 +108,8 @@ ApplicationWindow {
                         required property int index
                         required property string modelData
                         Layout.fillWidth: true
-                        text: (index + 1).toString().padStart(2, "0") + "     " + modelData
+                        // text: (index + 1).toString().padStart(2, "0") + "     " + modelData
+                        text: modelData
                         checkable: true
                         checked: window.sectionIndex === index
                         highlighted: checked
@@ -164,6 +165,11 @@ ApplicationWindow {
                             Label { text: "USB receivers and configured adapters"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
+                        CheckBox {
+                            text: "Show unsupported USB devices"
+                            checked: controller.showUnsupportedDevices
+                            onToggled: controller.showUnsupportedDevices = checked
+                        }
                         Button { text: "Discover"; enabled: !controller.busy; onClicked: controller.discover() }
                         Button {
                             text: "Initialize selected"
