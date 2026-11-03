@@ -35,6 +35,7 @@ def _load_libusb_library() -> None:
 _load_libusb_library()
 
 LibUSBError = getattr(usb1, "USBError", OSError)
+LIBUSB_ERROR_NO_DEVICE = -4
 
 RECORD_STATS = False    # Enable or disable asynchronous bulk-read statistics.
 

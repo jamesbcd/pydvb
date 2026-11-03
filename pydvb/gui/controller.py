@@ -21,7 +21,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
-from pydvb.device_manager import DeviceConnectionResult, DVBDeviceManager
+from pydvb.device_manager import DeviceConnectionResult, DeviceRemovalFailure, DVBDeviceManager
 from pydvb.driver_api.device import DVBDevice
 from pydvb.driver_api.frontend import DVBFrontendStatus
 from pydvb.driver_api.tuner import DVBTuning
@@ -29,6 +29,7 @@ from pydvb.drivers.af9015.device import AF9015Device
 from pydvb.scan_tables import known_table_names, parse_table
 from pydvb.server import LocalTS_HTTPServer
 from pydvb.service_map import DVBServiceMap, map_from_tunings
+from pydvb.usb import LIBUSB_ERROR_NO_DEVICE, LibUSBError
 
 from .profile import GuiProfile, load_profile, save_profile
 
@@ -37,7 +38,18 @@ from .profile import GuiProfile, load_profile, save_profile
 class _DiscoveryOutcome:
     manager: DVBDeviceManager
     connection_result: DeviceConnectionResult
-    initialization_failures: tuple[tuple[DVBDevice, Exception], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _InitializationOutcome:
+    failures: tuple[tuple[DVBDevice, Exception], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _StatusOutcome:
+    readings: tuple[tuple[DVBDevice, int, str], ...]
+    removed: tuple[DVBDevice, ...]
+    removal_failures: tuple[DeviceRemovalFailure, ...]
 
 
 class _WorkerSignals(QObject):
@@ -350,25 +362,14 @@ class AppController(QObject):
         self._discover_devices(auto_initialize=True, automatic=True)
 
     def _discover_devices(self, *, auto_initialize: bool, automatic: bool) -> None:
-        """Connect and optionally initialize newly discovered devices in the worker."""
+        """Connect newly discovered devices before optionally initializing them."""
         if not automatic:
             self._set_status("Discovering USB DVB devices...")
 
         def operation() -> _DiscoveryOutcome:
             manager = self._manager or DVBDeviceManager(self._device_types)
             connection_result = manager.connect_new()
-            initialization_failures: list[tuple[DVBDevice, Exception]] = []
-            if auto_initialize:
-                for device in connection_result.connected:
-                    try:
-                        device.init_hardware()
-                    except Exception as error:
-                        initialization_failures.append((device, error))
-            return _DiscoveryOutcome(
-                manager,
-                connection_result,
-                tuple(initialization_failures),
-            )
+            return _DiscoveryOutcome(manager, connection_result)
 
         def complete(result: object) -> None:
             if not isinstance(result, _DiscoveryOutcome):
@@ -392,8 +393,6 @@ class AppController(QObject):
             )
             for device in result.connection_result.removed:
                 self._initialization_errors.pop(id(device), None)
-            for device, error in result.initialization_failures:
-                self._initialization_errors[id(device)] = str(error)
             self._discovery_rows = [
                 {
                     "deviceIndex": -1,
@@ -422,24 +421,25 @@ class AppController(QObject):
             self._signal_by_adapter.clear()
             self._select_first_device()
             self.devicesChanged.emit()
-            if (
-                not automatic
-                or result.connection_result.connected
-                or result.connection_result.unavailable
-                or result.connection_result.removed
-                or result.connection_result.removal_failures
-            ):
+
+            def set_discovery_status(
+                initialization_failures: tuple[tuple[DVBDevice, Exception], ...] = (),
+                *,
+                initializing: bool = False,
+            ) -> None:
                 message = (
                     f"Connected to {len(self._devices)} supported device(s); "
                     f"{len(result.connection_result.unavailable)} unavailable; "
                     f"{len(result.connection_result.removed)} removed"
                 )
-                if result.initialization_failures:
+                if initialization_failures:
                     failures = "; ".join(
                         f"{device.model_name or 'DVB device'}: {error}"
-                        for device, error in result.initialization_failures
+                        for device, error in initialization_failures
                     )
                     message += f"; initialization failed for {failures}"
+                elif initializing:
+                    message += "; initializing newly discovered devices"
                 elif auto_initialize and result.connection_result.connected:
                     message += "; newly discovered devices initialized"
                 if result.connection_result.removal_failures:
@@ -449,6 +449,41 @@ class AppController(QObject):
                     )
                     message += f"; cleanup failed for removed devices: {failures}"
                 self._set_status(message)
+
+            if (
+                not automatic
+                or result.connection_result.connected
+                or result.connection_result.unavailable
+                or result.connection_result.removed
+                or result.connection_result.removal_failures
+            ):
+                set_discovery_status(
+                    initializing=auto_initialize and bool(result.connection_result.connected)
+                )
+
+            if auto_initialize and result.connection_result.connected:
+                new_devices = result.connection_result.connected
+
+                def initialize() -> _InitializationOutcome:
+                    failures: list[tuple[DVBDevice, Exception]] = []
+                    for device in new_devices:
+                        try:
+                            device.init_hardware()
+                        except Exception as error:
+                            failures.append((device, error))
+                    return _InitializationOutcome(tuple(failures))
+
+                def initialized(initialization_result: object) -> None:
+                    if not isinstance(initialization_result, _InitializationOutcome):
+                        raise TypeError("initialization worker returned an unexpected result")
+                    for device in new_devices:
+                        self._initialization_errors.pop(id(device), None)
+                    for device, error in initialization_result.failures:
+                        self._initialization_errors[id(device)] = str(error)
+                    self.devicesChanged.emit()
+                    set_discovery_status(initialization_result.failures)
+
+                self._run_task(initialize, initialized, report_status=not automatic)
 
         self._run_task(operation, complete, report_status=not automatic)
 
@@ -753,29 +788,82 @@ class AppController(QObject):
     def _poll_status(self) -> None:
         if self._busy or self._shutting_down or not any(device.adapters for device in self._devices):
             return
+        manager = self._manager
         targets = tuple(
-            (device_index, adapter_index, device)
-            for device_index, device in enumerate(self._devices)
+            (device, adapter_index)
+            for device in self._devices
             for adapter_index in range(len(device.adapters))
         )
 
-        def operation() -> list[tuple[int, int, str]]:
-            result: list[tuple[int, int, str]] = []
-            for device_index, adapter_index, device in targets:
+        def operation() -> _StatusOutcome:
+            readings: list[tuple[DVBDevice, int, str]] = []
+            removed: list[DVBDevice] = []
+            removal_failures: list[DeviceRemovalFailure] = []
+            for device, adapter_index in targets:
+                if any(removed_device is device for removed_device in removed):
+                    continue
                 try:
                     status = device.read_status(adapter_index)
-                    result.append((device_index, adapter_index, self._format_status(status)))
+                    readings.append((device, adapter_index, self._format_status(status)))
                 except Exception as error:
-                    result.append((device_index, adapter_index, f"Status unavailable: {error}"))
-            return result
+                    if (
+                        isinstance(error, LibUSBError)
+                        and getattr(error, "value", None) == LIBUSB_ERROR_NO_DEVICE
+                    ):
+                        removed.append(device)
+                        if manager is not None:
+                            removal_failure = manager.remove_device(device)
+                            if removal_failure is not None:
+                                removal_failures.append(removal_failure)
+                    else:
+                        readings.append((device, adapter_index, f"Status unavailable: {error}"))
+            return _StatusOutcome(tuple(readings), tuple(removed), tuple(removal_failures))
 
         def complete(result: object) -> None:
-            self._signal_by_adapter = {
-                (device_index, adapter_index): summary
-                for device_index, adapter_index, summary in result  # type: ignore[union-attr]
-            }
+            if not isinstance(result, _StatusOutcome):
+                raise TypeError("status worker returned an unexpected result")
+            removed_ids = {id(device) for device in result.removed}
+            selected_device = self._selected_device()
+            self._devices = [
+                device for device in self._devices if id(device) not in removed_ids
+            ]
+            self._selected_device_index = next(
+                (
+                    index
+                    for index, device in enumerate(self._devices)
+                    if device is selected_device
+                ),
+                None,
+            )
+            for device in result.removed:
+                self._initialization_errors.pop(id(device), None)
+            self._signal_by_adapter = {}
+            for device, adapter_index, summary in result.readings:
+                device_index = next(
+                    (
+                        index
+                        for index, current_device in enumerate(self._devices)
+                        if current_device is device
+                    ),
+                    None,
+                )
+                if device_index is not None:
+                    self._signal_by_adapter[(device_index, adapter_index)] = summary
+            self._select_first_device()
             self.devicesChanged.emit()
             self.serverChanged.emit()
+            if result.removed:
+                message = (
+                    f"Removed {len(result.removed)} disconnected device(s); "
+                    f"{len(self._devices)} device(s) remain"
+                )
+                if result.removal_failures:
+                    errors = "; ".join(
+                        f"{failure.device.model_name or 'DVB device'}: {failure.error}"
+                        for failure in result.removal_failures
+                    )
+                    message += f"; cleanup failed: {errors}"
+                self._set_status(message)
 
         self._run_task(operation, complete, report_status=False)
 

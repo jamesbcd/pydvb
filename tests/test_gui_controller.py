@@ -15,7 +15,7 @@ from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.controller import AppController
 from pydvb.gui.profile import GuiProfile
 from pydvb.service_map import DVBServiceMap
-from pydvb.usb import USBDeviceID
+from pydvb.usb import USBDeviceID, usb1
 
 
 @pytest.fixture(scope="module")
@@ -141,9 +141,11 @@ def test_auto_discovery_initializes_only_new_devices(qt_application):
 
         def __init__(self):
             self.initialization_count = 0
+            self.initialization_finished = False
 
         def init_hardware(self):
             self.initialization_count += 1
+            self.initialization_finished = True
 
     device = FakeDevice()
 
@@ -162,7 +164,9 @@ def test_auto_discovery_initializes_only_new_devices(qt_application):
     controller._manager = manager
 
     def run_discovery():
-        controller.devicesChanged.connect(qt_application.quit)
+        controller.devicesChanged.connect(
+            lambda: qt_application.quit() if device.initialization_finished else None
+        )
         controller._auto_discover()
         QTimer.singleShot(2000, qt_application.quit)
         qt_application.exec()
@@ -173,6 +177,61 @@ def test_auto_discovery_initializes_only_new_devices(qt_application):
     assert controller.devices[0]["state"] == "Connected"
     assert device.initialization_count == 1
     assert manager.discovery_count == 2
+
+
+def test_auto_discovery_shows_device_before_initialization_finishes(qt_application):
+    initialization_started = Event()
+    allow_initialization_to_finish = Event()
+
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+
+        def __init__(self):
+            self.adapters = []
+
+        def init_hardware(self):
+            initialization_started.set()
+            allow_initialization_to_finish.wait(timeout=2)
+            self.adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+    device = FakeDevice()
+
+    class FakeManager:
+        def connect_new(self):
+            return DeviceConnectionResult((device,), (), ())
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._manager = FakeManager()
+    visible_before_initialization = False
+
+    def check_initialization_state():
+        nonlocal visible_before_initialization
+        if initialization_started.is_set() and not allow_initialization_to_finish.is_set():
+            visible_before_initialization = (
+                controller.devices[0]["state"] == "Connected"
+                and controller.devices[0]["adapterCount"] == 0
+                and controller.adapters == []
+            )
+            allow_initialization_to_finish.set()
+        if controller.adapters:
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, check_initialization_state)
+
+    controller._auto_discover()
+    QTimer.singleShot(10, check_initialization_state)
+    QTimer.singleShot(
+        3000,
+        lambda: (allow_initialization_to_finish.set(), qt_application.quit()),
+    )
+    qt_application.exec()
+
+    assert visible_before_initialization
+    assert controller.devices[0]["state"] == "Initialized"
+    assert controller.devices[0]["adapterCount"] == 1
+    assert len(controller.adapters) == 1
 
 
 def test_auto_discovery_removes_detached_device_and_adapters(qt_application):
@@ -201,6 +260,44 @@ def test_auto_discovery_removes_detached_device_and_adapters(qt_application):
     assert controller.devices == []
     assert controller.adapters == []
     assert controller.deviceSummary == "0 device(s) connected; 0 initialized; 0 active adapter(s)"
+
+
+def test_status_poll_removes_device_after_libusb_no_device(qt_application):
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+        def read_status(self, _adapter_index):
+            raise usb1.USBError(-4)
+
+    device = FakeDevice()
+
+    class FakeManager:
+        def __init__(self):
+            self.removed_devices = []
+
+        def remove_device(self, removed_device):
+            self.removed_devices.append(removed_device)
+            return None
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    manager = FakeManager()
+    controller._manager = manager
+    controller._devices = [device]
+    controller._select_first_device()
+
+    controller.devicesChanged.connect(qt_application.quit)
+    controller._poll_status()
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert manager.removed_devices == [device]
+    assert controller.devices == []
+    assert controller.adapters == []
+    assert "Removed 1 disconnected device" in controller.statusMessage
 
 
 def test_worker_result_callback_runs_on_the_qt_thread(qt_application):

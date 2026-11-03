@@ -113,15 +113,10 @@ class DVBDeviceManager:
             usb_address = self._usb_address_by_device[id(connected_device)]
             if usb_address in present_usb_addresses:
                 continue
-            self._devices.remove(connected_device)
-            del self._usb_address_by_device[id(connected_device)]
             removed.append(connected_device)
-            try:
-                connected_device.close()
-            except Exception as error:
-                removal_failures.append(DeviceRemovalFailure(connected_device, error))
-
-        self._connected_usb_addresses = set(self._usb_address_by_device.values())
+            removal_failure = self.remove_device(connected_device)
+            if removal_failure is not None:
+                removal_failures.append(removal_failure)
 
         for device in devices:
             if device.device_id not in requested_ids:
@@ -151,6 +146,28 @@ class DVBDeviceManager:
             tuple(removed),
             tuple(removal_failures),
         )
+
+    def remove_device(self, device: DVBDevice) -> DeviceRemovalFailure | None:
+        """Forget and close one device known to have been disconnected."""
+        device_index = next(
+            (
+                index
+                for index, connected_device in enumerate(self._devices)
+                if connected_device is device
+            ),
+            None,
+        )
+        if device_index is None:
+            return None
+
+        self._devices.pop(device_index)
+        usb_address = self._usb_address_by_device.pop(id(device))
+        self._connected_usb_addresses.discard(usb_address)
+        try:
+            device.close()
+        except Exception as error:
+            return DeviceRemovalFailure(device, error)
+        return None
 
     @staticmethod
     def _usb_address(device: USBDeviceInfo) -> tuple[int, int, int, int]:
