@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from threading import Event
+import logging
+from threading import Event, Thread
 
 import pytest
 
@@ -13,6 +14,7 @@ from PySide6.QtCore import QCoreApplication, QThread, QTimer
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.controller import AppController
+from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
 from pydvb.gui.profile import GuiProfile
 from pydvb.service_map import DVBServiceMap
 from pydvb.usb import USBDeviceID, usb1
@@ -21,6 +23,76 @@ from pydvb.usb import USBDeviceID, usb1
 @pytest.fixture(scope="module")
 def qt_application():
     return QCoreApplication.instance() or QCoreApplication([])
+
+
+def test_log_handler_forwards_records_from_worker_threads(qt_application):
+    controller = AppController()
+    handler = QtLogHandler(controller)
+    record = logging.LogRecord(
+        "pydvb.test",
+        logging.WARNING,
+        __file__,
+        1,
+        "Example %s",
+        ("warning",),
+        None,
+    )
+    worker = Thread(target=handler.emit, args=(record,))
+
+    worker.start()
+    worker.join(timeout=1)
+    qt_application.processEvents()
+
+    assert not worker.is_alive()
+    assert len(controller.logMessages) == 1
+    assert controller.logMessages[0].endswith("WARNING pydvb.test: Example warning")
+    handler.close()
+
+
+def test_gui_logging_captures_server_debug_without_usb_trace(qt_application):
+    controller = AppController()
+    root_logger = logging.getLogger()
+    server_logger = logging.getLogger("pydvb.server")
+    usb_logger = logging.getLogger("pydvb.usb")
+    original_root_level = root_logger.level
+    original_server_level = server_logger.level
+    original_usb_level = usb_logger.level
+    try:
+        with capture_gui_logs(controller):
+            usb_logger.setLevel(logging.DEBUG)
+            server_logger.debug("Server request diagnostic")
+            usb_logger.debug("USB transfer trace")
+            usb_logger.info("USB transfer summary")
+            qt_application.processEvents()
+
+            assert any(
+                message.endswith("DEBUG pydvb.server: Server request diagnostic")
+                for message in controller.logMessages
+            )
+            assert any(
+                message.endswith("INFO pydvb.usb: USB transfer summary")
+                for message in controller.logMessages
+            )
+            assert not any("USB transfer trace" in message for message in controller.logMessages)
+    finally:
+        root_logger.setLevel(original_root_level)
+        server_logger.setLevel(original_server_level)
+        usb_logger.setLevel(original_usb_level)
+
+
+def test_log_messages_are_bounded_and_can_be_cleared(qt_application):
+    controller = AppController()
+
+    for index in range(1001):
+        controller._append_log_message(f"entry {index}")
+
+    assert len(controller.logMessages) == 1000
+    assert controller.logMessages[0] == "entry 1"
+    assert controller.logMessages[-1] == "entry 1000"
+
+    controller.clearLogs()
+
+    assert controller.logMessages == []
 
 
 def test_shutdown_waits_for_current_work_and_closes_server_before_devices(qt_application):

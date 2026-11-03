@@ -11,6 +11,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from .controller import AppController
+from .logging_handler import capture_gui_logs
 
 
 def main() -> int:
@@ -25,10 +26,11 @@ def main() -> int:
     application.setQuitOnLastWindowClosed(False)
     engine.rootContext().setContextProperty("controller", controller)
     controller.shutdownFinished.connect(application.quit)
-    engine.load(QUrl.fromLocalFile(str(Path(__file__).with_name("Main.qml"))))
-    if not engine.rootObjects():
-        return 1
-    return application.exec()
+    with capture_gui_logs(controller):
+        engine.load(QUrl.fromLocalFile(str(Path(__file__).with_name("Main.qml"))))
+        if not engine.rootObjects():
+            return 1
+        return application.exec()
 
 
 if __name__ == "__main__":

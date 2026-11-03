@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from math import isfinite
 from os import PathLike
@@ -32,6 +33,9 @@ from pydvb.service_map import DVBServiceMap, map_from_tunings
 from pydvb.usb import LIBUSB_ERROR_NO_DEVICE, LibUSBError
 
 from .profile import GuiProfile, load_profile, save_profile
+
+_MAX_LOG_MESSAGES = 1000
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +85,8 @@ class AppController(QObject):
     knownTablesChanged = Signal()
     serverChanged = Signal()
     stateChanged = Signal()
+    logsChanged = Signal()
+    logMessageReceived = Signal(str)
     shutdownFinished = Signal()
     _taskSucceeded = Signal(object, object, object)
     _taskFailed = Signal(object, str)
@@ -103,6 +109,7 @@ class AppController(QObject):
         self._initialization_errors: dict[int, str] = {}
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
+        self._log_messages: list[str] = []
         self._busy = False
         self._status_message = "Ready"
         self._server_state = "Stopped"
@@ -121,6 +128,10 @@ class AppController(QObject):
             self._fail_task,
             Qt.ConnectionType.QueuedConnection,
         )
+        self.logMessageReceived.connect(
+            self._append_log_message,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(2000)
         self._status_timer.timeout.connect(self._poll_status)
@@ -137,6 +148,11 @@ class AppController(QObject):
     @Property(str, notify=stateChanged)
     def statusMessage(self) -> str:
         return self._status_message
+
+    @Property("QVariantList", notify=logsChanged)
+    def logMessages(self) -> list[str]:
+        """Return the recent formatted application log messages."""
+        return self._log_messages.copy()
 
     @Property(bool, notify=stateChanged)
     def shuttingDown(self) -> bool:
@@ -663,11 +679,13 @@ class AppController(QObject):
             thread = Thread(target=server.serve_forever, name="pydvb-http-server", daemon=True)
             thread.start()
         except (OSError, RuntimeError, ValueError) as error:
+            logger.exception("Could not start HTTP server")
             self._set_status(f"Could not start server: {error}")
             return
         self._server = server
         self._server_thread = thread
         self._server_state = "Running"
+        logger.info("HTTP server listening at %s", self.serverAddress)
         self.serverChanged.emit()
         self._set_status(f"Server listening at {self.serverAddress}")
 
@@ -680,6 +698,7 @@ class AppController(QObject):
             self._set_status("Server is already stopped")
             return
         self._server_state = "Stopping"
+        logger.info("Stopping HTTP server")
         self.serverChanged.emit()
 
         def operation() -> None:
@@ -692,6 +711,7 @@ class AppController(QObject):
             self._server = None
             self._server_thread = None
             self._server_state = "Stopped"
+            logger.info("HTTP server stopped")
             self.serverChanged.emit()
             self._set_status("Server stopped")
 
@@ -751,6 +771,20 @@ class AppController(QObject):
             self.shutdownFinished.emit()
 
         self._run_task(operation, complete, allow_shutdown=True)
+
+    @Slot()
+    def clearLogs(self) -> None:
+        """Clear the log messages shown in the GUI."""
+        if self._log_messages:
+            self._log_messages.clear()
+            self.logsChanged.emit()
+
+    @Slot(str)
+    def _append_log_message(self, message: str) -> None:
+        """Append a log message and discard the oldest entries when full."""
+        self._log_messages.append(message)
+        del self._log_messages[:-_MAX_LOG_MESSAGES]
+        self.logsChanged.emit()
 
     def _poll_status(self) -> None:
         if self._busy or self._shutting_down or not any(device.adapters for device in self._devices):

@@ -15,7 +15,23 @@ ApplicationWindow {
 
     property int sectionIndex: 0
     property int editingTuningIndex: -1
+    property var logWindowObject: null
     readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
+
+    function toggleLogWindow() {
+        if (logWindowObject === null) {
+            logWindowObject = logWindowComponent.createObject(window, {
+                appController: controller
+            })
+            if (logWindowObject === null) {
+                console.error("Could not create the log window")
+                return
+            }
+        }
+        logWindowObject.visible = !logWindowObject.visible
+        if (logWindowObject.visible)
+            logWindowObject.requestActivate()
+    }
 
     function sectionStatus(index) {
         switch (index) {
@@ -104,6 +120,12 @@ ApplicationWindow {
             ToolButton {
                 text: "Save"
                 onClicked: saveProfileDialog.open()
+            }
+            ToolButton {
+                text: window.logWindowObject && window.logWindowObject.visible
+                    ? "Hide logs"
+                    : "Logs"
+                onClicked: window.toggleLogWindow()
             }
         }
     }
@@ -567,5 +589,64 @@ ApplicationWindow {
         title: "Open DVB-T scan table"
         fileMode: FileDialog.OpenFile
         onAccepted: controller.loadLocalScanTable(selectedFile.toString())
+    }
+
+    Component {
+        id: logWindowComponent
+
+        Window {
+            required property var appController
+            transientParent: window
+            visible: false
+            width: 900
+            height: 480
+            minimumWidth: 560
+            minimumHeight: 300
+            title: "PyDVB Logs"
+            color: "#f2f4f1"
+
+            onClosing: function(closeEvent) {
+                closeEvent.accepted = false
+                visible = false
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 16
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: appController.logMessages.length + " recent log message(s)"
+                        color: "#526158"
+                    }
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: "Clear"
+                        onClicked: appController.clearLogs()
+                    }
+                    Button {
+                        text: "Close"
+                        onClicked: window.logWindowObject.visible = false
+                    }
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    TextArea {
+                        text: appController.logMessages.join("\n")
+                        readOnly: true
+                        selectByMouse: true
+                        textFormat: TextEdit.PlainText
+                        wrapMode: TextEdit.NoWrap
+                        font.family: "monospace"
+                        font.pixelSize: 12
+                        onTextChanged: cursorPosition = length
+                    }
+                }
+            }
+        }
     }
 }
