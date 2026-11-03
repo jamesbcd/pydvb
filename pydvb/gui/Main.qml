@@ -177,28 +177,6 @@ ApplicationWindow {
                 }
 
                 Item { Layout.fillHeight: true }
-                Label {
-                    text: "HTTP SERVER"
-                    color: "#78857c"
-                    font.pixelSize: 11
-                    font.bold: true
-                    Layout.leftMargin: 10
-                }
-                RowLayout {
-                    Layout.leftMargin: 10
-                    spacing: 8
-                    Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: controller.serverState === "Running" ? "#338457" : "#a4aaa5"
-                    }
-                    Label {
-                        text: controller.serverState
-                        color: "#526158"
-                        font.pixelSize: 12
-                    }
-                }
             }
         }
 
