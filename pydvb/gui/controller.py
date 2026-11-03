@@ -375,24 +375,8 @@ class AppController(QObject):
             if not isinstance(result, _DiscoveryOutcome):
                 raise TypeError("discovery worker returned an unexpected result")
             self._manager = result.manager
-            selected_device = self._selected_device()
-            removed_device_ids = {
-                id(device) for device in result.connection_result.removed
-            }
-            self._devices = [
-                device for device in self._devices if id(device) not in removed_device_ids
-            ]
+            self._remove_devices(result.connection_result.removed)
             self._devices.extend(result.connection_result.connected)
-            self._selected_device_index = next(
-                (
-                    index
-                    for index, device in enumerate(self._devices)
-                    if device is selected_device
-                ),
-                None,
-            )
-            for device in result.connection_result.removed:
-                self._initialization_errors.pop(id(device), None)
             self._discovery_rows = [
                 {
                     "deviceIndex": -1,
@@ -567,18 +551,9 @@ class AppController(QObject):
     @Slot(str, str)
     def addTuning(self, frequency_mhz: str, bandwidth_mhz: str) -> None:
         """Append a manually entered DVB-T frequency and bandwidth."""
-        try:
-            frequency = float(frequency_mhz)
-            bandwidth = int(bandwidth_mhz)
-            if not isfinite(frequency) or frequency <= 0 or bandwidth not in (6, 7, 8):
-                raise ValueError
-        except ValueError:
-            self._set_status("Enter a positive frequency and a 6, 7, or 8 MHz bandwidth")
+        tuning = self._parse_tuning(frequency_mhz, bandwidth_mhz)
+        if tuning is None:
             return
-        tuning = DVBTuning(
-            frequency_hz=round(frequency * 1_000_000),
-            bandwidth_hz=bandwidth * 1_000_000,
-        )
         self._profile.tunings += (tuning,)
         self.tuningsChanged.emit()
         self.stateChanged.emit()
@@ -588,19 +563,11 @@ class AppController(QObject):
         """Replace one tuning with manually edited frequency and bandwidth values."""
         if not 0 <= index < len(self._profile.tunings):
             return
-        try:
-            frequency = float(frequency_mhz)
-            bandwidth = int(bandwidth_mhz)
-            if not isfinite(frequency) or frequency <= 0 or bandwidth not in (6, 7, 8):
-                raise ValueError
-        except ValueError:
-            self._set_status("Enter a positive frequency and a 6, 7, or 8 MHz bandwidth")
+        tuning = self._parse_tuning(frequency_mhz, bandwidth_mhz)
+        if tuning is None:
             return
         tunings = list(self._profile.tunings)
-        tunings[index] = DVBTuning(
-            frequency_hz=round(frequency * 1_000_000),
-            bandwidth_hz=bandwidth * 1_000_000,
-        )
+        tunings[index] = tuning
         self._profile.tunings = tuple(tunings)
         self.tuningsChanged.emit()
         self.stateChanged.emit()
@@ -822,21 +789,7 @@ class AppController(QObject):
         def complete(result: object) -> None:
             if not isinstance(result, _StatusOutcome):
                 raise TypeError("status worker returned an unexpected result")
-            removed_ids = {id(device) for device in result.removed}
-            selected_device = self._selected_device()
-            self._devices = [
-                device for device in self._devices if id(device) not in removed_ids
-            ]
-            self._selected_device_index = next(
-                (
-                    index
-                    for index, device in enumerate(self._devices)
-                    if device is selected_device
-                ),
-                None,
-            )
-            for device in result.removed:
-                self._initialization_errors.pop(id(device), None)
+            self._remove_devices(result.removed)
             self._signal_by_adapter = {}
             for device, adapter_index, summary in result.readings:
                 device_index = next(
@@ -866,6 +819,38 @@ class AppController(QObject):
                 self._set_status(message)
 
         self._run_task(operation, complete, report_status=False)
+
+    def _remove_devices(self, removed: Sequence[DVBDevice]) -> None:
+        if not removed:
+            return
+        removed_ids = {id(device) for device in removed}
+        selected_device = self._selected_device()
+        self._devices = [device for device in self._devices if id(device) not in removed_ids]
+        self._selected_device_index = next(
+            (
+                index
+                for index, device in enumerate(self._devices)
+                if device is selected_device
+            ),
+            None,
+        )
+        for device in removed:
+            self._initialization_errors.pop(id(device), None)
+        self._select_first_device()
+
+    def _parse_tuning(self, frequency_mhz: str, bandwidth_mhz: str) -> DVBTuning | None:
+        try:
+            frequency = float(frequency_mhz)
+            bandwidth = int(bandwidth_mhz)
+            if not isfinite(frequency) or frequency <= 0 or bandwidth not in (6, 7, 8):
+                raise ValueError
+        except ValueError:
+            self._set_status("Enter a positive frequency and a 6, 7, or 8 MHz bandwidth")
+            return None
+        return DVBTuning(
+            frequency_hz=round(frequency * 1_000_000),
+            bandwidth_hz=bandwidth * 1_000_000,
+        )
 
     def _run_task(
         self,
