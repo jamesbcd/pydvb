@@ -9,6 +9,13 @@ Item {
     property var appController: null
     property string selectedChannelId: ""
     property string playbackError: ""
+
+    function playSelectedChannel() {
+        root.playbackError = ""
+        if (player.source.toString().length > 0)
+            player.play()
+    }
+
     readonly property var selectedChannel: {
         if (!appController)
             return null
@@ -87,11 +94,10 @@ Item {
                 text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"
                 enabled: player.source.toString().length > 0
                 onClicked: {
-                    root.playbackError = ""
                     if (player.playbackState === MediaPlayer.PlayingState)
                         player.pause()
                     else
-                        player.play()
+                        root.playSelectedChannel()
                 }
             }
             Button {

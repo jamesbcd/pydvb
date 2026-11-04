@@ -3,5 +3,8 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "qt-qml.qmlls.additionalImportPaths": [
+        "/Users/james/Documents/Code/pydvb/.venv/lib/python3.10/site-packages/PySide6/Qt/qml"
+    ]
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from importlib.util import find_spec
 from pathlib import Path
@@ -18,6 +19,7 @@ from .logging_handler import capture_gui_logs
 def main() -> int:
     """Start the QML application and return its exit status."""
     QQuickStyle.setStyle("Fusion") # if sys.platform == "darwin" else "Fusion")
+    os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
     application = QGuiApplication(sys.argv)
     application.setApplicationName("PyDVB")
     application.setOrganizationName("pydvb")
