@@ -1,4 +1,4 @@
-"""Channel-map display controller."""
+"""Service-map display controller."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ChannelController(QObject):
-    """Expose the current service map to the channels view."""
+    """Expose the current service map to the TV stations view."""
 
     channelsChanged = Signal()
 

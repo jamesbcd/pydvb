@@ -16,7 +16,7 @@ ApplicationWindow {
     property int sectionIndex: 0
     property int editingTuningIndex: -1
     property var logWindowObject: null
-    readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
+    readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
 
     function toggleLogWindow() {
         if (logWindowObject === null) {
@@ -432,7 +432,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         ColumnLayout {
                             spacing: 3
-                            Label { text: "Channels"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
+                            Label { text: "TV Stations"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
                             Label { text: controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
