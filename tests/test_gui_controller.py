@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QCoreApplication, QThread, QTimer
 
+from pydvb.driver_api.frontend import DVBFrontendStatus
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.app_controller import AppController
@@ -375,6 +376,37 @@ def test_status_poll_removes_device_after_libusb_no_device(qt_application):
     assert "Removed 1 disconnected device" in controller.statusMessage
 
 
+def test_status_poll_does_not_notify_player_stream_url(qt_application):
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+        def read_status(self, _adapter_index):
+            return DVBFrontendStatus(True, True, True, True, True)
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    controller._devices = [FakeDevice()]
+    controller._select_first_device()
+    server_changes = []
+    detail_changes = []
+    controller.serverController.serverChanged.connect(
+        lambda: server_changes.append(True)
+    )
+    controller.serverController.serverDetailsChanged.connect(
+        lambda: (detail_changes.append(True), qt_application.quit())
+    )
+    QTimer.singleShot(2000, qt_application.quit)
+
+    controller._poll_status()
+    qt_application.exec()
+
+    assert server_changes == []
+    assert detail_changes == [True]
+
+
 def test_worker_result_callback_runs_on_the_qt_thread(qt_application):
     controller = AppController()
     controller.devicesController.autoDiscoverAndInitializeDevices = False
@@ -548,3 +580,25 @@ def test_player_stream_base_url_is_locally_reachable(qt_application):
 
     controller._server.address = ("192.168.1.10", 8080)
     assert controller.serverController.streamBaseUrl == "http://192.168.1.10:8080"
+
+
+def test_device_status_updates_do_not_notify_player_stream_url(qt_application):
+    controller = AppController()
+    server_changes = []
+    detail_changes = []
+    controller.serverController.serverChanged.connect(
+        lambda: server_changes.append(True)
+    )
+    controller.serverController.serverDetailsChanged.connect(
+        lambda: detail_changes.append(True)
+    )
+
+    controller.devicesChanged.emit()
+
+    assert server_changes == []
+    assert detail_changes == [True]
+
+    controller.serverChanged.emit()
+
+    assert server_changes == [True]
+    assert detail_changes == [True, True]

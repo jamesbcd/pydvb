@@ -16,10 +16,15 @@ from .app_controller import AppController
 from .logging_handler import capture_gui_logs
 
 
+def _configure_media_environment() -> None:
+    """Configure Qt's FFmpeg backend for reliable MPEG-TS playback."""
+    os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
+
+
 def main() -> int:
     """Start the QML application and return its exit status."""
     QQuickStyle.setStyle("Fusion") # if sys.platform == "darwin" else "Fusion")
-    os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
+    _configure_media_environment()
     application = QGuiApplication(sys.argv)
     application.setApplicationName("PyDVB")
     application.setOrganizationName("pydvb")

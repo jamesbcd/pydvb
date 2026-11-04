@@ -123,8 +123,9 @@ python3 -m pip install -e '.[player]'
 This extra includes the Qt GUI and multimedia packages. The **Player** section
 lists the loaded channels in the sidebar; start the HTTP server, then select a
 channel to play its stream in the main area. The GUI explicitly selects Qt's
-FFmpeg multimedia backend for playback. Without the extra, the rest of the GUI
-remains available and the Player page shows the install command.
+FFmpeg multimedia backend for playback and leaves decoder selection, including
+hardware acceleration, to Qt. Without the extra, the rest of the GUI remains
+available and the Player page shows the install command.
 
 Use **Open** and **Save** to load or save a JSON profile containing tuning and
 server preferences plus the scanned service map. Profiles do not preserve

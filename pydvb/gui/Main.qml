@@ -282,15 +282,6 @@ ApplicationWindow {
                             window.selectedChannelId = modelData.id
                             window.sectionIndex = 4
                         }
-                        TapHandler {
-                            acceptedButtons: Qt.LeftButton
-                            onDoubleTapped: {
-                                window.selectedChannelId = modelData.id
-                                window.sectionIndex = 4
-                                if (playerLoader.item)
-                                    playerLoader.item.playSelectedChannel()
-                            }
-                        }
                         background: Rectangle {
                             radius: 5
                             color: window.selectedChannelId === modelData.id

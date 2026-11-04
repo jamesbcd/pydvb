@@ -20,12 +20,14 @@ class ServerController(QObject):
     """Expose HTTP server settings, lifecycle, and connected-client status."""
 
     serverChanged = Signal()
+    serverDetailsChanged = Signal()
 
     def __init__(self, app: AppController) -> None:
         super().__init__(app)
         self._app = app
         app.serverChanged.connect(self.serverChanged.emit)
-        app.devicesChanged.connect(self.serverChanged.emit)
+        app.serverChanged.connect(self.serverDetailsChanged.emit)
+        app.devicesChanged.connect(self.serverDetailsChanged.emit)
 
     @Property(str, notify=serverChanged)
     def serverState(self) -> str:
@@ -62,7 +64,7 @@ class ServerController(QObject):
             host = f"[{host}]"
         return f"http://{host}:{port}"
 
-    @Property("QVariantList", notify=serverChanged)
+    @Property("QVariantList", notify=serverDetailsChanged)
     def serverClients(self) -> list[dict[str, object]]:
         server = self._app._server
         if server is None:
@@ -78,7 +80,7 @@ class ServerController(QObject):
             for client in client_statuses
         ]
 
-    @Property(str, notify=serverChanged)
+    @Property(str, notify=serverDetailsChanged)
     def serverSignalSummary(self) -> str:
         app = self._app
         active = [

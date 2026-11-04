@@ -434,7 +434,6 @@ class AppController(QObject):
                     self._signal_by_adapter[(device_index, adapter_index)] = summary
             self._select_first_device()
             self.devicesChanged.emit()
-            self.serverChanged.emit()
             if result.removed:
                 message = (
                     f"Removed {len(result.removed)} disconnected device(s); "
