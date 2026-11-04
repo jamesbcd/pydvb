@@ -114,6 +114,17 @@ network and is not authenticated. Use **Logs** to open a live view of Python
 logging output while the application is running; close or hide the window to
 keep logging in the background.
 
+To enable in-app video playback, install the optional player dependencies:
+
+```sh
+python3 -m pip install -e '.[player]'
+```
+
+This extra includes the Qt GUI and multimedia packages. The **Player** section
+lists the loaded channels in the sidebar; start the HTTP server, then select a
+channel to play its stream in the main area. Without the extra, the rest of the
+GUI remains available and the Player page shows the install command.
+
 Use **Open** and **Save** to load or save a JSON profile containing tuning and
 server preferences plus the scanned service map. Profiles do not preserve
 connected devices, active streams, or clients.

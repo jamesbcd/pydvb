@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
@@ -24,6 +25,10 @@ def main() -> int:
     engine = QQmlApplicationEngine()
     controller = AppController()
     application.setQuitOnLastWindowClosed(False)
+    engine.rootContext().setContextProperty(
+        "playerAvailable",
+        find_spec("PySide6.QtMultimedia") is not None,
+    )
     engine.rootContext().setContextProperty("controller", controller)
     controller.shutdownFinished.connect(application.quit)
     with capture_gui_logs(controller):

@@ -47,6 +47,21 @@ class ServerController(QObject):
         host, port = server.address
         return f"http://{host}:{port}/playlist.m3u8"
 
+    @Property(str, notify=serverChanged)
+    def streamBaseUrl(self) -> str:
+        """Return a locally reachable base URL for individual service streams."""
+        server = self._app._server
+        if server is None:
+            return ""
+        host, port = server.address
+        if host in ("", "0.0.0.0"):
+            host = "127.0.0.1"
+        elif host == "::":
+            host = "[::1]"
+        elif ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{port}"
+
     @Property("QVariantList", notify=serverChanged)
     def serverClients(self) -> list[dict[str, object]]:
         server = self._app._server

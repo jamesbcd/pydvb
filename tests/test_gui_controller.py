@@ -535,3 +535,16 @@ def test_server_settings_are_exposed_by_server_controller(qt_application):
 
     assert controller.serverController.serverHost == "127.0.0.1"
     assert controller.serverController.serverPort == 8080
+
+
+def test_player_stream_base_url_is_locally_reachable(qt_application):
+    controller = AppController()
+
+    class FakeServer:
+        address = ("0.0.0.0", 8080)
+
+    controller._server = FakeServer()
+    assert controller.serverController.streamBaseUrl == "http://127.0.0.1:8080"
+
+    controller._server.address = ("192.168.1.10", 8080)
+    assert controller.serverController.streamBaseUrl == "http://192.168.1.10:8080"

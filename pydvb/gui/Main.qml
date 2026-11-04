@@ -15,6 +15,7 @@ ApplicationWindow {
 
     property int sectionIndex: 0
     property int editingTuningIndex: -1
+    property string selectedChannelId: ""
     property var logWindowObject: null
     readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
 
@@ -45,6 +46,10 @@ ApplicationWindow {
             return controller.channelController.hasChannelMap ? "A channel map is active" : "No channel map loaded"
         case 3:
             return controller.serverController.serverState === "Running" ? "Server is running" : "Server is not running"
+        case 4:
+            return playerLoader.playbackAvailable
+                ? "Play a channel from the local HTTP server"
+                : "Install pydvb[player] to enable playback"
         default:
             return ""
         }
@@ -60,9 +65,22 @@ ApplicationWindow {
             return controller.channelController.hasChannelMap
         case 3:
             return controller.serverController.serverState === "Running"
+        case 4:
+            return playerLoader.playbackAvailable && window.selectedChannelId.length > 0
         default:
             return false
         }
+    }
+
+    function channelExists(channelId) {
+        return controller.channelController.channels.some(function(channel) {
+            return channel.id === channelId
+        })
+    }
+
+    onSelectedChannelIdChanged: {
+        if (playerLoader.item)
+            playerLoader.item.selectedChannelId = selectedChannelId
     }
 
     onClosing: function(closeEvent) {
@@ -76,6 +94,10 @@ ApplicationWindow {
         target: controller
         function onShutdownFinished() {
             Qt.quit()
+        }
+        function onChannelsChanged() {
+            if (window.selectedChannelId && !window.channelExists(window.selectedChannelId))
+                window.selectedChannelId = ""
         }
     }
 
@@ -198,7 +220,98 @@ ApplicationWindow {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
+                Button {
+                    id: playerSectionButton
+                    Layout.fillWidth: true
+                    text: "Player"
+                    checkable: true
+                    checked: window.sectionIndex === 4
+                    highlighted: checked
+                    onClicked: window.sectionIndex = 4
+                    horizontalPadding: 13
+                    height: 46
+                    Accessible.description: window.sectionStatus(4)
+                    ToolTip.visible: hovered
+                    ToolTip.text: window.sectionStatus(4)
+                    background: Rectangle {
+                        radius: 5
+                        color: playerSectionButton.checked
+                            ? "#d8e5da"
+                            : (playerSectionButton.hovered ? "#f0f3f0" : "transparent")
+                        border.color: playerSectionButton.checked ? "#b8cdbd" : "transparent"
+                    }
+                    contentItem: RowLayout {
+                        spacing: 10
+                        Label {
+                            text: "Player"
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignLeft
+                            font.pixelSize: 14
+                            font.weight: playerSectionButton.checked ? Font.DemiBold : Font.Normal
+                            color: "#26362c"
+                        }
+                        Rectangle {
+                            Layout.preferredWidth: 10
+                            Layout.preferredHeight: 10
+                            radius: 5
+                            color: window.sectionReady(4) ? "#338457" : "#d7a63b"
+                        }
+                    }
+                }
+
+                Label {
+                    text: "CHANNELS"
+                    color: "#78857c"
+                    font.pixelSize: 11
+                    font.bold: true
+                    Layout.leftMargin: 10
+                    Layout.topMargin: 8
+                }
+                ListView {
+                    id: playerChannelList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    model: controller.channelController.channels
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        width: playerChannelList.width
+                        height: 42
+                        enabled: modelData.id !== "Unknown"
+                        onClicked: {
+                            window.selectedChannelId = modelData.id
+                            window.sectionIndex = 4
+                        }
+                        background: Rectangle {
+                            radius: 5
+                            color: window.selectedChannelId === modelData.id
+                                ? "#d8e5da"
+                                : (parent.hovered ? "#f0f3f0" : "transparent")
+                        }
+                        contentItem: RowLayout {
+                            spacing: 8
+                            Label {
+                                text: modelData.lcn === null ? "-" : modelData.lcn
+                                Layout.preferredWidth: 27
+                                color: "#758178"
+                                font.pixelSize: 12
+                            }
+                            Label {
+                                text: modelData.name
+                                Layout.fillWidth: true
+                                color: "#26362c"
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        visible: playerChannelList.count === 0
+                        text: "No channels loaded"
+                        color: "#849087"
+                        wrapMode: Text.Wrap
+                    }
+                }
             }
         }
 
@@ -317,6 +430,7 @@ ApplicationWindow {
                             color: "#849087"
                         }
                     }
+
                 }
             }
 
@@ -571,6 +685,42 @@ ApplicationWindow {
                         text: "Binding beyond localhost makes streams reachable on your network."
                         color: "#947044"
                         font.pixelSize: 12
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+
+            Item {
+                Loader {
+                    id: playerLoader
+                    property bool playbackAvailable: playerAvailable
+                    anchors.fill: parent
+                    active: playbackAvailable && window.sectionIndex === 4
+                    source: active ? "Player.qml" : ""
+                    onLoaded: {
+                        item.appController = controller
+                        item.selectedChannelId = window.selectedChannelId
+                    }
+                }
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    visible: !playerLoader.playbackAvailable
+                    spacing: 10
+                    Label {
+                        text: "Player"
+                        font.pixelSize: 26
+                        font.bold: true
+                        color: "#17251e"
+                    }
+                    Label {
+                        text: "Install the optional playback dependencies and restart the app:"
+                        color: "#68766d"
+                        wrapMode: Text.Wrap
+                    }
+                    Label {
+                        text: "python3 -m pip install -e '.[player]'"
+                        color: "#26362c"
+                        font.family: "monospace"
                         wrapMode: Text.Wrap
                     }
                 }
