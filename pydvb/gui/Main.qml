@@ -17,7 +17,15 @@ ApplicationWindow {
     property int editingTuningIndex: -1
     property string selectedChannelId: ""
     property var logWindowObject: null
+    property bool scanTablesRefreshAttempted: false
     readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
+
+    onSectionIndexChanged: {
+        if (sectionIndex === 1 && !scanTablesRefreshAttempted) {
+            scanTablesRefreshAttempted = true
+            controller.tuningController.refreshKnownTables()
+        }
+    }
 
     function toggleLogWindow() {
         if (logWindowObject === null) {
