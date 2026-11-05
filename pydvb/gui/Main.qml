@@ -27,7 +27,61 @@ ApplicationWindow {
     property int previousWindowWidth: width
     property int previousWindowHeight: height
     property int previousWindowVisibility: Window.Windowed
+    property real deviceNameColumnWidth: 226
+    property real deviceStateColumnWidth: 120
+    property real adapterNameColumnWidth: 210
+    property real adapterStateColumnWidth: 140
     readonly property var sectionNames: ["Devices", "Tuning", "Stations", "Server"]
+
+    component ResizableHeaderCell: Item {
+        id: headerCell
+        required property string title
+        required property real columnWidth
+        required property real minimumColumnWidth
+        signal resized(real newWidth)
+
+        implicitHeight: 22
+        Layout.fillWidth: false
+        Layout.preferredWidth: columnWidth
+        Layout.minimumWidth: minimumColumnWidth
+
+        Label {
+            anchors.fill: parent
+            text: headerCell.title
+            color: "#77847b"
+            font.pixelSize: 11
+            font.bold: true
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+
+        Item {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 12
+
+            HoverHandler {
+                cursorShape: Qt.SplitHCursor
+            }
+
+            DragHandler {
+                target: null
+                property real widthAtStart: 0
+                onActiveChanged: {
+                    if (active)
+                        widthAtStart = headerCell.columnWidth
+                }
+                onTranslationChanged: {
+                    if (active)
+                        headerCell.resized(Math.max(
+                            headerCell.minimumColumnWidth,
+                            widthAtStart + translation.x
+                        ))
+                }
+            }
+        }
+    }
 
     function enterPlayerFullScreen() {
         if (visibility !== Window.FullScreen) {
@@ -683,10 +737,29 @@ ApplicationWindow {
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     RowLayout {
                         Layout.fillWidth: true
-                        Label { text: "DEVICE"; Layout.preferredWidth: 240; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "STATE"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "DEVICE ADAPTERS"; Layout.preferredWidth: 100; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "SIGNAL"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Layout.leftMargin: 8
+                        Layout.rightMargin: 8
+                        spacing: 0
+                        ResizableHeaderCell {
+                            title: "DEVICE"
+                            columnWidth: window.deviceNameColumnWidth
+                            minimumColumnWidth: 130
+                            onResized: window.deviceNameColumnWidth = newWidth
+                        }
+                        ResizableHeaderCell {
+                            title: "STATE"
+                            columnWidth: window.deviceStateColumnWidth
+                            minimumColumnWidth: 70
+                            onResized: window.deviceStateColumnWidth = newWidth
+                        }
+                        Label {
+                            text: "SIGNAL"
+                            Layout.fillWidth: true
+                            color: "#77847b"
+                            font.pixelSize: 11
+                            font.bold: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                     ListView {
                         id: deviceList
@@ -700,6 +773,10 @@ ApplicationWindow {
                             required property var modelData
                             width: deviceList.width
                             height: 76
+                            leftPadding: 8
+                            rightPadding: 8
+                            topPadding: 0
+                            bottomPadding: 0
                             onClicked: window.controller.devicesController.selectDevice(modelData.deviceIndex)
                             background: Rectangle {
                                 color: deviceDelegate.modelData.selected ? "#e4eee6" : (deviceDelegate.hovered ? "#f8faf8" : "transparent")
@@ -707,14 +784,22 @@ ApplicationWindow {
                                 radius: 5
                             }
                             contentItem: RowLayout {
-                                spacing: 14
+                                spacing: 0
                                 ColumnLayout {
-                                    Layout.preferredWidth: 226
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: window.deviceNameColumnWidth
+                                    Layout.minimumWidth: 130
                                     Label { text: deviceDelegate.modelData.name; font.bold: true; color: "#26362c"; elide: Text.ElideRight }
                                     Label { text: deviceDelegate.modelData.deviceId; color: "#758178"; font.pixelSize: 12 }
                                 }
-                                Label { text: deviceDelegate.modelData.state; Layout.preferredWidth: 180; color: "#4e5e53"; elide: Text.ElideRight }
-                                Label { text: deviceDelegate.modelData.adapterCount; Layout.preferredWidth: 100; color: "#4e5e53" }
+                                Label {
+                                    text: deviceDelegate.modelData.state
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: window.deviceStateColumnWidth
+                                    Layout.minimumWidth: 70
+                                    color: "#4e5e53"
+                                    elide: Text.ElideRight
+                                }
                                 Label { text: deviceDelegate.modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
                             }
                         }
@@ -725,7 +810,33 @@ ApplicationWindow {
                             color: "#849087"
                         }
                     }
-                    Label { text: "DEVICE ADAPTERS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                    // Label { text: "DEVICE ADAPTERS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 8
+                        Layout.rightMargin: 8
+                        spacing: 0
+                        ResizableHeaderCell {
+                            title: "ADAPTER"
+                            columnWidth: window.adapterNameColumnWidth
+                            minimumColumnWidth: 130
+                            onResized: window.adapterNameColumnWidth = newWidth
+                        }
+                        ResizableHeaderCell {
+                            title: "STATE"
+                            columnWidth: window.adapterStateColumnWidth
+                            minimumColumnWidth: 90
+                            onResized: window.adapterStateColumnWidth = newWidth
+                        }
+                        Label {
+                            text: "SIGNAL"
+                            Layout.fillWidth: true
+                            color: "#77847b"
+                            font.pixelSize: 11
+                            font.bold: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
                     ListView {
                         id: adapterList
                         Layout.fillWidth: true
@@ -738,13 +849,36 @@ ApplicationWindow {
                             required property var modelData
                             width: adapterList.width
                             height: 54
+                            leftPadding: 8
+                            rightPadding: 8
+                            topPadding: 0
+                            bottomPadding: 0
                             onClicked: window.controller.devicesController.selectAdapter(modelData.adapterIndex)
                             highlighted: modelData.selected
-                            contentItem: Label {
-                                text: adapterDelegate.modelData.name + "     " + adapterDelegate.modelData.state + "     " + adapterDelegate.modelData.signal
-                                color: "#26362c"
-                                elide: Text.ElideRight
-                                verticalAlignment: Text.AlignVCenter
+                            contentItem: RowLayout {
+                                spacing: 0
+                                Label {
+                                    text: adapterDelegate.modelData.name
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: window.adapterNameColumnWidth
+                                    Layout.minimumWidth: 130
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: adapterDelegate.modelData.state
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: window.adapterStateColumnWidth
+                                    Layout.minimumWidth: 90
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: adapterDelegate.modelData.signal
+                                    Layout.fillWidth: true
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
                             }
                             background: Rectangle {
                                 color: adapterDelegate.modelData.selected ? "#e4eee6" : (adapterDelegate.hovered ? "#f8faf8" : "transparent")
