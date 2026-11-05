@@ -266,6 +266,28 @@ ApplicationWindow {
                                 font.weight: sectionButton.checked ? Font.DemiBold : Font.Normal
                                 color: "#26362c"
                             }
+                            ToolButton {
+                                visible: index === 3
+                                Layout.preferredWidth: visible ? 28 : 0
+                                Layout.preferredHeight: visible ? 28 : 0
+                                enabled: toggleServerAction.enabled
+                                text: controller.serverController.serverState === "Running" ? "■" : "▶"
+                                Accessible.name: toggleServerAction.text
+                                ToolTip.visible: hovered
+                                ToolTip.text: toggleServerAction.text
+                                onClicked: toggleServerAction.trigger()
+                                background: Rectangle {
+                                    radius: 4
+                                    color: parent.hovered ? "#c8d8cb" : "transparent"
+                                }
+                                contentItem: Label {
+                                    text: parent.text
+                                    color: "#26362c"
+                                    font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
                             Rectangle {
                                 Layout.preferredWidth: 10
                                 Layout.preferredHeight: 10
