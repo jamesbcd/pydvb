@@ -98,6 +98,47 @@ ApplicationWindow {
         }
     }
 
+    Action {
+        id: openProfileAction
+        text: "&Open..."
+        shortcut: StandardKey.Open
+        onTriggered: openProfileDialog.open()
+    }
+
+    Action {
+        id: saveProfileAction
+        text: "&Save..."
+        shortcut: StandardKey.Save
+        onTriggered: saveProfileDialog.open()
+    }
+
+    Action {
+        id: toggleLogWindowAction
+        text: window.logWindowObject && window.logWindowObject.visible
+            ? "Hide logs"
+            : "Show logs"
+        shortcut: Qt.platform.os === "osx" ? "Meta+Shift+L" : "Ctrl+Shift+L"
+        onTriggered: window.toggleLogWindow()
+    }
+
+    menuBar: MenuBar {
+        Menu {
+            title: "&File"
+            MenuItem {
+                action: openProfileAction
+            }
+            MenuItem {
+                action: saveProfileAction
+            }
+        }
+        Menu {
+            title: "&Window"
+            MenuItem {
+                action: toggleLogWindowAction
+            }
+        }
+    }
+
     Connections {
         target: controller
         function onShutdownFinished() {
@@ -142,20 +183,6 @@ ApplicationWindow {
                 color: "#526158"
                 elide: Text.ElideRight
                 // Layout.maximumWidth: 330
-            }
-            ToolButton {
-                text: "Open"
-                onClicked: openProfileDialog.open()
-            }
-            ToolButton {
-                text: "Save"
-                onClicked: saveProfileDialog.open()
-            }
-            ToolButton {
-                text: window.logWindowObject && window.logWindowObject.visible
-                    ? "Hide logs"
-                    : "Logs"
-                onClicked: window.toggleLogWindow()
             }
         }
     }
