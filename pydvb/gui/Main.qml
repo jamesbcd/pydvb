@@ -577,7 +577,7 @@ ApplicationWindow {
                             border.color: playerSectionButton.checked ? "#b8cdbd" : "transparent"
                         }
                         contentItem: RowLayout {
-                            spacing: 10
+                            spacing: 1
                             Label {
                                 text: "Player"
                                 Layout.fillWidth: true
@@ -590,6 +590,7 @@ ApplicationWindow {
                                 id: playerToggleButton
                                 Layout.preferredWidth: 28
                                 Layout.preferredHeight: 28
+                                Layout.leftMargin: 9
                                 enabled: playerLoader.item
                                     && playerLoader.item.canTogglePlayback
                                 text: playerLoader.item && playerLoader.item.isPlaying ? "Ⅱ" : "▶"
@@ -637,6 +638,7 @@ ApplicationWindow {
                             Rectangle {
                                 Layout.preferredWidth: 10
                                 Layout.preferredHeight: 10
+                                Layout.leftMargin: 9
                                 radius: 5
                                 color: window.sectionReady(4) ? "#338457" : "#d7a63b"
                             }
