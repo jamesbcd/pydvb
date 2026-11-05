@@ -13,6 +13,8 @@ Item {
     property string playbackError: ""
     property bool hasVideoFrame: false
     property bool playerControlsVisible: false
+    property bool playerOnlyMode: false
+    signal playerOnlyModeToggleRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
     readonly property bool canTogglePlayback: player.source.toString().length > 0
         && player.mediaStatus !== MediaPlayer.LoadingMedia
@@ -186,6 +188,62 @@ Item {
                     id: controlsRow
                     anchors.centerIn: parent
                     spacing: 12
+
+                    Button {
+                        id: playerOnlyModeButton
+                        width: 56
+                        height: 56
+                        padding: 0
+                        Accessible.name: root.playerOnlyMode
+                            ? "Restore window layout"
+                            : "Show player only"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.playerOnlyModeToggleRequested()
+                        background: Rectangle {
+                            radius: width / 2
+                            color: playerOnlyModeButton.down
+                                ? "#dce9df"
+                                : (playerOnlyModeButton.hovered ? "#f5faf6" : "#eaf1ec")
+                        }
+                        contentItem: Item {
+                            implicitWidth: 26
+                            implicitHeight: 22
+                            Item {
+                                anchors.centerIn: parent
+                                width: 26
+                                height: 22
+
+                                Rectangle {
+                                    x: 1
+                                    y: 1
+                                    width: 24
+                                    height: 20
+                                    radius: 2
+                                    color: "transparent"
+                                    border.color: "#17251e"
+                                    border.width: 1.5
+                                }
+                                Rectangle {
+                                    x: 8
+                                    y: 3
+                                    width: 1.5
+                                    height: 16
+                                    color: "#17251e"
+                                }
+                                Repeater {
+                                    model: 3
+                                    Rectangle {
+                                        x: 3
+                                        y: 6 + index * 4
+                                        width: 3
+                                        height: 1.5
+                                        color: "#17251e"
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Button {
                         id: previousChannelButton

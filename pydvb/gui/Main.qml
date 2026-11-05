@@ -18,7 +18,16 @@ ApplicationWindow {
     property string selectedChannelId: ""
     property var logWindowObject: null
     property bool scanTablesRefreshAttempted: false
+    property bool playerOnlyMode: false
+    property bool playerSidebarRevealed: false
     readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
+
+    onPlayerOnlyModeChanged: {
+        if (!playerOnlyMode) {
+            playerSidebarRevealed = false
+            playerSidebarHideTimer.stop()
+        }
+    }
 
     onSectionIndexChanged: {
         if (sectionIndex === 1 && !scanTablesRefreshAttempted) {
@@ -172,6 +181,7 @@ ApplicationWindow {
     }
 
     header: ToolBar {
+        visible: !window.playerOnlyMode
         contentHeight: 56
         background: Rectangle { color: "#fbfcfa" }
         RowLayout {
@@ -213,9 +223,21 @@ ApplicationWindow {
         spacing: 0
 
         Rectangle {
+            visible: !window.playerOnlyMode || window.playerSidebarRevealed
             Layout.preferredWidth: 218
             Layout.fillHeight: true
             color: "#e7ece7"
+
+            HoverHandler {
+                id: playerSidebarHoverHandler
+                enabled: window.playerOnlyMode && window.playerSidebarRevealed
+                onHoveredChanged: {
+                    if (hovered)
+                        playerSidebarHideTimer.stop()
+                    else
+                        playerSidebarHideTimer.restart()
+                }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -245,7 +267,10 @@ ApplicationWindow {
                         checkable: true
                         checked: window.sectionIndex === index
                         highlighted: checked
-                        onClicked: window.sectionIndex = index
+                        onClicked: {
+                            window.sectionIndex = index
+                            window.playerOnlyMode = false
+                        }
                         horizontalPadding: 13
                         height: 46
                         Accessible.description: window.sectionStatus(index)
@@ -439,13 +464,18 @@ ApplicationWindow {
             }
         }
 
-        Rectangle { Layout.fillHeight: true; width: 1; color: "#d9dfda" }
+        Rectangle {
+            visible: !window.playerOnlyMode
+            Layout.fillHeight: true
+            width: 1
+            color: "#d9dfda"
+        }
 
         StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.margins: window.sectionIndex === 4 ? 0 : 26
-            currentIndex: window.sectionIndex
+            Layout.margins: currentIndex === 4 ? 0 : 26
+            currentIndex: window.playerOnlyMode ? 4 : window.sectionIndex
 
             Item {
                 ColumnLayout {
@@ -818,18 +848,45 @@ ApplicationWindow {
                 Loader {
                     id: playerLoader
                     property bool playbackAvailable: playerAvailable
+                    property bool playerOnlyMode: window.playerOnlyMode
                     anchors.fill: parent
                     active: playbackAvailable
                     source: active ? "Player.qml" : ""
                     onLoaded: {
                         item.appController = controller
                         item.selectedChannelId = window.selectedChannelId
+                        item.playerOnlyMode = playerOnlyMode
+                    }
+                    onPlayerOnlyModeChanged: {
+                        if (item)
+                            item.playerOnlyMode = playerOnlyMode
+                    }
+                }
+                Item {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 18
+
+                    HoverHandler {
+                        enabled: window.playerOnlyMode
+                        onHoveredChanged: {
+                            if (hovered) {
+                                window.playerSidebarRevealed = true
+                                playerSidebarHideTimer.stop()
+                            } else if (window.playerSidebarRevealed) {
+                                playerSidebarHideTimer.restart()
+                            }
+                        }
                     }
                 }
                 Connections {
                     target: playerLoader.item
                     function onChannelSelectionRequested(channelId) {
                         window.selectedChannelId = channelId
+                    }
+                    function onPlayerOnlyModeToggleRequested() {
+                        window.playerOnlyMode = !window.playerOnlyMode
                     }
                 }
                 ColumnLayout {
@@ -852,6 +909,15 @@ ApplicationWindow {
                         color: "#26362c"
                         font.family: "monospace"
                         wrapMode: Text.Wrap
+                    }
+                }
+
+                Timer {
+                    id: playerSidebarHideTimer
+                    interval: 1200
+                    onTriggered: {
+                        if (window.playerOnlyMode && !playerSidebarHoverHandler.hovered)
+                            window.playerSidebarRevealed = false
                     }
                 }
             }
