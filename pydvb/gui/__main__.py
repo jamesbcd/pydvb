@@ -32,11 +32,12 @@ def main() -> int:
     engine = QQmlApplicationEngine()
     controller = AppController()
     application.setQuitOnLastWindowClosed(False)
-    engine.rootContext().setContextProperty(
-        "playerAvailable",
-        find_spec("PySide6.QtMultimedia") is not None,
+    engine.setInitialProperties(
+        {
+            "controller": controller,
+            "playerAvailable": find_spec("PySide6.QtMultimedia") is not None,
+        }
     )
-    engine.rootContext().setContextProperty("controller", controller)
     controller.shutdownFinished.connect(application.quit)
     with capture_gui_logs(controller):
         engine.load(QUrl.fromLocalFile(str(Path(__file__).with_name("Main.qml"))))

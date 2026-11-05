@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -5,6 +7,8 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: window
+    required property var controller
+    required property bool playerAvailable
     visible: true
     width: 1180
     height: 780
@@ -56,14 +60,14 @@ ApplicationWindow {
     onSectionIndexChanged: {
         if (sectionIndex === 1 && !scanTablesRefreshAttempted) {
             scanTablesRefreshAttempted = true
-            controller.tuningController.refreshKnownTables()
+            window.controller.tuningController.refreshKnownTables()
         }
     }
 
     function toggleLogWindow() {
         if (logWindowObject === null) {
             logWindowObject = logWindowComponent.createObject(window, {
-                appController: controller
+                appController: window.controller
             })
             if (logWindowObject === null) {
                 console.error("Could not create the log window")
@@ -78,15 +82,15 @@ ApplicationWindow {
     function sectionStatus(index) {
         switch (index) {
         case 0:
-            return controller.devicesController.deviceSummary
+            return window.controller.devicesController.deviceSummary
         case 1:
-            return controller.tuningController.tunings.length > 0
-                ? controller.tuningController.tunings.length + " tuning(s) loaded"
+            return window.controller.tuningController.tunings.length > 0
+                ? window.controller.tuningController.tunings.length + " tuning(s) loaded"
                 : "No tunings loaded"
         case 2:
-            return controller.channelController.hasChannelMap ? "A channel map is active" : "No channel map loaded"
+            return window.controller.channelController.hasChannelMap ? "A channel map is active" : "No channel map loaded"
         case 3:
-            return controller.serverController.serverState === "Running" ? "Server is running" : "Server is not running"
+            return window.controller.serverController.serverState === "Running" ? "Server is running" : "Server is not running"
         case 4:
             return playerLoader.playbackAvailable
                 ? "Play a channel from the local HTTP server"
@@ -99,13 +103,13 @@ ApplicationWindow {
     function sectionReady(index) {
         switch (index) {
         case 0:
-            return controller.devicesController.devices.some(function(device) { return device.adapterCount > 0 })
+            return window.controller.devicesController.devices.some(function(device) { return device.adapterCount > 0 })
         case 1:
-            return controller.tuningController.tunings.length > 0
+            return window.controller.tuningController.tunings.length > 0
         case 2:
-            return controller.channelController.hasChannelMap
+            return window.controller.channelController.hasChannelMap
         case 3:
-            return controller.serverController.serverState === "Running"
+            return window.controller.serverController.serverState === "Running"
         case 4:
             return playerLoader.playbackAvailable && window.selectedChannelId.length > 0
         default:
@@ -114,7 +118,7 @@ ApplicationWindow {
     }
 
     function channelExists(channelId) {
-        return controller.channelController.channels.some(function(channel) {
+        return window.controller.channelController.channels.some(function(channel) {
             return channel.id === channelId
         })
     }
@@ -125,9 +129,9 @@ ApplicationWindow {
     }
 
     onClosing: function(closeEvent) {
-        if (!controller.shuttingDown) {
+        if (!window.controller.shuttingDown) {
             closeEvent.accepted = false
-            controller.shutdown()
+            window.controller.shutdown()
         }
     }
 
@@ -156,16 +160,16 @@ ApplicationWindow {
 
     Action {
         id: toggleServerAction
-        text: controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
+        text: window.controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
         shortcut: Qt.platform.os === "osx" ? "Meta+Alt+R" : "Ctrl+Alt+R"
-        enabled: (controller.serverController.serverState === "Stopped"
-                  || controller.serverController.serverState === "Running")
-                 && !controller.userDeviceBusy
+        enabled: (window.controller.serverController.serverState === "Stopped"
+                  || window.controller.serverController.serverState === "Running")
+                 && !window.controller.userDeviceBusy
         onTriggered: {
-            if (controller.serverController.serverState === "Running")
-                controller.serverController.stopServer()
+            if (window.controller.serverController.serverState === "Running")
+                window.controller.serverController.stopServer()
             else
-                controller.serverController.startServer()
+                window.controller.serverController.startServer()
         }
     }
 
@@ -200,7 +204,7 @@ ApplicationWindow {
     }
 
     Connections {
-        target: controller
+        target: window.controller
         function onShutdownFinished() {
             Qt.quit()
         }
@@ -234,13 +238,13 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             BusyIndicator {
-                running: controller.busy
+                running: window.controller.busy
                 visible: running
                 implicitWidth: 24
                 implicitHeight: 24
             }
             Label {
-                text: controller.statusMessage
+                text: window.controller.statusMessage
                 color: "#526158"
                 elide: Text.ElideRight
                 // Layout.maximumWidth: 330
@@ -317,13 +321,13 @@ ApplicationWindow {
                             ToolTip.text: window.sectionStatus(index)
                             background: Rectangle {
                                 radius: 5
-                                color: checked ? "#d8e5da" : (parent.hovered ? "#f0f3f0" : "transparent")
-                                border.color: checked ? "#b8cdbd" : "transparent"
+                                color: sectionButton.checked ? "#d8e5da" : (sectionButton.hovered ? "#f0f3f0" : "transparent")
+                                border.color: sectionButton.checked ? "#b8cdbd" : "transparent"
                             }
                             contentItem: RowLayout {
                                 spacing: 10
                                 Label {
-                                    text: modelData
+                                    text: sectionButton.modelData
                                     Layout.fillWidth: true
                                     horizontalAlignment: Text.AlignLeft
                                     font.pixelSize: 14
@@ -331,21 +335,22 @@ ApplicationWindow {
                                     color: "#26362c"
                                 }
                                 ToolButton {
-                                    visible: index === 3
+                                    id: sectionServerButton
+                                    visible: sectionButton.index === 3
                                     Layout.preferredWidth: visible ? 28 : 0
                                     Layout.preferredHeight: visible ? 28 : 0
                                     enabled: toggleServerAction.enabled
-                                    text: controller.serverController.serverState === "Running" ? "■" : "▶"
+                                    text: window.controller.serverController.serverState === "Running" ? "■" : "▶"
                                     Accessible.name: toggleServerAction.text
                                     ToolTip.visible: hovered
                                     ToolTip.text: toggleServerAction.text
                                     onClicked: toggleServerAction.trigger()
                                     background: Rectangle {
                                         radius: 4
-                                        color: parent.hovered ? "#c8d8cb" : "transparent"
+                                        color: sectionServerButton.hovered ? "#c8d8cb" : "transparent"
                                     }
                                     contentItem: Label {
-                                        text: parent.text
+                                        text: sectionServerButton.text
                                         color: "#26362c"
                                         font.pixelSize: 12
                                         horizontalAlignment: Text.AlignHCenter
@@ -356,7 +361,7 @@ ApplicationWindow {
                                     Layout.preferredWidth: 10
                                     Layout.preferredHeight: 10
                                     radius: 5
-                                    color: window.sectionReady(index) ? "#338457" : "#d7a63b"
+                                    color: window.sectionReady(sectionButton.index) ? "#338457" : "#d7a63b"
                                 }
                             }
                         }
@@ -393,6 +398,7 @@ ApplicationWindow {
                                 color: "#26362c"
                             }
                             ToolButton {
+                                id: playerToggleButton
                                 Layout.preferredWidth: 28
                                 Layout.preferredHeight: 28
                                 enabled: playerLoader.item
@@ -406,10 +412,10 @@ ApplicationWindow {
                                 onClicked: playerLoader.item.togglePlayback()
                                 background: Rectangle {
                                     radius: 4
-                                    color: parent.hovered ? "#c8d8cb" : "transparent"
+                                    color: playerToggleButton.hovered ? "#c8d8cb" : "transparent"
                                 }
                                 contentItem: Label {
-                                    text: parent.text
+                                    text: playerToggleButton.text
                                     color: "#26362c"
                                     font.pixelSize: 12
                                     horizontalAlignment: Text.AlignHCenter
@@ -417,6 +423,7 @@ ApplicationWindow {
                                 }
                             }
                             ToolButton {
+                                id: playerStopButton
                                 Layout.preferredWidth: 28
                                 Layout.preferredHeight: 28
                                 enabled: playerLoader.item
@@ -428,10 +435,10 @@ ApplicationWindow {
                                 onClicked: playerLoader.item.stopPlayback()
                                 background: Rectangle {
                                     radius: 4
-                                    color: parent.hovered ? "#c8d8cb" : "transparent"
+                                    color: playerStopButton.hovered ? "#c8d8cb" : "transparent"
                                 }
                                 contentItem: Label {
-                                    text: parent.text
+                                    text: playerStopButton.text
                                     color: "#26362c"
                                     font.pixelSize: 12
                                     horizontalAlignment: Text.AlignHCenter
@@ -460,8 +467,9 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.channelController.channels
+                        model: window.controller.channelController.channels
                         delegate: ItemDelegate {
+                            id: playerChannelDelegate
                             required property var modelData
                             width: playerChannelList.width
                             height: 42
@@ -472,20 +480,20 @@ ApplicationWindow {
                             }
                             background: Rectangle {
                                 radius: 5
-                                color: window.selectedChannelId === modelData.id
+                                color: window.selectedChannelId === playerChannelDelegate.modelData.id
                                     ? "#d8e5da"
-                                    : (parent.hovered ? "#f0f3f0" : "transparent")
+                                    : (playerChannelDelegate.hovered ? "#f0f3f0" : "transparent")
                             }
                             contentItem: RowLayout {
                                 spacing: 8
                                 Label {
-                                    text: modelData.lcn === null ? "-" : modelData.lcn
+                                    text: playerChannelDelegate.modelData.lcn === null ? "-" : playerChannelDelegate.modelData.lcn
                                     Layout.preferredWidth: 27
                                     color: "#758178"
                                     font.pixelSize: 12
                                 }
                                 Label {
-                                    text: modelData.name
+                                    text: playerChannelDelegate.modelData.name
                                     Layout.fillWidth: true
                                     color: "#26362c"
                                     elide: Text.ElideRight
@@ -531,20 +539,20 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         CheckBox {
                             text: "Auto-discover and initialize devices"
-                            checked: controller.devicesController.autoDiscoverAndInitializeDevices
-                            onToggled: controller.devicesController.autoDiscoverAndInitializeDevices = checked
+                            checked: window.controller.devicesController.autoDiscoverAndInitializeDevices
+                            onToggled: window.controller.devicesController.autoDiscoverAndInitializeDevices = checked
                         }
                         CheckBox {
                             text: "Show unsupported USB devices"
-                            checked: controller.devicesController.showUnsupportedDevices
-                            onToggled: controller.devicesController.showUnsupportedDevices = checked
+                            checked: window.controller.devicesController.showUnsupportedDevices
+                            onToggled: window.controller.devicesController.showUnsupportedDevices = checked
                         }
-                        Button { text: "Discover"; enabled: !controller.userDeviceBusy; onClicked: controller.devicesController.discover() }
+                        Button { text: "Discover"; enabled: !window.controller.userDeviceBusy; onClicked: window.controller.devicesController.discover() }
                         Button {
                             text: "Initialize selected"
-                            enabled: !controller.userDeviceBusy && controller.devicesController.devices.length > 0
+                            enabled: !window.controller.userDeviceBusy && window.controller.devicesController.devices.length > 0
                             highlighted: true
-                            onClicked: controller.devicesController.initializeSelectedDevice()
+                            onClicked: window.controller.devicesController.initializeSelectedDevice()
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
@@ -561,27 +569,28 @@ ApplicationWindow {
                         Layout.preferredHeight: 270
                         Layout.minimumHeight: 160
                         clip: true
-                        model: controller.devicesController.devices
+                        model: window.controller.devicesController.devices
                         delegate: ItemDelegate {
+                            id: deviceDelegate
                             required property var modelData
                             width: deviceList.width
                             height: 76
-                            onClicked: controller.devicesController.selectDevice(modelData.deviceIndex)
+                            onClicked: window.controller.devicesController.selectDevice(modelData.deviceIndex)
                             background: Rectangle {
-                                color: modelData.selected ? "#e4eee6" : (parent.hovered ? "#f8faf8" : "transparent")
-                                border.color: modelData.selected ? "#b8cdbd" : "transparent"
+                                color: deviceDelegate.modelData.selected ? "#e4eee6" : (deviceDelegate.hovered ? "#f8faf8" : "transparent")
+                                border.color: deviceDelegate.modelData.selected ? "#b8cdbd" : "transparent"
                                 radius: 5
                             }
                             contentItem: RowLayout {
                                 spacing: 14
                                 ColumnLayout {
                                     Layout.preferredWidth: 226
-                                    Label { text: modelData.name; font.bold: true; color: "#26362c"; elide: Text.ElideRight }
-                                    Label { text: modelData.deviceId; color: "#758178"; font.pixelSize: 12 }
+                                    Label { text: deviceDelegate.modelData.name; font.bold: true; color: "#26362c"; elide: Text.ElideRight }
+                                    Label { text: deviceDelegate.modelData.deviceId; color: "#758178"; font.pixelSize: 12 }
                                 }
-                                Label { text: modelData.state; Layout.preferredWidth: 180; color: "#4e5e53"; elide: Text.ElideRight }
-                                Label { text: modelData.adapterCount; Layout.preferredWidth: 100; color: "#4e5e53" }
-                                Label { text: modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
+                                Label { text: deviceDelegate.modelData.state; Layout.preferredWidth: 180; color: "#4e5e53"; elide: Text.ElideRight }
+                                Label { text: deviceDelegate.modelData.adapterCount; Layout.preferredWidth: 100; color: "#4e5e53" }
+                                Label { text: deviceDelegate.modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
                             }
                         }
                         Label {
@@ -598,22 +607,23 @@ ApplicationWindow {
                         Layout.fillHeight: true
                         Layout.minimumHeight: 90
                         clip: true
-                        model: controller.devicesController.adapters
+                        model: window.controller.devicesController.adapters
                         delegate: ItemDelegate {
+                            id: adapterDelegate
                             required property var modelData
                             width: adapterList.width
                             height: 54
-                            onClicked: controller.devicesController.selectAdapter(modelData.adapterIndex)
+                            onClicked: window.controller.devicesController.selectAdapter(modelData.adapterIndex)
                             highlighted: modelData.selected
                             contentItem: Label {
-                                text: modelData.name + "     " + modelData.state + "     " + modelData.signal
+                                text: adapterDelegate.modelData.name + "     " + adapterDelegate.modelData.state + "     " + adapterDelegate.modelData.signal
                                 color: "#26362c"
                                 elide: Text.ElideRight
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: modelData.selected ? "#e4eee6" : (parent.hovered ? "#f8faf8" : "transparent")
-                                border.color: modelData.selected ? "#b8cdbd" : "transparent"
+                                color: adapterDelegate.modelData.selected ? "#e4eee6" : (adapterDelegate.hovered ? "#f8faf8" : "transparent")
+                                border.color: adapterDelegate.modelData.selected ? "#b8cdbd" : "transparent"
                                 radius: 5
                             }
                         }
@@ -643,8 +653,8 @@ ApplicationWindow {
                         Button {
                             text: "Scan services"
                             highlighted: true
-                            enabled: !controller.userDeviceBusy && controller.tuningController.tunings.length > 0
-                            onClicked: controller.tuningController.scan()
+                            enabled: !window.controller.userDeviceBusy && window.controller.tuningController.tunings.length > 0
+                            onClicked: window.controller.tuningController.scan()
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
@@ -653,13 +663,13 @@ ApplicationWindow {
                         ComboBox {
                             id: tableBox
                             Layout.fillWidth: true
-                            model: controller.tuningController.knownTables
+                            model: window.controller.tuningController.knownTables
                             editable: true
                             displayText: currentText || "Select a known scan table"
-                            onActivated: controller.tuningController.selectScanTable(currentText)
-                            onAccepted: controller.tuningController.selectScanTable(editText)
+                            onActivated: window.controller.tuningController.selectScanTable(currentText)
+                            onAccepted: window.controller.tuningController.selectScanTable(editText)
                         }
-                        Button { text: "Refresh tables"; enabled: !controller.generalBusy; onClicked: controller.tuningController.refreshKnownTables() }
+                        Button { text: "Refresh tables"; enabled: !window.controller.generalBusy; onClicked: window.controller.tuningController.refreshKnownTables() }
                         Button { text: "Open local table"; onClicked: scanTableDialog.open() }
                     }
                     Label { text: "Manual tuning"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -675,12 +685,12 @@ ApplicationWindow {
                         ComboBox { id: bandwidthBox; model: ["6", "7", "8"]; currentIndex: 1; Layout.preferredWidth: 120 }
                         Button {
                             text: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
-                            enabled: !controller.generalBusy
+                            enabled: !window.controller.generalBusy
                             onClicked: {
                                 if (window.editingTuningIndex < 0)
-                                    controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
+                                    window.controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
                                 else
-                                    controller.tuningController.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
+                                    window.controller.tuningController.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
                                 frequencyField.clear()
                                 window.editingTuningIndex = -1
                             }
@@ -694,7 +704,7 @@ ApplicationWindow {
                             }
                         }
                         Item { Layout.fillWidth: true }
-                        Label { text: controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
+                        Label { text: window.controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     ListView {
@@ -702,24 +712,25 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.tuningController.tunings
+                        model: window.controller.tuningController.tunings
                         delegate: RowLayout {
+                            id: tuningDelegate
                             required property var modelData
                             width: tuningList.width
                             height: 48
-                            Label { text: (modelData.index + 1).toString().padStart(2, "0"); color: "#829087"; Layout.preferredWidth: 48 }
-                            Label { text: Number(modelData.frequency).toFixed(3) + " MHz"; color: "#26362c"; Layout.fillWidth: true }
-                            Label { text: modelData.bandwidth + " MHz"; color: "#526158"; Layout.preferredWidth: 100 }
+                            Label { text: String(tuningDelegate.modelData.index + 1).padStart(2, "0"); color: "#829087"; Layout.preferredWidth: 48 }
+                            Label { text: Number(tuningDelegate.modelData.frequency).toFixed(3) + " MHz"; color: "#26362c"; Layout.fillWidth: true }
+                            Label { text: tuningDelegate.modelData.bandwidth + " MHz"; color: "#526158"; Layout.preferredWidth: 100 }
                             ToolButton {
                                 text: "Edit"
-                                enabled: !controller.generalBusy
+                                enabled: !window.controller.generalBusy
                                 onClicked: {
-                                    window.editingTuningIndex = modelData.index
-                                    frequencyField.text = Number(modelData.frequency).toFixed(3)
-                                    bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(modelData.bandwidth)))
+                                    window.editingTuningIndex = tuningDelegate.modelData.index
+                                    frequencyField.text = Number(tuningDelegate.modelData.frequency).toFixed(3)
+                                    bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(tuningDelegate.modelData.bandwidth)))
                                 }
                             }
-                            ToolButton { text: "Remove"; onClicked: controller.tuningController.removeTuning(modelData.index) }
+                            ToolButton { text: "Remove"; onClicked: window.controller.tuningController.removeTuning(tuningDelegate.modelData.index) }
                             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#e1e6e2" }
                         }
                         Label {
@@ -741,7 +752,7 @@ ApplicationWindow {
                         ColumnLayout {
                             spacing: 3
                             Label { text: "TV Stations"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
-                            Label { text: controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
+                            Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
                         Button { text: "Open profile"; onClicked: openProfileDialog.open() }
@@ -760,16 +771,17 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.channelController.channels
+                        model: window.controller.channelController.channels
                         delegate: RowLayout {
+                            id: channelDelegate
                             required property var modelData
                             width: channelList.width
                             height: 50
-                            Label { text: modelData.lcn === null ? "-" : modelData.lcn; Layout.preferredWidth: 70; color: "#526158" }
-                            Label { text: modelData.name; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
-                            Label { text: modelData.type; Layout.preferredWidth: 150; color: "#526158" }
-                            Label { text: modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
-                            Label { text: modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
+                            Label { text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn; Layout.preferredWidth: 70; color: "#526158" }
+                            Label { text: channelDelegate.modelData.name; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
+                            Label { text: channelDelegate.modelData.type; Layout.preferredWidth: 150; color: "#526158" }
+                            Label { text: channelDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
+                            Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
                             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#e1e6e2" }
                         }
                         Label {
@@ -796,9 +808,9 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Rectangle {
                             width: 10; height: 10; radius: 5
-                            color: controller.serverController.serverState === "Running" ? "#338457" : "#a4aaa5"
+                            color: window.controller.serverController.serverState === "Running" ? "#338457" : "#a4aaa5"
                         }
-                        Label { text: controller.serverController.serverState; color: "#526158" }
+                        Label { text: window.controller.serverController.serverState; color: "#526158" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     Label { text: "Listener"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -807,65 +819,66 @@ ApplicationWindow {
                         TextField {
                             id: hostField
                             Layout.fillWidth: true
-                            text: controller.serverController.serverHost
+                            text: window.controller.serverController.serverHost
                             placeholderText: "Bind address"
-                            enabled: controller.serverController.serverState !== "Running"
-                            onEditingFinished: controller.serverController.serverHost = text
+                            enabled: window.controller.serverController.serverState !== "Running"
+                            onEditingFinished: window.controller.serverController.serverHost = text
                         }
                         TextField {
                             id: portField
                             Layout.preferredWidth: 130
-                            text: controller.serverController.serverPort.toString()
+                            text: window.controller.serverController.serverPort.toString()
                             placeholderText: "Port"
                             validator: IntValidator { bottom: 0; top: 65535 }
-                            enabled: controller.serverController.serverState !== "Running"
+                            enabled: window.controller.serverController.serverState !== "Running"
                             onEditingFinished: {
                                 if (acceptableInput)
-                                    controller.serverController.serverPort = Number(text)
+                                    window.controller.serverController.serverPort = Number(text)
                             }
                         }
                         Button {
                             text: "Start"
                             highlighted: true
-                            enabled: controller.serverController.serverState === "Stopped" && !controller.userDeviceBusy
-                            onClicked: controller.serverController.startServer()
+                            enabled: window.controller.serverController.serverState === "Stopped" && !window.controller.userDeviceBusy
+                            onClicked: window.controller.serverController.startServer()
                         }
                         Button {
                             text: "Stop"
-                            enabled: controller.serverController.serverState === "Running" && !controller.userDeviceBusy
-                            onClicked: controller.serverController.stopServer()
+                            enabled: window.controller.serverController.serverState === "Running" && !window.controller.userDeviceBusy
+                            onClicked: window.controller.serverController.stopServer()
                         }
                     }
                     Label { text: "Playlist URL"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     TextField {
                         Layout.fillWidth: true
                         readOnly: true
-                        text: controller.serverController.playlistUrl || "Start the server to expose the playlist"
+                        text: window.controller.serverController.playlistUrl || "Start the server to expose the playlist"
                         selectByMouse: true
                     }
                     Label { text: "Adapter signal"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
-                    Label { text: controller.serverController.serverSignalSummary; color: "#526158"; wrapMode: Text.Wrap }
+                    Label { text: window.controller.serverController.serverSignalSummary; color: "#526158"; wrapMode: Text.Wrap }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: "CONNECTED CLIENTS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                         Item { Layout.fillWidth: true }
-                        Label { text: controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
+                        Label { text: window.controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
                     }
                     ListView {
                         id: clientList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: controller.serverController.serverClients
+                        model: window.controller.serverController.serverClients
                         delegate: RowLayout {
+                            id: clientDelegate
                             required property var modelData
                             width: clientList.width
                             height: 48
-                            Label { text: modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
-                            Label { text: modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
-                            Label { text: modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
-                            Label { text: Number(modelData.bytesSent).toLocaleString() + " B"; Layout.preferredWidth: 110; color: "#526158" }
+                            Label { text: clientDelegate.modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
+                            Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
+                            Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
+                            Label { text: Number(clientDelegate.modelData.bytesSent).toLocaleString() + " B"; Layout.preferredWidth: 110; color: "#526158" }
                         }
                         Label {
                             anchors.centerIn: parent
@@ -887,13 +900,13 @@ ApplicationWindow {
             Item {
                 Loader {
                     id: playerLoader
-                    property bool playbackAvailable: playerAvailable
+                    property bool playbackAvailable: window.playerAvailable
                     property bool playerOnlyMode: window.playerOnlyMode
                     anchors.fill: parent
                     active: playbackAvailable
                     source: active ? "Player.qml" : ""
                     onLoaded: {
-                        item.appController = controller
+                        item.appController = window.controller
                         item.selectedChannelId = window.selectedChannelId
                         item.playerOnlyMode = playerOnlyMode
                     }
@@ -972,7 +985,7 @@ ApplicationWindow {
         title: "Open PyDVB profile"
         fileMode: FileDialog.OpenFile
         nameFilters: ["PyDVB profile (*.json)", "All files (*)"]
-        onAccepted: controller.loadProfile(selectedFile.toString())
+        onAccepted: window.controller.loadProfile(selectedFile.toString())
     }
 
     FileDialog {
@@ -980,20 +993,21 @@ ApplicationWindow {
         title: "Save PyDVB profile"
         fileMode: FileDialog.SaveFile
         nameFilters: ["PyDVB profile (*.json)", "All files (*)"]
-        onAccepted: controller.saveProfile(selectedFile.toString())
+        onAccepted: window.controller.saveProfile(selectedFile.toString())
     }
 
     FileDialog {
         id: scanTableDialog
         title: "Open DVB-T scan table"
         fileMode: FileDialog.OpenFile
-        onAccepted: controller.tuningController.loadLocalScanTable(selectedFile.toString())
+        onAccepted: window.controller.tuningController.loadLocalScanTable(selectedFile.toString())
     }
 
     Component {
         id: logWindowComponent
 
         Window {
+            id: logWindow
             required property var appController
             transientParent: window
             visible: false
@@ -1017,13 +1031,13 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Label {
-                        text: appController.logController.logMessages.length + " recent log message(s)"
+                        text: logWindow.appController.logController.logMessages.length + " recent log message(s)"
                         color: "#526158"
                     }
                     Item { Layout.fillWidth: true }
                     Button {
                         text: "Clear"
-                        onClicked: appController.logController.clearLogs()
+                        onClicked: logWindow.appController.logController.clearLogs()
                     }
                     Button {
                         text: "Close"
@@ -1035,7 +1049,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     TextArea {
-                        text: appController.logController.logMessages.join("\n")
+                        text: logWindow.appController.logController.logMessages.join("\n")
                         readOnly: true
                         selectByMouse: true
                         textFormat: TextEdit.PlainText
