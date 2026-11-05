@@ -20,7 +20,31 @@ ApplicationWindow {
     property bool scanTablesRefreshAttempted: false
     property bool playerOnlyMode: false
     property bool playerSidebarRevealed: false
+    property int previousWindowWidth: width
+    property int previousWindowHeight: height
+    property int previousWindowVisibility: Window.Windowed
     readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
+
+    function enterPlayerFullScreen() {
+        if (visibility !== Window.FullScreen) {
+            previousWindowWidth = width
+            previousWindowHeight = height
+            previousWindowVisibility = visibility
+        }
+        playerOnlyMode = true
+        visibility = Window.FullScreen
+    }
+
+    function exitFullScreen() {
+        if (visibility !== Window.FullScreen)
+            return
+
+        visibility = Window.Windowed
+        width = previousWindowWidth
+        height = previousWindowHeight
+        if (previousWindowVisibility !== Window.Windowed)
+            visibility = previousWindowVisibility
+    }
 
     onPlayerOnlyModeChanged: {
         if (!playerOnlyMode) {
@@ -143,6 +167,12 @@ ApplicationWindow {
             else
                 controller.serverController.startServer()
         }
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: window.visibility === Window.FullScreen
+        onActivated: window.exitFullScreen()
     }
 
     menuBar: MenuBar {
@@ -887,6 +917,9 @@ ApplicationWindow {
                     }
                     function onPlayerOnlyModeToggleRequested() {
                         window.playerOnlyMode = !window.playerOnlyMode
+                    }
+                    function onFullScreenRequested() {
+                        window.enterPlayerFullScreen()
                     }
                 }
                 ColumnLayout {

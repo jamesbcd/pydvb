@@ -15,6 +15,7 @@ Item {
     property bool playerControlsVisible: false
     property bool playerOnlyMode: false
     signal playerOnlyModeToggleRequested()
+    signal fullScreenRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
     readonly property bool canTogglePlayback: player.source.toString().length > 0
         && player.mediaStatus !== MediaPlayer.LoadingMedia
@@ -350,6 +351,53 @@ Item {
                             font.pixelSize: 38
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    Button {
+                        id: fullScreenButton
+                        width: 56
+                        height: 56
+                        padding: 0
+                        Accessible.name: "Enter full screen"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.fullScreenRequested()
+                        background: Rectangle {
+                            radius: width / 2
+                            color: fullScreenButton.down
+                                ? "#dce9df"
+                                : (fullScreenButton.hovered ? "#f5faf6" : "#eaf1ec")
+                        }
+                        contentItem: Item {
+                            implicitWidth: 26
+                            implicitHeight: 26
+                            Item {
+                                anchors.centerIn: parent
+                                width: 22
+                                height: 22
+
+                                Repeater {
+                                    model: [
+                                        { x: 1, y: 1, horizontal: true },
+                                        { x: 1, y: 1, horizontal: false },
+                                        { x: 16, y: 1, horizontal: true },
+                                        { x: 21, y: 1, horizontal: false },
+                                        { x: 1, y: 21, horizontal: true },
+                                        { x: 1, y: 16, horizontal: false },
+                                        { x: 16, y: 21, horizontal: true },
+                                        { x: 21, y: 16, horizontal: false }
+                                    ]
+                                    Rectangle {
+                                        required property var modelData
+                                        x: modelData.x
+                                        y: modelData.y
+                                        width: modelData.horizontal ? 5 : 1.5
+                                        height: modelData.horizontal ? 1.5 : 5
+                                        color: "#17251e"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
