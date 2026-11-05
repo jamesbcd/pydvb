@@ -444,7 +444,7 @@ ApplicationWindow {
         StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.margins: 26
+            Layout.margins: window.sectionIndex === 4 ? 0 : 26
             currentIndex: window.sectionIndex
 
             Item {

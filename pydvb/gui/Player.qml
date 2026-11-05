@@ -53,85 +53,98 @@ Item {
         return null
     }
 
-    ColumnLayout {
+    Rectangle {
         anchors.fill: parent
-        spacing: 16
+        color: "#111512"
 
-        RowLayout {
-            Layout.fillWidth: true
-            ColumnLayout {
-                spacing: 3
-                Label {
-                    text: "Player"
-                    font.pixelSize: 26
-                    font.bold: true
-                    color: "#17251e"
-                }
-                Label {
-                    text: root.selectedChannel ? root.selectedChannel.name : "Select a channel from the sidebar"
-                    color: "#68766d"
-                }
+        VideoOutput {
+            id: videoOutput
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectFit
+        }
+        Column {
+            anchors.centerIn: parent
+            width: parent.width - 48
+            spacing: 10
+            visible: player.source.toString().length === 0
+                || (root.waitingForVideoFrame && root.playbackError.length === 0)
+            BusyIndicator {
+                anchors.horizontalCenter: parent.horizontalCenter
+                running: root.waitingForVideoFrame
+                    && root.playbackError.length === 0
+                visible: running
             }
-            Item { Layout.fillWidth: true }
             Label {
-                text: root.playbackStateText()
-                color: "#526158"
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: "#d9dfda"
+                text: root.playerStatusMessage()
             }
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: "#111512"
+        HoverHandler {
+            property point lastPosition: Qt.point(-1, -1)
 
-            VideoOutput {
-                id: videoOutput
-                anchors.fill: parent
-                fillMode: VideoOutput.PreserveAspectFit
-            }
-            Column {
-                anchors.centerIn: parent
-                width: parent.width - 48
-                spacing: 10
-                visible: player.source.toString().length === 0
-                    || (root.waitingForVideoFrame && root.playbackError.length === 0)
-                BusyIndicator {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    running: root.waitingForVideoFrame
-                        && root.playbackError.length === 0
-                    visible: running
-                }
-                Label {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                    color: "#d9dfda"
-                    text: root.playerStatusMessage()
+            onHoveredChanged: {
+                if (hovered) {
+                    lastPosition = point.position
+                    root.revealPlayerControls()
                 }
             }
+            onPointChanged: {
+                if (hovered && (point.position.x !== lastPosition.x
+                                || point.position.y !== lastPosition.y)) {
+                    lastPosition = point.position
+                    root.revealPlayerControls()
+                }
+            }
+        }
 
-            HoverHandler {
-                property point lastPosition: Qt.point(-1, -1)
+        Timer {
+            id: controlsHideTimer
+            interval: 2000
+            onTriggered: root.playerControlsVisible = false
+        }
 
-                onHoveredChanged: {
-                    if (hovered) {
-                        lastPosition = point.position
-                        root.revealPlayerControls()
+        Item {
+            anchors.fill: parent
+            opacity: root.playerControlsVisible ? 1 : 0
+            visible: opacity > 0
+            z: 1
+            Behavior on opacity {
+                NumberAnimation { duration: 180 }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                height: overlayInfo.implicitHeight + 20
+                radius: 8
+                color: "#b8141a16"
+
+                RowLayout {
+                    id: overlayInfo
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 12
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.selectedChannel
+                            ? root.selectedChannel.name
+                            : "Select a channel from the sidebar"
+                        color: "#eaf1ec"
+                        font.pixelSize: 18
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        text: root.playbackStateText()
+                        color: "#eaf1ec"
                     }
                 }
-                onPointChanged: {
-                    if (hovered && (point.position.x !== lastPosition.x
-                                    || point.position.y !== lastPosition.y)) {
-                        lastPosition = point.position
-                        root.revealPlayerControls()
-                    }
-                }
-            }
-
-            Timer {
-                id: controlsHideTimer
-                interval: 2000
-                onTriggered: root.playerControlsVisible = false
             }
 
             Rectangle {
@@ -142,12 +155,6 @@ Item {
                 height: controlsRow.implicitHeight + 24
                 radius: height / 2
                 color: "#b8141a16"
-                opacity: root.playerControlsVisible ? 1 : 0
-                visible: opacity > 0
-                z: 1
-                Behavior on opacity {
-                    NumberAnimation { duration: 180 }
-                }
 
                 Row {
                     id: controlsRow
@@ -212,11 +219,17 @@ Item {
         }
 
         Label {
-            Layout.fillWidth: true
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            anchors.bottomMargin: 16
             visible: root.playbackError.length > 0
             text: root.playbackError
-            color: "#a33b32"
+            color: "#ff9a90"
             wrapMode: Text.Wrap
+            z: 2
         }
     }
 
