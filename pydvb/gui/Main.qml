@@ -819,7 +819,7 @@ ApplicationWindow {
                     id: playerLoader
                     property bool playbackAvailable: playerAvailable
                     anchors.fill: parent
-                    active: playbackAvailable && window.sectionIndex === 4
+                    active: playbackAvailable
                     source: active ? "Player.qml" : ""
                     onLoaded: {
                         item.appController = controller
