@@ -15,10 +15,15 @@ Item {
     property bool playerControlsVisible: false
     property bool playerOnlyMode: false
     property bool fullScreenMode: false
+    property bool playbackStopped: false
     signal playerOnlyModeToggleRequested()
     signal fullScreenRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
-    readonly property bool canTogglePlayback: player.source.toString().length > 0
+    readonly property string playbackUrl: appController && selectedChannel
+        && appController.serverController.streamBaseUrl.length > 0
+        ? appController.serverController.streamBaseUrl + "/service/" + selectedChannel.id
+        : ""
+    readonly property bool canTogglePlayback: playbackUrl.length > 0
         && player.mediaStatus !== MediaPlayer.LoadingMedia
     readonly property bool canStopPlayback: player.playbackState !== MediaPlayer.StoppedState
     readonly property bool waitingForVideoFrame:
@@ -37,6 +42,7 @@ Item {
     }
 
     function stopPlayback() {
+        root.playbackStopped = true
         player.stop()
     }
 
@@ -65,11 +71,13 @@ Item {
     }
 
     function playSelectedChannel() {
-        if (player.source.toString().length === 0
+        if (root.playbackUrl.length === 0
                 || player.mediaStatus === MediaPlayer.LoadingMedia)
             return
         root.playbackError = ""
-        player.play()
+        root.playbackStopped = false
+        if (player.source.toString().length > 0)
+            player.play()
     }
 
     readonly property var selectedChannel: {
@@ -82,6 +90,8 @@ Item {
         }
         return null
     }
+
+    onSelectedChannelIdChanged: root.playbackStopped = false
 
     Rectangle {
         anchors.fill: parent
@@ -424,10 +434,7 @@ Item {
 
     MediaPlayer {
         id: player
-        source: root.appController && root.selectedChannel
-            && root.appController.serverController.streamBaseUrl.length > 0
-            ? root.appController.serverController.streamBaseUrl + "/service/" + root.selectedChannel.id
-            : ""
+        source: root.playbackStopped ? "" : root.playbackUrl
         audioOutput: AudioOutput {}
         videoOutput: videoOutput
 
@@ -471,6 +478,8 @@ Item {
         if (!root.appController
                 || root.appController.serverController.serverState !== "Running")
             return "Start the HTTP server to play this channel."
+        if (root.playbackStopped)
+            return "Playback stopped."
         if (player.source.toString().length === 0)
             return "Preparing " + root.selectedChannel.name + "..."
         switch (player.mediaStatus) {
