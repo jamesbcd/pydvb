@@ -10,6 +10,7 @@ Item {
     property string selectedChannelId: ""
     property string playbackError: ""
     property bool hasVideoFrame: false
+    property bool playerControlsVisible: false
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
     readonly property bool canTogglePlayback: player.source.toString().length > 0
         && player.mediaStatus !== MediaPlayer.LoadingMedia
@@ -26,6 +27,11 @@ Item {
 
     function stopPlayback() {
         player.stop()
+    }
+
+    function revealPlayerControls() {
+        root.playerControlsVisible = true
+        controlsHideTimer.restart()
     }
 
     function playSelectedChannel() {
@@ -103,6 +109,106 @@ Item {
                     text: root.playerStatusMessage()
                 }
             }
+
+            HoverHandler {
+                property point lastPosition: Qt.point(-1, -1)
+
+                onHoveredChanged: {
+                    if (hovered) {
+                        lastPosition = point.position
+                        root.revealPlayerControls()
+                    }
+                }
+                onPointChanged: {
+                    if (hovered && (point.position.x !== lastPosition.x
+                                    || point.position.y !== lastPosition.y)) {
+                        lastPosition = point.position
+                        root.revealPlayerControls()
+                    }
+                }
+            }
+
+            Timer {
+                id: controlsHideTimer
+                interval: 2000
+                onTriggered: root.playerControlsVisible = false
+            }
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 24
+                width: controlsRow.implicitWidth + 24
+                height: controlsRow.implicitHeight + 24
+                radius: height / 2
+                color: "#b8141a16"
+                opacity: root.playerControlsVisible ? 1 : 0
+                visible: opacity > 0
+                z: 1
+                Behavior on opacity {
+                    NumberAnimation { duration: 180 }
+                }
+
+                Row {
+                    id: controlsRow
+                    anchors.centerIn: parent
+                    spacing: 12
+
+                    Button {
+                        id: playbackButton
+                        width: 68
+                        height: 68
+                        padding: 0
+                        enabled: root.canTogglePlayback
+                        text: root.isPlaying ? "Ⅱ" : "▶"
+                        Accessible.name: root.isPlaying ? "Pause playback" : "Play playback"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.togglePlayback()
+                        background: Rectangle {
+                            radius: width / 2
+                            color: playbackButton.down
+                                ? "#dce9df"
+                                : (playbackButton.hovered ? "#f5faf6" : "#eaf1ec")
+                            opacity: playbackButton.enabled ? 1 : 0.55
+                        }
+                        contentItem: Label {
+                            text: playbackButton.text
+                            color: "#17251e"
+                            font.pixelSize: 36
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    Button {
+                        id: stopButton
+                        width: 68
+                        height: 68
+                        padding: 0
+                        enabled: root.canStopPlayback
+                        text: "■"
+                        Accessible.name: "Stop playback"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.stopPlayback()
+                        background: Rectangle {
+                            radius: width / 2
+                            color: stopButton.down
+                                ? "#dce9df"
+                                : (stopButton.hovered ? "#f5faf6" : "#eaf1ec")
+                            opacity: stopButton.enabled ? 1 : 0.55
+                        }
+                        contentItem: Label {
+                            text: stopButton.text
+                            color: "#17251e"
+                            font.pixelSize: 30
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+            }
         }
 
         Label {
@@ -111,20 +217,6 @@ Item {
             text: root.playbackError
             color: "#a33b32"
             wrapMode: Text.Wrap
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Button {
-                text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"
-                enabled: root.canTogglePlayback
-                onClicked: root.togglePlayback()
-            }
-            Button {
-                text: "Stop"
-                enabled: root.canStopPlayback
-                onClicked: root.stopPlayback()
-            }
         }
     }
 
