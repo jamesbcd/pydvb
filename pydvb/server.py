@@ -298,6 +298,11 @@ class LocalTS_HTTPServer:
 
     def _run_session(self, session: _MultiplexSession) -> None:
         try:
+            logger.info(
+                "Tuning adapter to %s Hz (bandwidth %s Hz)",
+                session.tuning.frequency_hz,
+                session.tuning.bandwidth_hz,
+            )
             status = session.adapter.tune(session.tuning, wait_for_lock=True)
             if status is not None and not status.lock:
                 raise RuntimeError("adapter did not lock the requested multiplex")

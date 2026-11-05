@@ -153,6 +153,10 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
     assert any("<<< Client disconnected:" in message for message in messages)
     assert messages.index(next(message for message in messages if ">>> Client connected:" in message)) < \
         messages.index(next(message for message in messages if "<<< Client disconnected:" in message))
+    assert any(
+        "Tuning adapter to 650000000 Hz (bandwidth 8000000 Hz)" in message
+        for message in messages
+    )
     assert any("Started multiplex stream at 650000000 Hz" in message for message in messages)
     assert any("path='/service/1.2.3'" in message for message in messages)
     assert "token=secret" not in "\n".join(messages)
