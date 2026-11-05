@@ -244,6 +244,12 @@ ApplicationWindow {
     }
 
     Action {
+        id: openScanTableAction
+        text: "Open Scan Table..."
+        onTriggered: scanTableDialog.open()
+    }
+
+    Action {
         id: toggleServerAction
         text: window.controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
         shortcut: Qt.platform.os === "osx" ? "Meta+Alt+R" : "Ctrl+Alt+R"
@@ -303,6 +309,10 @@ ApplicationWindow {
         }
         Menu {
             title: "&Configure"
+            MenuItem {
+                action: openScanTableAction
+            }
+            MenuSeparator {}
             MenuItem {
                 action: toggleServerAction
             }
@@ -782,7 +792,7 @@ ApplicationWindow {
                             onAccepted: window.controller.tuningController.selectScanTable(editText)
                         }
                         Button { text: "Refresh tables"; enabled: !window.controller.generalBusy; onClicked: window.controller.tuningController.refreshKnownTables() }
-                        Button { text: "Open local table"; onClicked: scanTableDialog.open() }
+                        Button { text: "Open Scan Table"; onClicked: scanTableDialog.open() }
                     }
                     Label { text: "Manual tuning"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     RowLayout {
