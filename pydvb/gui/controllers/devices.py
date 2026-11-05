@@ -45,7 +45,7 @@ class DeviceController(QObject):
                     "signal": (
                         "; ".join(
                             f"Adapter {adapter_index}: "
-                            f"{app._signal_by_adapter.get((index, adapter_index), 'Not polled')}"
+                            f"{app._signal_by_adapter.get((id(device), adapter_index), 'Not polled')}"
                             for adapter_index in range(len(device.adapters))
                         )
                         if device.adapters
@@ -111,7 +111,7 @@ class DeviceController(QObject):
                 "name": f"Adapter {adapter.adapter_index}",
                 "state": "Initialized",
                 "signal": app._signal_by_adapter.get(
-                    (app._selected_device_index or 0, index),
+                    (id(device), index),
                     "Not polled",
                 ),
                 "selected": index == app._profile.selected_adapter,

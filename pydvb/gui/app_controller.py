@@ -264,7 +264,6 @@ class AppController(QObject):
                 }
                 for device in result.connection_result.unsupported
             )
-            self._signal_by_adapter.clear()
             self._select_first_device()
             self.devicesChanged.emit()
 
@@ -500,18 +499,9 @@ class AppController(QObject):
             if not isinstance(result, _StatusOutcome):
                 raise TypeError("status worker returned an unexpected result")
             self._remove_devices(result.removed)
-            self._signal_by_adapter = {}
             for device, adapter_index, summary in result.readings:
-                device_index = next(
-                    (
-                        index
-                        for index, current_device in enumerate(self._devices)
-                        if current_device is device
-                    ),
-                    None,
-                )
-                if device_index is not None:
-                    self._signal_by_adapter[(device_index, adapter_index)] = summary
+                if any(current_device is device for current_device in self._devices):
+                    self._signal_by_adapter[(id(device), adapter_index)] = summary
             self._select_first_device()
             self.devicesChanged.emit()
             if result.removed:
@@ -542,6 +532,11 @@ class AppController(QObject):
         removed_ids = {id(device) for device in removed}
         selected_device = self._selected_device()
         self._devices = [device for device in self._devices if id(device) not in removed_ids]
+        self._signal_by_adapter = {
+            key: value
+            for key, value in self._signal_by_adapter.items()
+            if key[0] not in removed_ids
+        }
         self._selected_device_index = next(
             (
                 index

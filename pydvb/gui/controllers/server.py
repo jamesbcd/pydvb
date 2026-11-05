@@ -85,7 +85,7 @@ class ServerController(QObject):
         app = self._app
         active = [
             f"Device {device_index + 1} / Adapter {adapter_index}: "
-            f"{app._signal_by_adapter.get((device_index, adapter_index), 'Not polled')}"
+            f"{app._signal_by_adapter.get((id(device), adapter_index), 'Not polled')}"
             for device_index, device in enumerate(app._devices)
             for adapter_index in range(len(device.adapters))
         ]

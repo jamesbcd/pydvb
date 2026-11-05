@@ -685,7 +685,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Label { text: "DEVICE"; Layout.preferredWidth: 240; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                         Label { text: "STATE"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "ADAPTERS"; Layout.preferredWidth: 100; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Label { text: "DEVICE ADAPTERS"; Layout.preferredWidth: 100; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                         Label { text: "SIGNAL"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                     }
                     ListView {
@@ -725,7 +725,7 @@ ApplicationWindow {
                             color: "#849087"
                         }
                     }
-                    Label { text: "ADAPTERS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                    Label { text: "DEVICE ADAPTERS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                     ListView {
                         id: adapterList
                         Layout.fillWidth: true

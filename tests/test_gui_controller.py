@@ -364,6 +364,7 @@ def test_status_poll_removes_device_after_libusb_no_device(qt_application):
     manager = FakeManager()
     controller._manager = manager
     controller._devices = [device]
+    controller._signal_by_adapter[(id(device), 0)] = "Locked"
     controller._select_first_device()
 
     controller.devicesChanged.connect(qt_application.quit)
@@ -374,7 +375,46 @@ def test_status_poll_removes_device_after_libusb_no_device(qt_application):
     assert manager.removed_devices == [device]
     assert controller.devicesController.devices == []
     assert controller.devicesController.adapters == []
+    assert controller._signal_by_adapter == {}
     assert "Removed 1 disconnected device" in controller.statusMessage
+
+
+def test_status_reading_survives_periodic_discovery(qt_application):
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+        def read_status(self, _adapter_index):
+            return DVBFrontendStatus(True, True, True, True, True)
+
+    device = FakeDevice()
+
+    class FakeManager:
+        def connect_new(self):
+            return DeviceConnectionResult((), (), ())
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    controller._manager = FakeManager()
+    controller._devices = [device]
+    controller._signal_by_adapter[(id(device), 0)] = "Locked"
+    controller._select_first_device()
+
+    controller.devicesChanged.connect(qt_application.quit)
+    controller._poll_status()
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller.devicesController.devices[0]["signal"] == "Adapter 0: Locked"
+
+    controller._discover_devices(auto_initialize=False, automatic=True)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller.devicesController.devices[0]["signal"] == "Adapter 0: Locked"
+    assert controller.devicesController.adapters[0]["signal"] == "Locked"
 
 
 def test_status_poll_does_not_notify_player_stream_url(qt_application):
