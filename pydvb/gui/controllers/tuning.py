@@ -53,7 +53,7 @@ class TuningController(QObject):
             app.knownTablesChanged.emit()
             app._set_status(f"Loaded {len(app._known_tables)} scan tables")
 
-        app._run_task(known_table_names, complete, lane="background")
+        app._run_task(known_table_names, complete, lane="general")
 
     @Slot(str)
     def selectScanTable(self, name: str) -> None:
@@ -74,7 +74,7 @@ class TuningController(QObject):
             app._set_status(f"Loaded {len(parsed)} tunings from {name}")
 
         app._set_status(f"Parsing scan table {name}...")
-        app._run_task(lambda: parse_table(name), complete, lane="background")
+        app._run_task(lambda: parse_table(name), complete, lane="general")
 
     @Slot(str)
     def loadLocalScanTable(self, path: str) -> None:
@@ -139,7 +139,19 @@ class TuningController(QObject):
         tunings = profile.tunings
         app._set_status(f"Scanning {len(tunings)} tuning(s)...")
 
+        def scan() -> DVBServiceMap | None:
+            if (
+                device not in app._devices
+                or adapter_index >= len(device.adapters)
+                or device.adapters[adapter_index] is not adapter
+            ):
+                return None
+            return map_from_tunings(tunings, adapter)
+
         def complete(service_map: object) -> None:
+            if service_map is None:
+                app._set_status("Selected device is no longer available")
+                return
             if not isinstance(service_map, DVBServiceMap):
                 raise TypeError("scan worker returned an unexpected result")
             if (
@@ -156,7 +168,7 @@ class TuningController(QObject):
             app._set_status(f"Scan complete: {len(service_map.services)} service(s) found")
 
         app._run_task(
-            lambda: map_from_tunings(tunings, adapter),
+            scan,
             complete,
             lane="device",
         )

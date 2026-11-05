@@ -60,7 +60,8 @@ class _StatusOutcome:
 class _PendingTask:
     operation: Callable[[], object]
     complete: Callable[[object], None]
-    lane: Literal["device", "background"]
+    lane: Literal["device", "general"]
+    user_initiated: bool = True
 
 
 class _WorkerSignals(QObject):
@@ -115,21 +116,25 @@ class AppController(QObject):
         self._initialization_errors: dict[int, str] = {}
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
-        self._busy = False
-        self._background_busy = False
+        self._user_device_busy = False
+        self._device_lane_busy = False
+        self._device_task_user_initiated = False
+        self._general_lane_busy = False
         self._status_message = "Ready"
         self._server_state = "Stopped"
         self._server: LocalTS_HTTPServer | None = None
         self._server_thread: Thread | None = None
         self._shutting_down = False
         self._shutdown_task_started = False
-        self._pending_background_tasks: deque[_PendingTask] = deque()
+        self._pending_general_tasks: deque[_PendingTask] = deque()
+        self._pending_user_device_tasks: deque[_PendingTask] = deque()
+        self._pending_automatic_device_tasks: deque[_PendingTask] = deque()
         self._workers: set[_Worker] = set()
         self._worker_tasks: dict[_Worker, _PendingTask] = {}
         self._device_pool = QThreadPool(self)
         self._device_pool.setMaxThreadCount(1)
-        self._background_pool = QThreadPool(self)
-        self._background_pool.setMaxThreadCount(1)
+        self._general_pool = QThreadPool(self)
+        self._general_pool.setMaxThreadCount(1)
         self._taskSucceeded.connect(
             self._finish_task,
             Qt.ConnectionType.QueuedConnection,
@@ -183,17 +188,17 @@ class AppController(QObject):
 
     @Property(bool, notify=stateChanged)
     def busy(self) -> bool:
-        return self._busy or self._background_busy
+        return self._user_device_busy or self._general_lane_busy
 
     @Property(bool, notify=stateChanged)
-    def deviceBusy(self) -> bool:
-        """Return whether a serialized device operation is active."""
-        return self._busy
+    def userDeviceBusy(self) -> bool:
+        """Return whether a user-requested device operation is active or queued."""
+        return self._user_device_busy
 
     @Property(bool, notify=stateChanged)
-    def backgroundBusy(self) -> bool:
-        """Return whether background work is active or waiting to run."""
-        return self._background_busy or bool(self._pending_background_tasks)
+    def generalBusy(self) -> bool:
+        """Return whether general-lane work is active or waiting to run."""
+        return self._general_lane_busy or bool(self._pending_general_tasks)
 
     @Property(str, notify=stateChanged)
     def statusMessage(self) -> str:
@@ -314,6 +319,8 @@ class AppController(QObject):
                     initialized,
                     lane="device",
                     report_status=not automatic,
+                    user_initiated=not automatic,
+                    defer_if_device_busy=automatic,
                 )
 
         self._run_task(
@@ -321,6 +328,7 @@ class AppController(QObject):
             complete,
             lane="device",
             report_status=not automatic,
+            user_initiated=not automatic,
         )
 
     @Slot(str)
@@ -336,7 +344,7 @@ class AppController(QObject):
         self._run_task(
             lambda: save_profile(profile, local_path),
             complete,
-            lane="background",
+            lane="general",
         )
 
     @Slot(str)
@@ -372,7 +380,7 @@ class AppController(QObject):
         self._run_task(
             lambda: load_profile(local_path),
             complete,
-            lane="background",
+            lane="general",
         )
 
     @Slot()
@@ -382,9 +390,12 @@ class AppController(QObject):
             self._shutting_down = True
             self._status_timer.stop()
             self._discovery_timer.stop()
-            self._pending_background_tasks.clear()
+            self._pending_general_tasks.clear()
             self.stateChanged.emit()
-        if self._busy or self._background_busy:
+        self._pending_user_device_tasks.clear()
+        self._pending_automatic_device_tasks.clear()
+        self._update_user_device_busy()
+        if self._device_lane_busy or self._general_lane_busy:
             QTimer.singleShot(100, self.shutdown)
             return
         if self._shutdown_task_started:
@@ -432,7 +443,11 @@ class AppController(QObject):
         self._run_task(operation, complete, allow_shutdown=True, lane="device")
 
     def _poll_status(self) -> None:
-        if self._busy or self._shutting_down or not any(device.adapters for device in self._devices):
+        if (
+            self._device_lane_busy
+            or self._shutting_down
+            or not any(device.adapters for device in self._devices)
+        ):
             return
         manager = self._manager
         targets = tuple(
@@ -496,7 +511,13 @@ class AppController(QObject):
                     message += f"; cleanup failed: {errors}"
                 self._set_status(message)
 
-        self._run_task(operation, complete, report_status=False, lane="device")
+        self._run_task(
+            operation,
+            complete,
+            report_status=False,
+            lane="device",
+            user_initiated=False,
+        )
 
     def _remove_devices(self, removed: Sequence[DVBDevice]) -> None:
         if not removed:
@@ -521,36 +542,67 @@ class AppController(QObject):
         operation: Callable[[], object],
         complete: Callable[[object], None],
         *,
-        lane: Literal["device", "background"],
+        lane: Literal["device", "general"],
         report_status: bool = True,
         allow_shutdown: bool = False,
-    ) -> None:
-        if lane not in ("device", "background"):
+        user_initiated: bool = True,
+        defer_if_device_busy: bool = False,
+    ) -> bool:
+        """Run work on the device or general lane.
+
+        ``user_initiated`` controls device-lane priority and UI busy state;
+        it is independent of which worker lane executes the task.
+        """
+        if lane not in ("device", "general"):
             raise ValueError(f"unsupported task lane: {lane}")
         if self._shutting_down and not allow_shutdown:
             if report_status:
                 self._set_status("Application is shutting down")
-            return
-        task = _PendingTask(operation, complete, lane)
-        if lane == "device" and self._busy:
-            if report_status:
-                self._set_status("Another device operation is in progress")
-            return
-        if lane == "background" and self._background_busy:
-            self._pending_background_tasks.append(task)
+            return False
+        task = _PendingTask(operation, complete, lane, user_initiated)
+        if lane == "device":
+            if self._device_lane_busy:
+                if (
+                    user_initiated
+                    and not self._device_task_user_initiated
+                    and not self._pending_user_device_tasks
+                ):
+                    self._pending_user_device_tasks.append(task)
+                    self._update_user_device_busy()
+                    if report_status:
+                        self._set_status("Waiting for the current device operation to finish")
+                    return True
+                if not user_initiated and defer_if_device_busy:
+                    self._pending_automatic_device_tasks.append(task)
+                    return True
+                if report_status and user_initiated:
+                    self._set_status("Another device operation is in progress")
+                return False
+            if self._pending_user_device_tasks:
+                if not user_initiated and defer_if_device_busy:
+                    self._pending_automatic_device_tasks.append(task)
+                    return True
+                if report_status and user_initiated:
+                    self._set_status("Another device operation is in progress")
+                return False
+        if lane == "general" and self._general_lane_busy:
+            self._pending_general_tasks.append(task)
             self.stateChanged.emit()
-            return
+            return True
         self._start_task(task)
+        return True
 
     def _start_task(self, task: _PendingTask) -> None:
         """Start a task in its dedicated serialized worker lane."""
         if task.lane == "device":
-            self._busy = True
+            self._device_lane_busy = True
+            self._device_task_user_initiated = task.user_initiated
+            self._update_user_device_busy()
             pool = self._device_pool
         else:
-            self._background_busy = True
-            pool = self._background_pool
-        self.stateChanged.emit()
+            self._general_lane_busy = True
+            pool = self._general_pool
+            self.stateChanged.emit()
         worker = _Worker(task.operation)
         self._workers.add(worker)
         self._worker_tasks[worker] = task
@@ -571,40 +623,61 @@ class AppController(QObject):
         self._workers.discard(worker)
         task = self._worker_tasks.pop(worker)
         if task.lane == "device":
-            self._busy = False
-            self.stateChanged.emit()
+            self._device_lane_busy = False
+            self._device_task_user_initiated = False
             try:
                 task.complete(result)
             except Exception as error:
                 self._set_status(f"Operation failed: {type(error).__name__}: {error}")
+            self._run_next_device_lane_task()
+            self._update_user_device_busy()
         else:
             try:
                 task.complete(result)
             except Exception as error:
                 self._set_status(f"Operation failed: {type(error).__name__}: {error}")
             finally:
-                self._background_busy = False
+                self._general_lane_busy = False
                 self.stateChanged.emit()
-        self._run_next_background_task()
+        self._run_next_general_task()
 
     @Slot(object, str)
     def _fail_task(self, worker: _Worker, message: str) -> None:
         self._workers.discard(worker)
         task = self._worker_tasks.pop(worker)
         if task.lane == "device":
-            self._busy = False
+            self._device_lane_busy = False
+            self._device_task_user_initiated = False
         else:
-            self._background_busy = False
-        self.stateChanged.emit()
+            self._general_lane_busy = False
+        self._update_user_device_busy()
         self._set_status(f"Operation failed: {message}")
-        self._run_next_background_task()
+        if task.lane == "device":
+            self._run_next_device_lane_task()
+        self._run_next_general_task()
 
-    def _run_next_background_task(self) -> None:
-        """Start the next background task after the preceding task completes."""
-        if self._background_busy or self._shutting_down:
+    def _run_next_device_lane_task(self) -> None:
+        """Run queued user work before any deferred automatic device task."""
+        if self._device_lane_busy or self._shutting_down:
             return
-        if self._pending_background_tasks:
-            self._start_task(self._pending_background_tasks.popleft())
+        if self._pending_user_device_tasks:
+            self._start_task(self._pending_user_device_tasks.popleft())
+        elif self._pending_automatic_device_tasks:
+            self._start_task(self._pending_automatic_device_tasks.popleft())
+
+    def _update_user_device_busy(self) -> None:
+        """Notify the UI when user-requested device work starts, waits, or ends."""
+        busy = self._device_task_user_initiated or bool(self._pending_user_device_tasks)
+        if self._user_device_busy != busy:
+            self._user_device_busy = busy
+            self.stateChanged.emit()
+
+    def _run_next_general_task(self) -> None:
+        """Start the next task queued for the general lane."""
+        if self._general_lane_busy or self._shutting_down:
+            return
+        if self._pending_general_tasks:
+            self._start_task(self._pending_general_tasks.popleft())
 
     def _selected_device(self) -> DVBDevice | None:
         if not self._devices:

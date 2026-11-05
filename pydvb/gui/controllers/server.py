@@ -121,8 +121,8 @@ class ServerController(QObject):
         if app._server is not None:
             app._set_status("Server is already running")
             return
-        if app.deviceBusy:
-            app._set_status("Wait for the device operation to finish before starting the server")
+        if app._server_state != "Stopped":
+            app._set_status(f"Server is {app._server_state.lower()}")
             return
         if app._profile.service_map is None or not app._profile.service_map.services:
             app._set_status("Scan or load a service map before starting the server")
@@ -131,30 +131,61 @@ class ServerController(QObject):
         if not adapters:
             app._set_status("Initialize at least one device before starting the server")
             return
-        try:
-            server = LocalTS_HTTPServer(
-                adapters,
-                app._profile.service_map,
-                host=app._profile.server_host,
-                port=app._profile.server_port,
-            )
-            server.start()
-            thread = Thread(
-                target=server.serve_forever,
-                name="pydvb-http-server",
-                daemon=True,
-            )
-            thread.start()
-        except (OSError, RuntimeError, ValueError) as error:
-            logger.exception("Could not start HTTP server")
-            app._set_status(f"Could not start server: {error}")
-            return
-        app._server = server
-        app._server_thread = thread
-        app._server_state = "Running"
-        logger.info("HTTP server listening at %s", self.serverAddress)
+        app._server_state = "Starting"
         app.serverChanged.emit()
-        app._set_status(f"Server listening at {self.serverAddress}")
+        app._set_status("Starting HTTP server...")
+
+        def start_when_ready(_result: object) -> None:
+            if app._shutting_down:
+                app._server_state = "Stopped"
+                app.serverChanged.emit()
+                return
+            service_map = app._profile.service_map
+            adapters = [adapter for device in app._devices for adapter in device.adapters]
+            if service_map is None or not service_map.services:
+                app._server_state = "Stopped"
+                app.serverChanged.emit()
+                app._set_status("Scan or load a service map before starting the server")
+                return
+            if not adapters:
+                app._server_state = "Stopped"
+                app.serverChanged.emit()
+                app._set_status("Initialize at least one device before starting the server")
+                return
+            try:
+                server = LocalTS_HTTPServer(
+                    adapters,
+                    service_map,
+                    host=app._profile.server_host,
+                    port=app._profile.server_port,
+                )
+                server.start()
+                thread = Thread(
+                    target=server.serve_forever,
+                    name="pydvb-http-server",
+                    daemon=True,
+                )
+                thread.start()
+            except (OSError, RuntimeError, ValueError) as error:
+                logger.exception("Could not start HTTP server")
+                app._server_state = "Stopped"
+                app.serverChanged.emit()
+                app._set_status(f"Could not start server: {error}")
+                return
+            app._server = server
+            app._server_thread = thread
+            app._server_state = "Running"
+            logger.info("HTTP server listening at %s", self.serverAddress)
+            app.serverChanged.emit()
+            app._set_status(f"Server listening at {self.serverAddress}")
+
+        if not app._run_task(
+            lambda: None,
+            start_when_ready,
+            lane="device",
+        ):
+            app._server_state = "Stopped"
+            app.serverChanged.emit()
 
     @Slot()
     def stopServer(self) -> None:
@@ -164,9 +195,6 @@ class ServerController(QObject):
         thread = app._server_thread
         if server is None:
             app._set_status("Server is already stopped")
-            return
-        if app.deviceBusy:
-            app._set_status("Another device operation is in progress")
             return
         app._server_state = "Stopping"
         logger.info("Stopping HTTP server")
@@ -186,4 +214,6 @@ class ServerController(QObject):
             app.serverChanged.emit()
             app._set_status("Server stopped")
 
-        app._run_task(operation, complete, lane="device")
+        if not app._run_task(operation, complete, lane="device"):
+            app._server_state = "Running"
+            app.serverChanged.emit()

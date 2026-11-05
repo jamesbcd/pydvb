@@ -408,7 +408,7 @@ def test_status_poll_does_not_notify_player_stream_url(qt_application):
     assert detail_changes == [True]
 
 
-@pytest.mark.parametrize("lane", ["device", "background"])
+@pytest.mark.parametrize("lane", ["device", "general"])
 def test_worker_result_callback_runs_on_the_qt_thread(qt_application, lane):
     controller = AppController()
     controller.devicesController.autoDiscoverAndInitializeDevices = False
@@ -426,6 +426,135 @@ def test_worker_result_callback_runs_on_the_qt_thread(qt_application, lane):
     qt_application.exec()
 
     assert outcomes == [(True, False)]
+
+
+def test_general_lane_busy_is_distinct_from_user_device_busy(qt_application):
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    task_started = Event()
+    finish_task = Event()
+
+    controller._run_task(
+        lambda: (task_started.set(), finish_task.wait(timeout=2)),
+        lambda _result: qt_application.quit(),
+        lane="general",
+    )
+    assert task_started.wait(timeout=1)
+    assert controller.generalBusy
+    assert not controller.userDeviceBusy
+
+    QTimer.singleShot(50, finish_task.set)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert not controller.generalBusy
+
+
+def test_user_device_task_waits_behind_automatic_device_work(qt_application):
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    automatic_task_started = Event()
+    finish_automatic_task = Event()
+    user_started = Event()
+    events = []
+
+    controller._run_task(
+        lambda: (automatic_task_started.set(), finish_automatic_task.wait(timeout=2)),
+        lambda _result: events.append("automatic task complete"),
+        lane="device",
+        user_initiated=False,
+    )
+    assert automatic_task_started.wait(timeout=1)
+    assert controller._device_lane_busy
+    assert not controller.userDeviceBusy
+
+    assert controller._run_task(
+        lambda: (events.append("user operation"), user_started.set()),
+        lambda _result: (
+            events.append("user complete"),
+            qt_application.quit(),
+        ),
+        lane="device",
+    )
+    assert controller.userDeviceBusy
+    assert not user_started.is_set()
+
+    QTimer.singleShot(50, finish_automatic_task.set)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert user_started.is_set()
+    assert events == ["automatic task complete", "user operation", "user complete"]
+    assert not controller.userDeviceBusy
+
+
+def test_start_server_waits_behind_automatic_device_work(qt_application, monkeypatch):
+    from types import SimpleNamespace
+
+    from pydvb.gui.controllers import server as server_module
+
+    started_servers = []
+
+    class FakeServer:
+        def __init__(self, _adapters, _service_map, host, port):
+            self.address = (host, port)
+            started_servers.append(self)
+
+        def start(self):
+            pass
+
+        def serve_forever(self):
+            pass
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(server_module, "LocalTS_HTTPServer", FakeServer)
+    monkeypatch.setattr(server_module, "Thread", FakeThread)
+    profile = GuiProfile()
+    profile.service_map = SimpleNamespace(services={"service": object()})
+    controller = AppController(profile=profile)
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    controller._devices = [SimpleNamespace(adapters=[object()])]
+
+    automatic_task_started = Event()
+    finish_automatic_task = Event()
+
+    controller._run_task(
+        lambda: (automatic_task_started.set(), finish_automatic_task.wait(timeout=2)),
+        lambda _result: None,
+        lane="device",
+        user_initiated=False,
+    )
+    assert automatic_task_started.wait(timeout=1)
+
+    controller.serverController.startServer()
+
+    assert controller.serverController.serverState == "Starting"
+    assert started_servers == []
+    assert controller.userDeviceBusy
+
+    controller.serverChanged.connect(
+        lambda: qt_application.quit()
+        if controller.serverController.serverState == "Running"
+        else None
+    )
+    QTimer.singleShot(50, finish_automatic_task.set)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert len(started_servers) == 1
+    assert controller.serverController.serverState == "Running"
+    assert not controller.userDeviceBusy
 
 
 def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
@@ -452,7 +581,7 @@ def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
 
     def finish_when_loaded():
         if controller._profile.scan_table == "loaded-profile":
-            loaded_during_device_operation.append(controller.deviceBusy)
+            loaded_during_device_operation.append(controller.userDeviceBusy)
             finish_device_operation.set()
             qt_application.quit()
             return
@@ -517,7 +646,7 @@ def test_profile_load_during_scan_discards_stale_scan_results(
         if controller._profile.scan_table == "loaded-profile" and not loaded_profile_map:
             loaded_profile_map.append(controller._profile.service_map)
             finish_scan.set()
-        if not controller.deviceBusy and loaded_profile_map:
+        if not controller.userDeviceBusy and loaded_profile_map:
             qt_application.quit()
             return
         QTimer.singleShot(10, finish_when_loaded)

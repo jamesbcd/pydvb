@@ -138,7 +138,8 @@ class DeviceController(QObject):
         if (
             not app._auto_discover_and_initialize_devices
             or app._server is not None
-            or app._busy
+            or app._device_lane_busy
+            or app.userDeviceBusy
             or app._shutting_down
         ):
             return
@@ -176,10 +177,19 @@ class DeviceController(QObject):
             app._set_status("Discover and select a device first")
             return
 
-        def complete(_result: object) -> None:
+        def initialize() -> bool:
+            if device not in app._devices:
+                return False
+            device.init_hardware()
+            return True
+
+        def complete(initialized: object) -> None:
+            if initialized is not True:
+                app._set_status("Selected device is no longer connected")
+                return
             app._initialization_errors.pop(id(device), None)
             app.devicesChanged.emit()
             app._set_status(f"Initialized {device.model_name or 'DVB device'}")
 
         app._set_status("Initializing selected device...")
-        app._run_task(device.init_hardware, complete, lane="device")
+        app._run_task(initialize, complete, lane="device")
