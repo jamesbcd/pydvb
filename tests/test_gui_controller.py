@@ -715,6 +715,91 @@ def test_identical_devices_can_be_selected_independently(qt_application):
     assert controller.devicesController.devices[1]["selected"] is True
 
 
+def test_devices_can_be_initialized_independently_of_selection(
+    qt_application,
+    monkeypatch,
+):
+    class FakeDevice:
+        def __init__(self, name):
+            self.device_id = USBDeviceID(0x0413, 0x6029)
+            self.model_name = name
+            self.adapters = []
+            self.initialization_count = 0
+
+        def init_hardware(self):
+            self.initialization_count += 1
+
+    controller = AppController()
+    first = FakeDevice("First receiver")
+    second = FakeDevice("Second receiver")
+    controller._devices = [first, second]
+    controller._select_first_device()
+    task = {}
+
+    def run_task(operation, complete, *, lane, on_finished=None):
+        task.update(
+            operation=operation,
+            complete=complete,
+            lane=lane,
+            on_finished=on_finished,
+        )
+        return True
+
+    monkeypatch.setattr(controller, "_run_task", run_task)
+
+    controller.devicesController.initializeDevice(1)
+
+    assert task["lane"] == "device"
+    assert controller.devicesController.devices[1]["initializing"] is True
+    assert controller.statusMessage == "Initializing Second receiver..."
+    assert task["operation"]() is True
+    task["complete"](True)
+    task["on_finished"]()
+
+    assert first.initialization_count == 0
+    assert second.initialization_count == 1
+    assert controller._selected_device() is first
+    assert controller.devicesController.devices[1]["initializing"] is False
+    assert controller.statusMessage == "Initialized Second receiver"
+
+
+def test_initialize_button_reenables_after_initialization_failure(qt_application):
+    initialization_started = Event()
+    allow_initialization_to_fail = Event()
+
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+        adapters = []
+
+        def init_hardware(self):
+            initialization_started.set()
+            allow_initialization_to_fail.wait(timeout=1)
+            raise RuntimeError("initialization failed")
+
+    controller = AppController()
+    controller._discovery_timer.stop()
+    controller._devices = [FakeDevice()]
+    controller._select_first_device()
+    controller.devicesChanged.connect(
+        lambda: qt_application.quit()
+        if initialization_started.is_set()
+        and not controller.devicesController.devices[0]["initializing"]
+        else None
+    )
+
+    controller.devicesController.initializeDevice(0)
+    assert controller.devicesController.devices[0]["initializing"] is True
+    assert initialization_started.wait(timeout=1)
+    allow_initialization_to_fail.set()
+
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller.devicesController.devices[0]["initializing"] is False
+    assert controller.statusMessage == "Operation failed: RuntimeError: initialization failed"
+
+
 def test_unsupported_devices_are_hidden_until_enabled(qt_application):
     controller = AppController()
     controller._discovery_rows = [

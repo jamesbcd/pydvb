@@ -52,6 +52,7 @@ class DeviceController(QObject):
                         else "Not initialized"
                     ),
                     "selected": index == app._selected_device_index,
+                    "initializing": id(device) in app._initializing_devices,
                 }
             )
         rows.extend(
@@ -165,16 +166,19 @@ class DeviceController(QObject):
             app.devicesChanged.emit()
             app.stateChanged.emit()
 
-    @Slot()
-    def initializeSelectedDevice(self) -> None:
-        """Initialize the selected device and configure its logical adapters."""
+    @Slot(int)
+    def initializeDevice(self, index: int) -> None:
+        """Initialize a connected device by its displayed index."""
         app = self._app
         if app._server is not None:
             app._set_status("Stop the server before initializing a device")
             return
-        device = app._selected_device()
-        if device is None:
-            app._set_status("Discover and select a device first")
+        if not 0 <= index < len(app._devices):
+            app._set_status("Device is no longer connected")
+            return
+        device = app._devices[index]
+        device_id = id(device)
+        if device_id in app._initializing_devices:
             return
 
         def initialize() -> bool:
@@ -185,11 +189,32 @@ class DeviceController(QObject):
 
         def complete(initialized: object) -> None:
             if initialized is not True:
-                app._set_status("Selected device is no longer connected")
+                app._set_status("Device is no longer connected")
                 return
             app._initialization_errors.pop(id(device), None)
             app.devicesChanged.emit()
             app._set_status(f"Initialized {device.model_name or 'DVB device'}")
 
-        app._set_status("Initializing selected device...")
-        app._run_task(initialize, complete, lane="device")
+        def finish_initialization() -> None:
+            app._initializing_devices.discard(device_id)
+            app.devicesChanged.emit()
+
+        app._initializing_devices.add(device_id)
+        app.devicesChanged.emit()
+        app._set_status(f"Initializing {device.model_name or 'DVB device'}...")
+        if not app._run_task(
+            initialize,
+            complete,
+            lane="device",
+            on_finished=finish_initialization,
+        ):
+            finish_initialization()
+
+    @Slot()
+    def initializeSelectedDevice(self) -> None:
+        """Initialize the selected device for compatibility with existing callers."""
+        index = self._app._selected_device_index
+        if index is None:
+            self._app._set_status("Discover and select a device first")
+            return
+        self.initializeDevice(index)

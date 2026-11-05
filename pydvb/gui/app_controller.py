@@ -62,6 +62,7 @@ class _PendingTask:
 
     operation: Callable[[], object]
     complete: Callable[[object], None]
+    on_finished: Callable[[], None] | None
     # The lane chooses the serialized pool; intent only affects device priority/UI.
     lane: Literal["device", "general"]
     user_initiated: bool = True
@@ -119,6 +120,7 @@ class AppController(QObject):
         self._show_unsupported_devices = False
         self._auto_discover_and_initialize_devices = True
         self._initialization_errors: dict[int, str] = {}
+        self._initializing_devices: set[int] = set()
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
         # UI busy state is intentionally distinct from device-lane occupancy:
@@ -555,6 +557,7 @@ class AppController(QObject):
         complete: Callable[[object], None],
         *,
         lane: Literal["device", "general"],
+        on_finished: Callable[[], None] | None = None,
         report_status: bool = True,
         allow_shutdown: bool = False,
         user_initiated: bool = True,
@@ -571,7 +574,7 @@ class AppController(QObject):
             if report_status:
                 self._set_status("Application is shutting down")
             return False
-        task = _PendingTask(operation, complete, lane, user_initiated)
+        task = _PendingTask(operation, complete, on_finished, lane, user_initiated)
         if lane == "device":
             if self._device_lane_busy:
                 if (
@@ -642,6 +645,9 @@ class AppController(QObject):
                 task.complete(result)
             except Exception as error:
                 self._set_status(f"Operation failed: {type(error).__name__}: {error}")
+            finally:
+                if task.on_finished is not None:
+                    task.on_finished()
             self._run_next_device_lane_task()
             self._update_user_device_busy()
         else:
@@ -650,6 +656,8 @@ class AppController(QObject):
             except Exception as error:
                 self._set_status(f"Operation failed: {type(error).__name__}: {error}")
             finally:
+                if task.on_finished is not None:
+                    task.on_finished()
                 self._general_lane_busy = False
                 self.stateChanged.emit()
         self._run_next_general_task()
@@ -666,6 +674,8 @@ class AppController(QObject):
             self._general_lane_busy = False
         self._update_user_device_busy()
         self._set_status(f"Operation failed: {message}")
+        if task.on_finished is not None:
+            task.on_finished()
         if task.lane == "device":
             self._run_next_device_lane_task()
         self._run_next_general_task()

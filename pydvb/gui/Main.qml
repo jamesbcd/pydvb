@@ -726,12 +726,27 @@ ApplicationWindow {
                             Label { text: "USB receivers and configured adapters"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
-                        Button { text: "Discover"; enabled: !window.controller.userDeviceBusy; onClicked: window.controller.devicesController.discover() }
-                        Button {
-                            text: "Initialize selected"
-                            enabled: !window.controller.userDeviceBusy && window.controller.devicesController.devices.length > 0
-                            highlighted: true
-                            onClicked: window.controller.devicesController.initializeSelectedDevice()
+                        ToolButton {
+                            id: discoverButton
+                            width: 38
+                            height: 38
+                            enabled: !window.controller.userDeviceBusy
+                            text: "↻"
+                            Accessible.name: "Refresh"
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Refresh"
+                            onClicked: window.controller.devicesController.discover()
+                            background: Rectangle {
+                                radius: 5
+                                color: discoverButton.hovered ? "#e4eee6" : "transparent"
+                            }
+                            contentItem: Label {
+                                text: discoverButton.text
+                                color: "#26362c"
+                                font.pixelSize: 24
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
@@ -760,6 +775,7 @@ ApplicationWindow {
                             font.bold: true
                             verticalAlignment: Text.AlignVCenter
                         }
+                        Item { Layout.preferredWidth: 36 }
                     }
                     ListView {
                         id: deviceList
@@ -801,6 +817,33 @@ ApplicationWindow {
                                     elide: Text.ElideRight
                                 }
                                 Label { text: deviceDelegate.modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
+                                ToolButton {
+                                    id: initializeDeviceButton
+                                    visible: deviceDelegate.modelData.deviceIndex >= 0
+                                    Layout.preferredWidth: visible ? 36 : 0
+                                    Layout.preferredHeight: 36
+                                    enabled: visible
+                                        && !deviceDelegate.modelData.initializing
+                                        && !window.controller.userDeviceBusy
+                                    text: "⏻"
+                                    Accessible.name: "Initialize"
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Initialize"
+                                    onClicked: window.controller.devicesController.initializeDevice(
+                                        deviceDelegate.modelData.deviceIndex
+                                    )
+                                    background: Rectangle {
+                                        radius: 5
+                                        color: initializeDeviceButton.hovered ? "#e4eee6" : "transparent"
+                                    }
+                                    contentItem: Label {
+                                        text: initializeDeviceButton.text
+                                        color: "#26362c"
+                                        font.pixelSize: 20
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
                             }
                         }
                         Label {
