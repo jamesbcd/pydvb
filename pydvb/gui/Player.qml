@@ -14,6 +14,7 @@ Item {
     property bool hasVideoFrame: false
     property bool playerControlsVisible: false
     property bool playerOnlyMode: false
+    property bool fullScreenMode: false
     signal playerOnlyModeToggleRequested()
     signal fullScreenRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
@@ -359,7 +360,9 @@ Item {
                         width: 56
                         height: 56
                         padding: 0
-                        Accessible.name: "Enter full screen"
+                        Accessible.name: root.fullScreenMode
+                            ? "Exit full screen"
+                            : "Enter full screen"
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
                         onClicked: root.fullScreenRequested()

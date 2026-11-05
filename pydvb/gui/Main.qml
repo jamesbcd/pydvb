@@ -902,6 +902,7 @@ ApplicationWindow {
                     id: playerLoader
                     property bool playbackAvailable: window.playerAvailable
                     property bool playerOnlyMode: window.playerOnlyMode
+                    property bool fullScreenMode: window.visibility === Window.FullScreen
                     anchors.fill: parent
                     active: playbackAvailable
                     source: active ? "Player.qml" : ""
@@ -909,10 +910,15 @@ ApplicationWindow {
                         item.appController = window.controller
                         item.selectedChannelId = window.selectedChannelId
                         item.playerOnlyMode = playerOnlyMode
+                        item.fullScreenMode = fullScreenMode
                     }
                     onPlayerOnlyModeChanged: {
                         if (item)
                             item.playerOnlyMode = playerOnlyMode
+                    }
+                    onFullScreenModeChanged: {
+                        if (item)
+                            item.fullScreenMode = fullScreenMode
                     }
                 }
                 Item {
@@ -942,7 +948,10 @@ ApplicationWindow {
                         window.playerOnlyMode = !window.playerOnlyMode
                     }
                     function onFullScreenRequested() {
-                        window.enterPlayerFullScreen()
+                        if (window.visibility === Window.FullScreen)
+                            window.exitFullScreen()
+                        else
+                            window.enterPlayerFullScreen()
                     }
                 }
                 ColumnLayout {
