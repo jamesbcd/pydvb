@@ -328,6 +328,52 @@ ApplicationWindow {
                             font.weight: playerSectionButton.checked ? Font.DemiBold : Font.Normal
                             color: "#26362c"
                         }
+                        ToolButton {
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
+                            enabled: playerLoader.item
+                                && playerLoader.item.canTogglePlayback
+                            text: playerLoader.item && playerLoader.item.isPlaying ? "Ⅱ" : "▶"
+                            Accessible.name: playerLoader.item && playerLoader.item.isPlaying
+                                ? "Pause playback"
+                                : "Play playback"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: playerLoader.item.togglePlayback()
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? "#c8d8cb" : "transparent"
+                            }
+                            contentItem: Label {
+                                text: parent.text
+                                color: "#26362c"
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        ToolButton {
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
+                            enabled: playerLoader.item
+                                && playerLoader.item.canStopPlayback
+                            text: "■"
+                            Accessible.name: "Stop playback"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: playerLoader.item.stopPlayback()
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? "#c8d8cb" : "transparent"
+                            }
+                            contentItem: Label {
+                                text: parent.text
+                                color: "#26362c"
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                         Rectangle {
                             Layout.preferredWidth: 10
                             Layout.preferredHeight: 10

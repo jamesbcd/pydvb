@@ -10,8 +10,23 @@ Item {
     property string selectedChannelId: ""
     property string playbackError: ""
     property bool hasVideoFrame: false
+    readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
+    readonly property bool canTogglePlayback: player.source.toString().length > 0
+        && player.mediaStatus !== MediaPlayer.LoadingMedia
+    readonly property bool canStopPlayback: player.playbackState !== MediaPlayer.StoppedState
     readonly property bool waitingForVideoFrame:
         player.source.toString().length > 0 && !hasVideoFrame
+
+    function togglePlayback() {
+        if (root.isPlaying)
+            player.pause()
+        else
+            root.playSelectedChannel()
+    }
+
+    function stopPlayback() {
+        player.stop()
+    }
 
     function playSelectedChannel() {
         if (player.source.toString().length === 0
@@ -102,19 +117,13 @@ Item {
             Layout.fillWidth: true
             Button {
                 text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"
-                enabled: player.source.toString().length > 0
-                    && player.mediaStatus !== MediaPlayer.LoadingMedia
-                onClicked: {
-                    if (player.playbackState === MediaPlayer.PlayingState)
-                        player.pause()
-                    else
-                        root.playSelectedChannel()
-                }
+                enabled: root.canTogglePlayback
+                onClicked: root.togglePlayback()
             }
             Button {
                 text: "Stop"
-                enabled: player.playbackState !== MediaPlayer.StoppedState
-                onClicked: player.stop()
+                enabled: root.canStopPlayback
+                onClicked: root.stopPlayback()
             }
         }
     }
