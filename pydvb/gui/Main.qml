@@ -27,7 +27,7 @@ ApplicationWindow {
     property int previousWindowWidth: width
     property int previousWindowHeight: height
     property int previousWindowVisibility: Window.Windowed
-    readonly property var sectionNames: ["Devices", "Tuning", "TV Stations", "Server"]
+    readonly property var sectionNames: ["Devices", "Tuning", "Stations", "Server"]
 
     function enterPlayerFullScreen() {
         if (visibility !== Window.FullScreen) {
@@ -302,7 +302,7 @@ ApplicationWindow {
             }
         }
         Menu {
-            title: "&Server"
+            title: "&Configure"
             MenuItem {
                 action: toggleServerAction
             }
@@ -863,7 +863,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         ColumnLayout {
                             spacing: 3
-                            Label { text: "TV Stations"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
+                            Label { text: "Stations"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
                             Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
