@@ -123,6 +123,36 @@ ApplicationWindow {
         })
     }
 
+    function focusedTextEditor() {
+        const item = window.activeFocusItem
+        return item && typeof item.copy === "function" ? item : null
+    }
+
+    function canCut() {
+        const editor = window.focusedTextEditor()
+        return editor && !editor.readOnly && editor.selectedText.length > 0
+    }
+
+    function canCopy() {
+        const editor = window.focusedTextEditor()
+        return editor && editor.selectedText.length > 0
+    }
+
+    function canPaste() {
+        const editor = window.focusedTextEditor()
+        return editor && !editor.readOnly
+    }
+
+    function canUndo() {
+        const editor = window.focusedTextEditor()
+        return editor && editor.canUndo
+    }
+
+    function canRedo() {
+        const editor = window.focusedTextEditor()
+        return editor && editor.canRedo
+    }
+
     onSelectedChannelIdChanged: {
         if (playerLoader.item)
             playerLoader.item.selectedChannelId = selectedChannelId
@@ -147,6 +177,61 @@ ApplicationWindow {
         text: "&Save..."
         shortcut: StandardKey.Save
         onTriggered: saveProfileDialog.open()
+    }
+
+    Action {
+        id: quitAction
+        text: "&Quit"
+        shortcut: StandardKey.Quit
+        onTriggered: window.close()
+    }
+
+    Action {
+        id: cutAction
+        text: "Cu&t"
+        shortcut: StandardKey.Cut
+        enabled: window.canCut()
+        onTriggered: window.focusedTextEditor().cut()
+    }
+
+    Action {
+        id: undoAction
+        text: "&Undo"
+        shortcut: StandardKey.Undo
+        enabled: window.canUndo()
+        onTriggered: window.focusedTextEditor().undo()
+    }
+
+    Action {
+        id: redoAction
+        text: "&Redo"
+        shortcut: StandardKey.Redo
+        enabled: window.canRedo()
+        onTriggered: window.focusedTextEditor().redo()
+    }
+
+    Action {
+        id: copyAction
+        text: "&Copy"
+        shortcut: StandardKey.Copy
+        enabled: window.canCopy()
+        onTriggered: window.focusedTextEditor().copy()
+    }
+
+    Action {
+        id: pasteAction
+        text: "&Paste"
+        shortcut: StandardKey.Paste
+        enabled: window.canPaste()
+        onTriggered: window.focusedTextEditor().paste()
+    }
+
+    Action {
+        id: selectAllAction
+        text: "Select &All"
+        shortcut: StandardKey.SelectAll
+        enabled: window.focusedTextEditor() !== null
+        onTriggered: window.focusedTextEditor().selectAll()
     }
 
     Action {
@@ -185,8 +270,35 @@ ApplicationWindow {
             MenuItem {
                 action: openProfileAction
             }
+            MenuSeparator {}
             MenuItem {
                 action: saveProfileAction
+            }
+            MenuItem {
+                action: quitAction
+            }
+        }
+        Menu {
+            title: "&Edit"
+            MenuItem {
+                action: undoAction
+            }
+            MenuItem {
+                action: redoAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                action: cutAction
+            }
+            MenuItem {
+                action: copyAction
+            }
+            MenuItem {
+                action: pasteAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                action: selectAllAction
             }
         }
         Menu {
