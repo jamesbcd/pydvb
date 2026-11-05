@@ -58,8 +58,11 @@ class _StatusOutcome:
 
 @dataclass(frozen=True, slots=True)
 class _PendingTask:
+    """Describe work and its completion callback before it enters a worker lane."""
+
     operation: Callable[[], object]
     complete: Callable[[object], None]
+    # The lane chooses the serialized pool; intent only affects device priority/UI.
     lane: Literal["device", "general"]
     user_initiated: bool = True
 
@@ -70,6 +73,8 @@ class _WorkerSignals(QObject):
 
 
 class _Worker(QRunnable):
+    """Execute one operation off the Qt thread and report its outcome by signal."""
+
     def __init__(self, operation: Callable[[], object]) -> None:
         super().__init__()
         self.operation = operation
@@ -116,6 +121,8 @@ class AppController(QObject):
         self._initialization_errors: dict[int, str] = {}
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
+        # UI busy state is intentionally distinct from device-lane occupancy:
+        # automatic polling uses the lane but should not flash action buttons.
         self._user_device_busy = False
         self._device_lane_busy = False
         self._device_task_user_initiated = False
@@ -126,11 +133,15 @@ class AppController(QObject):
         self._server_thread: Thread | None = None
         self._shutting_down = False
         self._shutdown_task_started = False
+        # General-lane work is serialized independently of device operations.
         self._pending_general_tasks: deque[_PendingTask] = deque()
+        # User device work takes priority over deferred automatic device work.
         self._pending_user_device_tasks: deque[_PendingTask] = deque()
         self._pending_automatic_device_tasks: deque[_PendingTask] = deque()
         self._workers: set[_Worker] = set()
         self._worker_tasks: dict[_Worker, _PendingTask] = {}
+        # Each pool is single-threaded; device operations share hardware state,
+        # while general-lane tasks are independent of device control.
         self._device_pool = QThreadPool(self)
         self._device_pool.setMaxThreadCount(1)
         self._general_pool = QThreadPool(self)
@@ -152,6 +163,7 @@ class AppController(QObject):
             self._log_controller._append_log_message,
             Qt.ConnectionType.QueuedConnection,
         )
+        # Polling occupies the device lane as automatic work, not user busy state.
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(2000)
         self._status_timer.timeout.connect(self._poll_status)
@@ -188,6 +200,7 @@ class AppController(QObject):
 
     @Property(bool, notify=stateChanged)
     def busy(self) -> bool:
+        """Report user device work or general-lane work for the global indicator."""
         return self._user_device_busy or self._general_lane_busy
 
     @Property(bool, notify=stateChanged)
@@ -202,14 +215,16 @@ class AppController(QObject):
 
     @Property(str, notify=stateChanged)
     def statusMessage(self) -> str:
+        """Return the latest status text displayed by the application."""
         return self._status_message
 
     @Property(bool, notify=stateChanged)
     def shuttingDown(self) -> bool:
+        """Report whether shutdown has begun and new work is being rejected."""
         return self._shutting_down
 
     def _discover_devices(self, *, auto_initialize: bool, automatic: bool) -> None:
-        """Connect newly discovered devices before optionally initializing them."""
+        """Connect new devices; user discovery takes priority over automatic polling."""
         if not automatic:
             self._set_status("Discovering USB DVB devices...")
 
@@ -443,6 +458,7 @@ class AppController(QObject):
         self._run_task(operation, complete, allow_shutdown=True, lane="device")
 
     def _poll_status(self) -> None:
+        """Read adapter signal status as automatic work on the device lane."""
         if (
             self._device_lane_busy
             or self._shutting_down
@@ -520,6 +536,7 @@ class AppController(QObject):
         )
 
     def _remove_devices(self, removed: Sequence[DVBDevice]) -> None:
+        """Remove disconnected devices while keeping selection state consistent."""
         if not removed:
             return
         removed_ids = {id(device) for device in removed}
@@ -620,6 +637,7 @@ class AppController(QObject):
         worker: _Worker,
         result: object,
     ) -> None:
+        """Release a completed worker and run its Qt-thread completion callback."""
         self._workers.discard(worker)
         task = self._worker_tasks.pop(worker)
         if task.lane == "device":
@@ -643,6 +661,7 @@ class AppController(QObject):
 
     @Slot(object, str)
     def _fail_task(self, worker: _Worker, message: str) -> None:
+        """Release a failed worker, report its error, and continue queued work."""
         self._workers.discard(worker)
         task = self._worker_tasks.pop(worker)
         if task.lane == "device":
@@ -680,6 +699,7 @@ class AppController(QObject):
             self._start_task(self._pending_general_tasks.popleft())
 
     def _selected_device(self) -> DVBDevice | None:
+        """Return the selected connected device, resolving the saved ID if needed."""
         if not self._devices:
             return None
         if (
@@ -699,6 +719,7 @@ class AppController(QObject):
         return self._devices[self._selected_device_index]
 
     def _selected_adapter(self, device: DVBDevice):
+        """Return the profile-selected adapter, falling back to adapter zero."""
         index = self._profile.selected_adapter
         if not 0 <= index < len(device.adapters):
             index = 0
@@ -706,18 +727,21 @@ class AppController(QObject):
         return device.adapters[index]
 
     def _select_first_device(self) -> None:
+        """Preserve the current selection or select the first connected device."""
         selected = self._selected_device()
         if selected is not None:
             self._profile.selected_device = self._device_id(selected)
 
     @staticmethod
     def _device_id(device: DVBDevice) -> str:
+        """Format a device's USB identifier for profile persistence."""
         if device.device_id is None:
             return "Unknown USB ID"
         return AppController._usb_id(device.device_id)
 
     @staticmethod
     def _usb_id(device_id: object) -> str:
+        """Format a USB ID when available, retaining a useful fallback string."""
         vendor_id = getattr(device_id, "vendor_id", None)
         product_id = getattr(device_id, "product_id", None)
         if vendor_id is None or product_id is None:
@@ -726,6 +750,7 @@ class AppController(QObject):
 
     @staticmethod
     def _format_status(status: DVBFrontendStatus) -> str:
+        """Convert frontend lock, signal, and quality readings to display text."""
         if status.lock:
             result = "Locked"
         elif status.signal:
@@ -739,11 +764,13 @@ class AppController(QObject):
         return result
 
     def _set_status(self, message: str) -> None:
+        """Update the status text and notify QML bindings."""
         self._status_message = message
         self.stateChanged.emit()
 
     @staticmethod
     def _local_path(path: str | PathLike[str]) -> str:
+        """Convert a local-file URL or path into a filesystem path."""
         value = str(path)
         url = QUrl(value)
         if url.isLocalFile():

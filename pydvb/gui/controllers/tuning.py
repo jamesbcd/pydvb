@@ -44,7 +44,7 @@ class TuningController(QObject):
 
     @Slot()
     def refreshKnownTables(self) -> None:
-        """Fetch the available LinuxTV DVB-T table names in the worker pool."""
+        """Fetch LinuxTV table names on the general lane, outside device control."""
         app = self._app
         app._set_status("Loading known scan tables...")
 
@@ -121,7 +121,7 @@ class TuningController(QObject):
 
     @Slot()
     def scan(self) -> None:
-        """Scan configured tunings and publish the resulting service map."""
+        """Scan through the device lane and publish results if inputs stay current."""
         app = self._app
         if app._server is not None:
             app._set_status("Stop the server before scanning")

@@ -116,7 +116,7 @@ class ServerController(QObject):
 
     @Slot()
     def startServer(self) -> None:
-        """Start the local HTTP streaming server on a dedicated thread."""
+        """Start the server after device-lane work finishes, rechecking prerequisites."""
         app = self._app
         if app._server is not None:
             app._set_status("Server is already running")

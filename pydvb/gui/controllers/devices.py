@@ -133,7 +133,7 @@ class DeviceController(QObject):
 
     @Slot()
     def _auto_discover(self) -> None:
-        """Poll for newly connected receivers while automatic discovery is enabled."""
+        """Schedule automatic device-lane discovery without marking it user busy."""
         app = self._app
         if (
             not app._auto_discover_and_initialize_devices
