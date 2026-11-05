@@ -116,14 +116,6 @@ Item {
                 enabled: player.playbackState !== MediaPlayer.StoppedState
                 onClicked: player.stop()
             }
-            Slider {
-                Layout.fillWidth: true
-                from: 0
-                to: Math.max(player.duration, 1)
-                value: player.position
-                enabled: player.seekable
-                onMoved: player.position = value
-            }
         }
     }
 
