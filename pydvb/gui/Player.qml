@@ -6,6 +6,8 @@ import QtMultimedia
 Item {
     id: root
 
+    signal channelSelectionRequested(string channelId)
+
     property var appController: null
     property string selectedChannelId: ""
     property string playbackError: ""
@@ -17,6 +19,11 @@ Item {
     readonly property bool canStopPlayback: player.playbackState !== MediaPlayer.StoppedState
     readonly property bool waitingForVideoFrame:
         player.source.toString().length > 0 && !hasVideoFrame
+    readonly property var selectableChannels: appController
+        ? appController.channelController.channels.filter(function(channel) {
+            return channel.id !== "Unknown"
+        })
+        : []
 
     function togglePlayback() {
         if (root.isPlaying)
@@ -27,6 +34,25 @@ Item {
 
     function stopPlayback() {
         player.stop()
+    }
+
+    function selectAdjacentChannel(direction) {
+        const channels = root.selectableChannels
+        if (channels.length === 0)
+            return
+
+        let currentIndex = -1
+        for (let index = 0; index < channels.length; index++) {
+            if (channels[index].id === root.selectedChannelId) {
+                currentIndex = index
+                break
+            }
+        }
+
+        const nextIndex = currentIndex === -1
+            ? (direction > 0 ? 0 : channels.length - 1)
+            : (currentIndex + direction + channels.length) % channels.length
+        root.channelSelectionRequested(channels[nextIndex].id)
     }
 
     function revealPlayerControls() {
@@ -162,6 +188,33 @@ Item {
                     spacing: 12
 
                     Button {
+                        id: previousChannelButton
+                        width: 56
+                        height: 56
+                        padding: 0
+                        enabled: root.selectableChannels.length > 0
+                        text: "‹"
+                        Accessible.name: "Previous channel"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.selectAdjacentChannel(-1)
+                        background: Rectangle {
+                            radius: width / 2
+                            color: previousChannelButton.down
+                                ? "#dce9df"
+                                : (previousChannelButton.hovered ? "#f5faf6" : "#eaf1ec")
+                            opacity: previousChannelButton.enabled ? 1 : 0.55
+                        }
+                        contentItem: Label {
+                            text: previousChannelButton.text
+                            color: "#17251e"
+                            font.pixelSize: 38
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    Button {
                         id: playbackButton
                         width: 68
                         height: 68
@@ -210,6 +263,33 @@ Item {
                             text: stopButton.text
                             color: "#17251e"
                             font.pixelSize: 30
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    Button {
+                        id: nextChannelButton
+                        width: 56
+                        height: 56
+                        padding: 0
+                        enabled: root.selectableChannels.length > 0
+                        text: "›"
+                        Accessible.name: "Next channel"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.selectAdjacentChannel(1)
+                        background: Rectangle {
+                            radius: width / 2
+                            color: nextChannelButton.down
+                                ? "#dce9df"
+                                : (nextChannelButton.hovered ? "#f5faf6" : "#eaf1ec")
+                            opacity: nextChannelButton.enabled ? 1 : 0.55
+                        }
+                        contentItem: Label {
+                            text: nextChannelButton.text
+                            color: "#17251e"
+                            font.pixelSize: 38
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }

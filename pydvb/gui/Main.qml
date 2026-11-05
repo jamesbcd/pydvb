@@ -826,6 +826,12 @@ ApplicationWindow {
                         item.selectedChannelId = window.selectedChannelId
                     }
                 }
+                Connections {
+                    target: playerLoader.item
+                    function onChannelSelectionRequested(channelId) {
+                        window.selectedChannelId = channelId
+                    }
+                }
                 ColumnLayout {
                     anchors.centerIn: parent
                     visible: !playerLoader.playbackAvailable
