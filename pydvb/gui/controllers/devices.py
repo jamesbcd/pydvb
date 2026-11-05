@@ -182,4 +182,4 @@ class DeviceController(QObject):
             app._set_status(f"Initialized {device.model_name or 'DVB device'}")
 
         app._set_status("Initializing selected device...")
-        app._run_task(device.init_hardware, complete)
+        app._run_task(device.init_hardware, complete, lane="device")

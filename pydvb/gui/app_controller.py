@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Sequence
+from typing import Callable, Literal, Sequence
 
 from PySide6.QtCore import (
     QObject,
@@ -55,6 +56,13 @@ class _StatusOutcome:
     removal_failures: tuple[DeviceRemovalFailure, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingTask:
+    operation: Callable[[], object]
+    complete: Callable[[object], None]
+    lane: Literal["device", "background"]
+
+
 class _WorkerSignals(QObject):
     finished = Signal(object)
     failed = Signal(str)
@@ -86,7 +94,7 @@ class AppController(QObject):
     stateChanged = Signal()
     logMessageReceived = Signal(str)
     shutdownFinished = Signal()
-    _taskSucceeded = Signal(object, object, object)
+    _taskSucceeded = Signal(object, object)
     _taskFailed = Signal(object, str)
 
     def __init__(
@@ -108,15 +116,20 @@ class AppController(QObject):
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
         self._known_tables: list[str] = []
         self._busy = False
+        self._background_busy = False
         self._status_message = "Ready"
         self._server_state = "Stopped"
         self._server: LocalTS_HTTPServer | None = None
         self._server_thread: Thread | None = None
         self._shutting_down = False
         self._shutdown_task_started = False
+        self._pending_background_tasks: deque[_PendingTask] = deque()
         self._workers: set[_Worker] = set()
-        self._pool = QThreadPool(self)
-        self._pool.setMaxThreadCount(1)
+        self._worker_tasks: dict[_Worker, _PendingTask] = {}
+        self._device_pool = QThreadPool(self)
+        self._device_pool.setMaxThreadCount(1)
+        self._background_pool = QThreadPool(self)
+        self._background_pool.setMaxThreadCount(1)
         self._taskSucceeded.connect(
             self._finish_task,
             Qt.ConnectionType.QueuedConnection,
@@ -170,7 +183,17 @@ class AppController(QObject):
 
     @Property(bool, notify=stateChanged)
     def busy(self) -> bool:
+        return self._busy or self._background_busy
+
+    @Property(bool, notify=stateChanged)
+    def deviceBusy(self) -> bool:
+        """Return whether a serialized device operation is active."""
         return self._busy
+
+    @Property(bool, notify=stateChanged)
+    def backgroundBusy(self) -> bool:
+        """Return whether background work is active or waiting to run."""
+        return self._background_busy or bool(self._pending_background_tasks)
 
     @Property(str, notify=stateChanged)
     def statusMessage(self) -> str:
@@ -286,9 +309,19 @@ class AppController(QObject):
                     self.devicesChanged.emit()
                     set_discovery_status(initialization_result.failures)
 
-                self._run_task(initialize, initialized, report_status=not automatic)
+                self._run_task(
+                    initialize,
+                    initialized,
+                    lane="device",
+                    report_status=not automatic,
+                )
 
-        self._run_task(operation, complete, report_status=not automatic)
+        self._run_task(
+            operation,
+            complete,
+            lane="device",
+            report_status=not automatic,
+        )
 
     @Slot(str)
     def saveProfile(self, path: str) -> None:
@@ -296,12 +329,15 @@ class AppController(QObject):
         local_path = self._local_path(path)
         if not local_path:
             return
-        profile = self._profile
-
         def complete(_result: object) -> None:
             self._set_status(f"Saved profile to {local_path}")
 
-        self._run_task(lambda: save_profile(profile, local_path), complete)
+        profile = replace(self._profile)
+        self._run_task(
+            lambda: save_profile(profile, local_path),
+            complete,
+            lane="background",
+        )
 
     @Slot(str)
     def loadProfile(self, path: str) -> None:
@@ -312,8 +348,16 @@ class AppController(QObject):
         if self._server is not None:
             self._set_status("Stop the server before loading a profile")
             return
+        if self._shutting_down:
+            self._set_status("Cannot load a profile while shutting down")
+            return
 
         def complete(profile: object) -> None:
+            if self._shutting_down:
+                return
+            if self._server is not None:
+                self._set_status("Stop the server before loading a profile")
+                return
             loaded = profile  # validated by load_profile
             self._profile = loaded  # type: ignore[assignment]
             self._selected_device_index = None
@@ -325,7 +369,11 @@ class AppController(QObject):
             self.stateChanged.emit()
             self._set_status(f"Loaded profile from {local_path}")
 
-        self._run_task(lambda: load_profile(local_path), complete)
+        self._run_task(
+            lambda: load_profile(local_path),
+            complete,
+            lane="background",
+        )
 
     @Slot()
     def shutdown(self) -> None:
@@ -334,8 +382,9 @@ class AppController(QObject):
             self._shutting_down = True
             self._status_timer.stop()
             self._discovery_timer.stop()
+            self._pending_background_tasks.clear()
             self.stateChanged.emit()
-        if self._busy:
+        if self._busy or self._background_busy:
             QTimer.singleShot(100, self.shutdown)
             return
         if self._shutdown_task_started:
@@ -380,7 +429,7 @@ class AppController(QObject):
                 self._set_status("Shutdown completed with errors: " + "; ".join(errors))
             self.shutdownFinished.emit()
 
-        self._run_task(operation, complete, allow_shutdown=True)
+        self._run_task(operation, complete, allow_shutdown=True, lane="device")
 
     def _poll_status(self) -> None:
         if self._busy or self._shutting_down or not any(device.adapters for device in self._devices):
@@ -447,7 +496,7 @@ class AppController(QObject):
                     message += f"; cleanup failed: {errors}"
                 self._set_status(message)
 
-        self._run_task(operation, complete, report_status=False)
+        self._run_task(operation, complete, report_status=False, lane="device")
 
     def _remove_devices(self, removed: Sequence[DVBDevice]) -> None:
         if not removed:
@@ -472,46 +521,90 @@ class AppController(QObject):
         operation: Callable[[], object],
         complete: Callable[[object], None],
         *,
+        lane: Literal["device", "background"],
         report_status: bool = True,
         allow_shutdown: bool = False,
     ) -> None:
-        if self._busy or (self._shutting_down and not allow_shutdown):
-            if report_status and not self._shutting_down:
+        if lane not in ("device", "background"):
+            raise ValueError(f"unsupported task lane: {lane}")
+        if self._shutting_down and not allow_shutdown:
+            if report_status:
+                self._set_status("Application is shutting down")
+            return
+        task = _PendingTask(operation, complete, lane)
+        if lane == "device" and self._busy:
+            if report_status:
                 self._set_status("Another device operation is in progress")
             return
-        self._busy = True
+        if lane == "background" and self._background_busy:
+            self._pending_background_tasks.append(task)
+            self.stateChanged.emit()
+            return
+        self._start_task(task)
+
+    def _start_task(self, task: _PendingTask) -> None:
+        """Start a task in its dedicated serialized worker lane."""
+        if task.lane == "device":
+            self._busy = True
+            pool = self._device_pool
+        else:
+            self._background_busy = True
+            pool = self._background_pool
         self.stateChanged.emit()
-        worker = _Worker(operation)
+        worker = _Worker(task.operation)
         self._workers.add(worker)
+        self._worker_tasks[worker] = task
         worker.signals.finished.connect(
-            lambda result: self._taskSucceeded.emit(worker, result, complete)
+            lambda result: self._taskSucceeded.emit(worker, result)
         )
         worker.signals.failed.connect(
             lambda message: self._taskFailed.emit(worker, message)
         )
-        self._pool.start(worker)
+        pool.start(worker)
 
-    @Slot(object, object, object)
+    @Slot(object, object)
     def _finish_task(
         self,
         worker: _Worker,
         result: object,
-        complete: Callable[[object], None],
     ) -> None:
         self._workers.discard(worker)
-        self._busy = False
-        self.stateChanged.emit()
-        try:
-            complete(result)
-        except Exception as error:
-            self._set_status(f"Operation failed: {type(error).__name__}: {error}")
+        task = self._worker_tasks.pop(worker)
+        if task.lane == "device":
+            self._busy = False
+            self.stateChanged.emit()
+            try:
+                task.complete(result)
+            except Exception as error:
+                self._set_status(f"Operation failed: {type(error).__name__}: {error}")
+        else:
+            try:
+                task.complete(result)
+            except Exception as error:
+                self._set_status(f"Operation failed: {type(error).__name__}: {error}")
+            finally:
+                self._background_busy = False
+                self.stateChanged.emit()
+        self._run_next_background_task()
 
     @Slot(object, str)
     def _fail_task(self, worker: _Worker, message: str) -> None:
         self._workers.discard(worker)
-        self._busy = False
+        task = self._worker_tasks.pop(worker)
+        if task.lane == "device":
+            self._busy = False
+        else:
+            self._background_busy = False
         self.stateChanged.emit()
         self._set_status(f"Operation failed: {message}")
+        self._run_next_background_task()
+
+    def _run_next_background_task(self) -> None:
+        """Start the next background task after the preceding task completes."""
+        if self._background_busy or self._shutting_down:
+            return
+        if self._pending_background_tasks:
+            self._start_task(self._pending_background_tasks.popleft())
 
     def _selected_device(self) -> DVBDevice | None:
         if not self._devices:

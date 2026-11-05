@@ -16,7 +16,7 @@ from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
-from pydvb.gui.profile import GuiProfile
+from pydvb.gui.profile import GuiProfile, save_profile
 from pydvb.service_map import DVBServiceMap
 from pydvb.usb import USBDeviceID, usb1
 
@@ -120,6 +120,7 @@ def test_shutdown_waits_for_current_work_and_closes_server_before_devices(qt_app
     controller._run_task(
         lambda: (operation_started.set(), Event().wait(0.2)),
         lambda _result: None,
+        lane="device",
     )
     assert operation_started.wait(timeout=1)
 
@@ -407,7 +408,8 @@ def test_status_poll_does_not_notify_player_stream_url(qt_application):
     assert detail_changes == [True]
 
 
-def test_worker_result_callback_runs_on_the_qt_thread(qt_application):
+@pytest.mark.parametrize("lane", ["device", "background"])
+def test_worker_result_callback_runs_on_the_qt_thread(qt_application, lane):
     controller = AppController()
     controller.devicesController.autoDiscoverAndInitializeDevices = False
     outcomes = []
@@ -417,12 +419,116 @@ def test_worker_result_callback_runs_on_the_qt_thread(qt_application):
             outcomes.append((QThread.currentThread() == qt_application.thread(), result)),
             qt_application.quit(),
         ),
+        lane=lane,
     )
     QTimer.singleShot(2000, qt_application.quit)
 
     qt_application.exec()
 
     assert outcomes == [(True, False)]
+
+
+def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
+    device_operation_started = Event()
+    finish_device_operation = Event()
+    profile = GuiProfile(scan_table="loaded-profile")
+    profile_path = tmp_path / "profile.json"
+    save_profile(profile, profile_path)
+    controller = AppController(profile=GuiProfile(scan_table="current-profile"))
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
+    controller._run_task(
+        lambda: (
+            device_operation_started.set(),
+            finish_device_operation.wait(timeout=2),
+        ),
+        lambda _result: None,
+        lane="device",
+    )
+    assert device_operation_started.wait(timeout=1)
+
+    controller.loadProfile(str(profile_path))
+
+    loaded_during_device_operation = []
+
+    def finish_when_loaded():
+        if controller._profile.scan_table == "loaded-profile":
+            loaded_during_device_operation.append(controller.deviceBusy)
+            finish_device_operation.set()
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_loaded)
+
+    QTimer.singleShot(10, finish_when_loaded)
+    QTimer.singleShot(3000, qt_application.quit)
+    qt_application.exec()
+
+    assert loaded_during_device_operation == [True]
+    assert controller._profile.scan_table == "loaded-profile"
+
+
+def test_profile_load_during_scan_discards_stale_scan_results(
+    qt_application,
+    monkeypatch,
+    tmp_path,
+):
+    from pydvb.gui.controllers import tuning as tuning_module
+
+    scan_started = Event()
+    finish_scan = Event()
+    scan_map = DVBServiceMap()
+    loaded_map = DVBServiceMap()
+    profile = GuiProfile(
+        scan_table="loaded-profile",
+        tunings=(DVBTuning(frequency_hz=177_500_000),),
+        service_map=loaded_map,
+    )
+    profile_path = tmp_path / "profile.json"
+    save_profile(profile, profile_path)
+
+    def scan(_tunings, _adapter):
+        scan_started.set()
+        finish_scan.wait(timeout=2)
+        return scan_map
+
+    monkeypatch.setattr(tuning_module, "map_from_tunings", scan)
+    controller = AppController()
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
+    adapter = type("Adapter", (), {"adapter_index": 0})()
+    device = type(
+        "Device",
+        (),
+        {
+            "device_id": USBDeviceID(0x0413, 0x6029),
+            "model_name": "Receiver",
+            "adapters": [adapter],
+        },
+    )()
+    controller._devices = [device]
+    controller._select_first_device()
+    controller.tuningController.addTuning("177.5", "7")
+    controller.tuningController.scan()
+    assert scan_started.wait(timeout=1)
+
+    controller.loadProfile(str(profile_path))
+
+    loaded_profile_map = []
+
+    def finish_when_loaded():
+        if controller._profile.scan_table == "loaded-profile" and not loaded_profile_map:
+            loaded_profile_map.append(controller._profile.service_map)
+            finish_scan.set()
+        if not controller.deviceBusy and loaded_profile_map:
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_loaded)
+
+    QTimer.singleShot(10, finish_when_loaded)
+    QTimer.singleShot(3000, qt_application.quit)
+    qt_application.exec()
+
+    assert loaded_profile_map == [controller._profile.service_map]
+    assert controller._profile.service_map is not scan_map
+    assert "discarded" in controller.statusMessage.lower()
 
 
 def test_identical_devices_can_be_selected_independently(qt_application):

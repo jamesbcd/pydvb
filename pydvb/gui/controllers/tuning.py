@@ -53,7 +53,7 @@ class TuningController(QObject):
             app.knownTablesChanged.emit()
             app._set_status(f"Loaded {len(app._known_tables)} scan tables")
 
-        app._run_task(known_table_names, complete)
+        app._run_task(known_table_names, complete, lane="background")
 
     @Slot(str)
     def selectScanTable(self, name: str) -> None:
@@ -74,7 +74,7 @@ class TuningController(QObject):
             app._set_status(f"Loaded {len(parsed)} tunings from {name}")
 
         app._set_status(f"Parsing scan table {name}...")
-        app._run_task(lambda: parse_table(name), complete)
+        app._run_task(lambda: parse_table(name), complete, lane="background")
 
     @Slot(str)
     def loadLocalScanTable(self, path: str) -> None:
@@ -123,6 +123,9 @@ class TuningController(QObject):
     def scan(self) -> None:
         """Scan configured tunings and publish the resulting service map."""
         app = self._app
+        if app._server is not None:
+            app._set_status("Stop the server before scanning")
+            return
         device = app._selected_device()
         if device is None or not device.adapters:
             app._set_status("Initialize a device before scanning")
@@ -130,19 +133,33 @@ class TuningController(QObject):
         if not app._profile.tunings:
             app._set_status("Load a scan table or add a tuning first")
             return
+        profile = app._profile
         adapter = app._selected_adapter(device)
-        tunings = app._profile.tunings
+        adapter_index = profile.selected_adapter
+        tunings = profile.tunings
         app._set_status(f"Scanning {len(tunings)} tuning(s)...")
 
         def complete(service_map: object) -> None:
             if not isinstance(service_map, DVBServiceMap):
                 raise TypeError("scan worker returned an unexpected result")
+            if (
+                app._profile is not profile
+                or app._selected_device() is not device
+                or app._profile.selected_adapter != adapter_index
+                or app._profile.tunings != tunings
+            ):
+                app._set_status("Scan results discarded because the profile or device changed")
+                return
             app._profile.service_map = service_map
             app.channelsChanged.emit()
             app.stateChanged.emit()
             app._set_status(f"Scan complete: {len(service_map.services)} service(s) found")
 
-        app._run_task(lambda: map_from_tunings(tunings, adapter), complete)
+        app._run_task(
+            lambda: map_from_tunings(tunings, adapter),
+            complete,
+            lane="device",
+        )
 
     def _parse_tuning(self, frequency_mhz: str, bandwidth_mhz: str) -> DVBTuning | None:
         try:

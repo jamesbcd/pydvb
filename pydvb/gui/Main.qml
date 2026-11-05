@@ -345,10 +345,10 @@ ApplicationWindow {
                             checked: controller.devicesController.showUnsupportedDevices
                             onToggled: controller.devicesController.showUnsupportedDevices = checked
                         }
-                        Button { text: "Discover"; enabled: !controller.busy; onClicked: controller.devicesController.discover() }
+                        Button { text: "Discover"; enabled: !controller.deviceBusy; onClicked: controller.devicesController.discover() }
                         Button {
                             text: "Initialize selected"
-                            enabled: !controller.busy && controller.devicesController.devices.length > 0
+                            enabled: !controller.deviceBusy && controller.devicesController.devices.length > 0
                             highlighted: true
                             onClicked: controller.devicesController.initializeSelectedDevice()
                         }
@@ -449,7 +449,7 @@ ApplicationWindow {
                         Button {
                             text: "Scan services"
                             highlighted: true
-                            enabled: !controller.busy && controller.tuningController.tunings.length > 0
+                            enabled: !controller.deviceBusy && controller.tuningController.tunings.length > 0
                             onClicked: controller.tuningController.scan()
                         }
                     }
@@ -465,7 +465,7 @@ ApplicationWindow {
                             onActivated: controller.tuningController.selectScanTable(currentText)
                             onAccepted: controller.tuningController.selectScanTable(editText)
                         }
-                        Button { text: "Refresh tables"; enabled: !controller.busy; onClicked: controller.tuningController.refreshKnownTables() }
+                        Button { text: "Refresh tables"; enabled: !controller.backgroundBusy; onClicked: controller.tuningController.refreshKnownTables() }
                         Button { text: "Open local table"; onClicked: scanTableDialog.open() }
                     }
                     Label { text: "Manual tuning"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -481,7 +481,7 @@ ApplicationWindow {
                         ComboBox { id: bandwidthBox; model: ["6", "7", "8"]; currentIndex: 1; Layout.preferredWidth: 120 }
                         Button {
                             text: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
-                            enabled: !controller.busy
+                            enabled: !controller.backgroundBusy
                             onClicked: {
                                 if (window.editingTuningIndex < 0)
                                     controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
@@ -518,7 +518,7 @@ ApplicationWindow {
                             Label { text: modelData.bandwidth + " MHz"; color: "#526158"; Layout.preferredWidth: 100 }
                             ToolButton {
                                 text: "Edit"
-                                enabled: !controller.busy
+                                enabled: !controller.backgroundBusy
                                 onClicked: {
                                     window.editingTuningIndex = modelData.index
                                     frequencyField.text = Number(modelData.frequency).toFixed(3)
@@ -633,12 +633,12 @@ ApplicationWindow {
                         Button {
                             text: "Start"
                             highlighted: true
-                            enabled: controller.serverController.serverState === "Stopped" && !controller.busy
+                            enabled: controller.serverController.serverState === "Stopped" && !controller.deviceBusy
                             onClicked: controller.serverController.startServer()
                         }
                         Button {
                             text: "Stop"
-                            enabled: controller.serverController.serverState === "Running" && !controller.busy
+                            enabled: controller.serverController.serverState === "Running" && !controller.deviceBusy
                             onClicked: controller.serverController.stopServer()
                         }
                     }

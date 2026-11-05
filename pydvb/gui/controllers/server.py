@@ -121,6 +121,9 @@ class ServerController(QObject):
         if app._server is not None:
             app._set_status("Server is already running")
             return
+        if app.deviceBusy:
+            app._set_status("Wait for the device operation to finish before starting the server")
+            return
         if app._profile.service_map is None or not app._profile.service_map.services:
             app._set_status("Scan or load a service map before starting the server")
             return
@@ -162,6 +165,9 @@ class ServerController(QObject):
         if server is None:
             app._set_status("Server is already stopped")
             return
+        if app.deviceBusy:
+            app._set_status("Another device operation is in progress")
+            return
         app._server_state = "Stopping"
         logger.info("Stopping HTTP server")
         app.serverChanged.emit()
@@ -180,4 +186,4 @@ class ServerController(QObject):
             app.serverChanged.emit()
             app._set_status("Server stopped")
 
-        app._run_task(operation, complete)
+        app._run_task(operation, complete, lane="device")
