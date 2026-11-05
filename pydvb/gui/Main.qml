@@ -121,6 +121,21 @@ ApplicationWindow {
         onTriggered: window.toggleLogWindow()
     }
 
+    Action {
+        id: toggleServerAction
+        text: controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
+        shortcut: Qt.platform.os === "osx" ? "Meta+Alt+R" : "Ctrl+Alt+R"
+        enabled: (controller.serverController.serverState === "Stopped"
+                  || controller.serverController.serverState === "Running")
+                 && !controller.userDeviceBusy
+        onTriggered: {
+            if (controller.serverController.serverState === "Running")
+                controller.serverController.stopServer()
+            else
+                controller.serverController.startServer()
+        }
+    }
+
     menuBar: MenuBar {
         Menu {
             title: "&File"
@@ -129,6 +144,12 @@ ApplicationWindow {
             }
             MenuItem {
                 action: saveProfileAction
+            }
+        }
+        Menu {
+            title: "&Server"
+            MenuItem {
+                action: toggleServerAction
             }
         }
         Menu {
