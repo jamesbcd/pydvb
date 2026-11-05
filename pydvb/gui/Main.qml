@@ -310,6 +310,19 @@ ApplicationWindow {
         Menu {
             title: "&Configure"
             MenuItem {
+                text: "Auto-discover and initialize devices"
+                checkable: true
+                checked: window.controller.devicesController.autoDiscoverAndInitializeDevices
+                onTriggered: window.controller.devicesController.autoDiscoverAndInitializeDevices = checked
+            }
+            MenuItem {
+                text: "Show unsupported USB devices"
+                checkable: true
+                checked: window.controller.devicesController.showUnsupportedDevices
+                onTriggered: window.controller.devicesController.showUnsupportedDevices = checked
+            }
+            MenuSeparator {}
+            MenuItem {
                 action: openScanTableAction
             }
             MenuSeparator {}
@@ -659,16 +672,6 @@ ApplicationWindow {
                             Label { text: "USB receivers and configured adapters"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
-                        CheckBox {
-                            text: "Auto-discover and initialize devices"
-                            checked: window.controller.devicesController.autoDiscoverAndInitializeDevices
-                            onToggled: window.controller.devicesController.autoDiscoverAndInitializeDevices = checked
-                        }
-                        CheckBox {
-                            text: "Show unsupported USB devices"
-                            checked: window.controller.devicesController.showUnsupportedDevices
-                            onToggled: window.controller.devicesController.showUnsupportedDevices = checked
-                        }
                         Button { text: "Discover"; enabled: !window.controller.userDeviceBusy; onClicked: window.controller.devicesController.discover() }
                         Button {
                             text: "Initialize selected"
