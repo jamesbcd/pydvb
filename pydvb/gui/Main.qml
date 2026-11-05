@@ -249,88 +249,183 @@ ApplicationWindow {
     }
 
     RowLayout {
+        id: mainLayout
         anchors.fill: parent
         spacing: 0
 
-        Rectangle {
-            visible: !window.playerOnlyMode || window.playerSidebarRevealed
-            Layout.preferredWidth: 218
+        Item {
+            Layout.preferredWidth: window.playerOnlyMode ? 0 : 218
             Layout.fillHeight: true
-            color: "#e7ece7"
+            z: window.playerOnlyMode && window.playerSidebarRevealed ? 1 : 0
 
-            HoverHandler {
-                id: playerSidebarHoverHandler
-                enabled: window.playerOnlyMode && window.playerSidebarRevealed
-                onHoveredChanged: {
-                    if (hovered)
-                        playerSidebarHideTimer.stop()
-                    else
-                        playerSidebarHideTimer.restart()
-                }
-            }
+            Rectangle {
+                id: playerSidebar
+                visible: !window.playerOnlyMode || window.playerSidebarRevealed
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 218
+                color: "#e7ece7"
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.topMargin: 24
-                anchors.bottomMargin: 18
-                anchors.leftMargin: 14
-                anchors.rightMargin: 14
-                spacing: 5
-
-                Label {
-                    text: "WORKSPACE"
-                    color: "#78857c"
-                    font.pixelSize: 11
-                    font.bold: true
-                    Layout.leftMargin: 10
-                    Layout.bottomMargin: 9
+                HoverHandler {
+                    id: playerSidebarHoverHandler
+                    enabled: window.playerOnlyMode && window.playerSidebarRevealed
+                    onHoveredChanged: {
+                        if (hovered)
+                            playerSidebarHideTimer.stop()
+                        else
+                            playerSidebarHideTimer.restart()
+                    }
                 }
 
-                Repeater {
-                    model: window.sectionNames
-                    delegate: Button {
-                        id: sectionButton
-                        required property int index
-                        required property string modelData
-                        Layout.fillWidth: true
-                        text: modelData
-                        checkable: true
-                        checked: window.sectionIndex === index
-                        highlighted: checked
-                        onClicked: {
-                            window.sectionIndex = index
-                            window.playerOnlyMode = false
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.topMargin: 24
+                    anchors.bottomMargin: 18
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    spacing: 5
+
+                    Label {
+                        text: "WORKSPACE"
+                        color: "#78857c"
+                        font.pixelSize: 11
+                        font.bold: true
+                        Layout.leftMargin: 10
+                        Layout.bottomMargin: 9
+                    }
+
+                    Repeater {
+                        model: window.sectionNames
+                        delegate: Button {
+                            id: sectionButton
+                            required property int index
+                            required property string modelData
+                            Layout.fillWidth: true
+                            text: modelData
+                            checkable: true
+                            checked: window.sectionIndex === index
+                            highlighted: checked
+                            onClicked: {
+                                window.sectionIndex = index
+                                window.playerOnlyMode = false
+                            }
+                            horizontalPadding: 13
+                            height: 46
+                            Accessible.description: window.sectionStatus(index)
+                            ToolTip.visible: hovered
+                            ToolTip.text: window.sectionStatus(index)
+                            background: Rectangle {
+                                radius: 5
+                                color: checked ? "#d8e5da" : (parent.hovered ? "#f0f3f0" : "transparent")
+                                border.color: checked ? "#b8cdbd" : "transparent"
+                            }
+                            contentItem: RowLayout {
+                                spacing: 10
+                                Label {
+                                    text: modelData
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignLeft
+                                    font.pixelSize: 14
+                                    font.weight: sectionButton.checked ? Font.DemiBold : Font.Normal
+                                    color: "#26362c"
+                                }
+                                ToolButton {
+                                    visible: index === 3
+                                    Layout.preferredWidth: visible ? 28 : 0
+                                    Layout.preferredHeight: visible ? 28 : 0
+                                    enabled: toggleServerAction.enabled
+                                    text: controller.serverController.serverState === "Running" ? "■" : "▶"
+                                    Accessible.name: toggleServerAction.text
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: toggleServerAction.text
+                                    onClicked: toggleServerAction.trigger()
+                                    background: Rectangle {
+                                        radius: 4
+                                        color: parent.hovered ? "#c8d8cb" : "transparent"
+                                    }
+                                    contentItem: Label {
+                                        text: parent.text
+                                        color: "#26362c"
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 10
+                                    Layout.preferredHeight: 10
+                                    radius: 5
+                                    color: window.sectionReady(index) ? "#338457" : "#d7a63b"
+                                }
+                            }
                         }
+                    }
+
+                    Button {
+                        id: playerSectionButton
+                        Layout.fillWidth: true
+                        text: "Player"
+                        checkable: true
+                        checked: window.sectionIndex === 4
+                        highlighted: checked
+                        onClicked: window.sectionIndex = 4
                         horizontalPadding: 13
                         height: 46
-                        Accessible.description: window.sectionStatus(index)
+                        Accessible.description: window.sectionStatus(4)
                         ToolTip.visible: hovered
-                        ToolTip.text: window.sectionStatus(index)
+                        ToolTip.text: window.sectionStatus(4)
                         background: Rectangle {
                             radius: 5
-                            color: checked ? "#d8e5da" : (parent.hovered ? "#f0f3f0" : "transparent")
-                            border.color: checked ? "#b8cdbd" : "transparent"
+                            color: playerSectionButton.checked
+                                ? "#d8e5da"
+                                : (playerSectionButton.hovered ? "#f0f3f0" : "transparent")
+                            border.color: playerSectionButton.checked ? "#b8cdbd" : "transparent"
                         }
                         contentItem: RowLayout {
                             spacing: 10
                             Label {
-                                text: modelData
+                                text: "Player"
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignLeft
                                 font.pixelSize: 14
-                                font.weight: sectionButton.checked ? Font.DemiBold : Font.Normal
+                                font.weight: playerSectionButton.checked ? Font.DemiBold : Font.Normal
                                 color: "#26362c"
                             }
                             ToolButton {
-                                visible: index === 3
-                                Layout.preferredWidth: visible ? 28 : 0
-                                Layout.preferredHeight: visible ? 28 : 0
-                                enabled: toggleServerAction.enabled
-                                text: controller.serverController.serverState === "Running" ? "■" : "▶"
-                                Accessible.name: toggleServerAction.text
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                enabled: playerLoader.item
+                                    && playerLoader.item.canTogglePlayback
+                                text: playerLoader.item && playerLoader.item.isPlaying ? "Ⅱ" : "▶"
+                                Accessible.name: playerLoader.item && playerLoader.item.isPlaying
+                                    ? "Pause playback"
+                                    : "Play playback"
                                 ToolTip.visible: hovered
-                                ToolTip.text: toggleServerAction.text
-                                onClicked: toggleServerAction.trigger()
+                                ToolTip.text: Accessible.name
+                                onClicked: playerLoader.item.togglePlayback()
+                                background: Rectangle {
+                                    radius: 4
+                                    color: parent.hovered ? "#c8d8cb" : "transparent"
+                                }
+                                contentItem: Label {
+                                    text: parent.text
+                                    color: "#26362c"
+                                    font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                enabled: playerLoader.item
+                                    && playerLoader.item.canStopPlayback
+                                text: "■"
+                                Accessible.name: "Stop playback"
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                onClicked: playerLoader.item.stopPlayback()
                                 background: Rectangle {
                                     radius: 4
                                     color: parent.hovered ? "#c8d8cb" : "transparent"
@@ -347,148 +442,63 @@ ApplicationWindow {
                                 Layout.preferredWidth: 10
                                 Layout.preferredHeight: 10
                                 radius: 5
-                                color: window.sectionReady(index) ? "#338457" : "#d7a63b"
+                                color: window.sectionReady(4) ? "#338457" : "#d7a63b"
                             }
                         }
                     }
-                }
 
-                Button {
-                    id: playerSectionButton
-                    Layout.fillWidth: true
-                    text: "Player"
-                    checkable: true
-                    checked: window.sectionIndex === 4
-                    highlighted: checked
-                    onClicked: window.sectionIndex = 4
-                    horizontalPadding: 13
-                    height: 46
-                    Accessible.description: window.sectionStatus(4)
-                    ToolTip.visible: hovered
-                    ToolTip.text: window.sectionStatus(4)
-                    background: Rectangle {
-                        radius: 5
-                        color: playerSectionButton.checked
-                            ? "#d8e5da"
-                            : (playerSectionButton.hovered ? "#f0f3f0" : "transparent")
-                        border.color: playerSectionButton.checked ? "#b8cdbd" : "transparent"
-                    }
-                    contentItem: RowLayout {
-                        spacing: 10
-                        Label {
-                            text: "Player"
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignLeft
-                            font.pixelSize: 14
-                            font.weight: playerSectionButton.checked ? Font.DemiBold : Font.Normal
-                            color: "#26362c"
-                        }
-                        ToolButton {
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
-                            enabled: playerLoader.item
-                                && playerLoader.item.canTogglePlayback
-                            text: playerLoader.item && playerLoader.item.isPlaying ? "Ⅱ" : "▶"
-                            Accessible.name: playerLoader.item && playerLoader.item.isPlaying
-                                ? "Pause playback"
-                                : "Play playback"
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
-                            onClicked: playerLoader.item.togglePlayback()
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? "#c8d8cb" : "transparent"
-                            }
-                            contentItem: Label {
-                                text: parent.text
-                                color: "#26362c"
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        ToolButton {
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
-                            enabled: playerLoader.item
-                                && playerLoader.item.canStopPlayback
-                            text: "■"
-                            Accessible.name: "Stop playback"
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
-                            onClicked: playerLoader.item.stopPlayback()
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? "#c8d8cb" : "transparent"
-                            }
-                            contentItem: Label {
-                                text: parent.text
-                                color: "#26362c"
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        Rectangle {
-                            Layout.preferredWidth: 10
-                            Layout.preferredHeight: 10
-                            radius: 5
-                            color: window.sectionReady(4) ? "#338457" : "#d7a63b"
-                        }
-                    }
-                }
-
-                Label {
-                    text: "CHANNELS"
-                    color: "#78857c"
-                    font.pixelSize: 11
-                    font.bold: true
-                    Layout.leftMargin: 10
-                    Layout.topMargin: 8
-                }
-                ListView {
-                    id: playerChannelList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: controller.channelController.channels
-                    delegate: ItemDelegate {
-                        required property var modelData
-                        width: playerChannelList.width
-                        height: 42
-                        enabled: modelData.id !== "Unknown"
-                        onClicked: {
-                            window.selectedChannelId = modelData.id
-                            window.sectionIndex = 4
-                        }
-                        background: Rectangle {
-                            radius: 5
-                            color: window.selectedChannelId === modelData.id
-                                ? "#d8e5da"
-                                : (parent.hovered ? "#f0f3f0" : "transparent")
-                        }
-                        contentItem: RowLayout {
-                            spacing: 8
-                            Label {
-                                text: modelData.lcn === null ? "-" : modelData.lcn
-                                Layout.preferredWidth: 27
-                                color: "#758178"
-                                font.pixelSize: 12
-                            }
-                            Label {
-                                text: modelData.name
-                                Layout.fillWidth: true
-                                color: "#26362c"
-                                elide: Text.ElideRight
-                            }
-                        }
-                    }
                     Label {
-                        anchors.centerIn: parent
-                        visible: playerChannelList.count === 0
-                        text: "No channels loaded"
-                        color: "#849087"
-                        wrapMode: Text.Wrap
+                        text: "CHANNELS"
+                        color: "#78857c"
+                        font.pixelSize: 11
+                        font.bold: true
+                        Layout.leftMargin: 10
+                        Layout.topMargin: 8
+                    }
+                    ListView {
+                        id: playerChannelList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: controller.channelController.channels
+                        delegate: ItemDelegate {
+                            required property var modelData
+                            width: playerChannelList.width
+                            height: 42
+                            enabled: modelData.id !== "Unknown"
+                            onClicked: {
+                                window.selectedChannelId = modelData.id
+                                window.sectionIndex = 4
+                            }
+                            background: Rectangle {
+                                radius: 5
+                                color: window.selectedChannelId === modelData.id
+                                    ? "#d8e5da"
+                                    : (parent.hovered ? "#f0f3f0" : "transparent")
+                            }
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Label {
+                                    text: modelData.lcn === null ? "-" : modelData.lcn
+                                    Layout.preferredWidth: 27
+                                    color: "#758178"
+                                    font.pixelSize: 12
+                                }
+                                Label {
+                                    text: modelData.name
+                                    Layout.fillWidth: true
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+                        Label {
+                            anchors.centerIn: parent
+                            visible: playerChannelList.count === 0
+                            text: "No channels loaded"
+                            color: "#849087"
+                            wrapMode: Text.Wrap
+                        }
                     }
                 }
             }
