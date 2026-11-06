@@ -308,6 +308,14 @@ ApplicationWindow {
     }
 
     Action {
+        id: scanTuningsAction
+        text: "Scan Tunings for Channels"
+        enabled: !window.controller.userDeviceBusy
+            && window.controller.tuningController.tunings.length > 0
+        onTriggered: window.controller.tuningController.scan()
+    }
+
+    Action {
         id: toggleServerAction
         text: window.controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
         shortcut: Qt.platform.os === "osx" ? "Meta+Alt+R" : "Ctrl+Alt+R"
@@ -382,6 +390,10 @@ ApplicationWindow {
             MenuSeparator {}
             MenuItem {
                 action: openScanTableAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                action: scanTuningsAction
             }
             MenuSeparator {}
             MenuItem {
@@ -957,13 +969,6 @@ ApplicationWindow {
                             Label { text: "Tuning"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
                             Label { text: "Choose a scan table or edit individual frequencies"; color: "#68766d" }
                         }
-                        Item { Layout.fillWidth: true }
-                        Button {
-                            text: "Scan services"
-                            highlighted: true
-                            enabled: !window.controller.userDeviceBusy && window.controller.tuningController.tunings.length > 0
-                            onClicked: window.controller.tuningController.scan()
-                        }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     Label { text: "Known Tuning Lists (Scan Tables)"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
@@ -978,8 +983,33 @@ ApplicationWindow {
                             onActivated: window.controller.tuningController.selectScanTable(currentText)
                             onAccepted: window.controller.tuningController.selectScanTable(editText)
                         }
-                        Button { text: "Refresh list"; enabled: !window.controller.generalBusy; onClicked: window.controller.tuningController.refreshKnownTables() }
-                        Button { text: "Open Scan Table..."; onClicked: scanTableDialog.open() }
+                        ToolButton {
+                            icon.source: "icons/refresh-cw.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
+                            Accessible.name: "Refresh list"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            Layout.alignment: Qt.AlignVCenter
+                            enabled: !window.controller.generalBusy
+                            onClicked: window.controller.tuningController.refreshKnownTables()
+                        }
+                        ToolButton {
+                            icon.source: "icons/folder-open.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
+                            Accessible.name: "Open Scan Table..."
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: scanTableDialog.open()
+                        }
                     }
                     Label { text: "Manual Tuning List"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     RowLayout {
@@ -987,7 +1017,12 @@ ApplicationWindow {
                         spacing: 8
                         ColumnLayout {
                             spacing: 2
-                            Label { text: "Frequency (MHz)"; color: "#68766d"; font.pixelSize: 12 }
+                            Label {
+                                id: frequencyLabel
+                                text: "Frequency (MHz)"
+                                color: "#68766d"
+                                font.pixelSize: 12
+                            }
                             TextField {
                                 id: frequencyField
                                 Layout.preferredWidth: 180
@@ -998,7 +1033,12 @@ ApplicationWindow {
                         }
                         ColumnLayout {
                             spacing: 2
-                            Label { text: "Bandwidth (MHz)"; color: "#68766d"; font.pixelSize: 12 }
+                            Label {
+                                id: bandwidthLabel
+                                text: "Bandwidth (MHz)"
+                                color: "#68766d"
+                                font.pixelSize: 12
+                            }
                             ComboBox {
                                 id: bandwidthBox
                                 model: ["6", "7", "8"]
@@ -1006,42 +1046,52 @@ ApplicationWindow {
                                 Layout.preferredWidth: 120
                             }
                         }
-                        ToolButton {
-                            icon.source: window.editingTuningIndex < 0
-                                ? "icons/plus.svg"
-                                : "icons/check.svg"
-                            icon.width: 18
-                            icon.height: 18
-                            icon.color: "#26362c"
-                            Accessible.name: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
-                            Layout.preferredWidth: 36
-                            Layout.preferredHeight: 36
-                            enabled: !window.controller.generalBusy
-                            onClicked: {
-                                if (window.editingTuningIndex < 0)
-                                    window.controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
-                                else
-                                    window.controller.tuningController.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
-                                frequencyField.clear()
-                                window.editingTuningIndex = -1
+                        ColumnLayout {
+                            spacing: 2
+                            Layout.alignment: Qt.AlignVCenter
+                            Item { Layout.preferredHeight: frequencyLabel.implicitHeight }
+                            ToolButton {
+                                icon.source: window.editingTuningIndex < 0
+                                    ? "icons/plus.svg"
+                                    : "icons/check.svg"
+                                icon.width: 18
+                                icon.height: 18
+                                icon.color: "#26362c"
+                                Accessible.name: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                enabled: !window.controller.generalBusy
+                                onClicked: {
+                                    if (window.editingTuningIndex < 0)
+                                        window.controller.tuningController.addTuning(frequencyField.text, bandwidthBox.currentText)
+                                    else
+                                        window.controller.tuningController.updateTuning(window.editingTuningIndex, frequencyField.text, bandwidthBox.currentText)
+                                    frequencyField.clear()
+                                    window.editingTuningIndex = -1
+                                }
                             }
                         }
-                        ToolButton {
-                            icon.source: "icons/undo-2.svg"
-                            icon.width: 18
-                            icon.height: 18
-                            icon.color: "#26362c"
-                            Accessible.name: "Cancel edit"
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
-                            Layout.preferredWidth: 36
-                            Layout.preferredHeight: 36
+                        ColumnLayout {
+                            spacing: 2
+                            Layout.alignment: Qt.AlignVCenter
                             visible: window.editingTuningIndex >= 0
-                            onClicked: {
-                                frequencyField.clear()
-                                window.editingTuningIndex = -1
+                            Item { Layout.preferredHeight: bandwidthLabel.implicitHeight }
+                            ToolButton {
+                                icon.source: "icons/x.svg"
+                                icon.width: 18
+                                icon.height: 18
+                                icon.color: "#26362c"
+                                Accessible.name: "Cancel edit"
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                onClicked: {
+                                    frequencyField.clear()
+                                    window.editingTuningIndex = -1
+                                }
                             }
                         }
                         Item { Layout.fillWidth: true }
