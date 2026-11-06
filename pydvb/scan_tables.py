@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
 from html.parser import HTMLParser
 from pathlib import Path
@@ -19,6 +20,9 @@ from pydvb.driver_api.tuner import (
     SpectralInversion,
     TransmissionMode,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 DVB_T_SCAN_TABLES_URL = [
@@ -141,14 +145,16 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
     """Parse scan-table text into DVB tuning values."""
     tunings: list[DVBTuning] = []
     channel: dict[str, str] = {}
+    channel_line_number = 0
 
     for line_number, line in enumerate(contents.splitlines(), 1):
         stripped = line.strip()
         if stripped == "[CHANNEL]":
-            tuning = _parse_channel(channel, line_number, prefer_auto)
+            tuning = _parse_channel(channel, channel_line_number, prefer_auto)
             if tuning is not None:
                 tunings.append(tuning)
             channel.clear()
+            channel_line_number = line_number
             continue
         if "=" in stripped:
             key, value = (part.strip() for part in stripped.split("=", 1))
@@ -182,7 +188,7 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
             hierarchy=Hierarchy(fields[8].lower()),
         )
         tunings.append(_prefer_auto_values(tuning) if prefer_auto else tuning)
-    tuning = _parse_channel(channel, len(contents.splitlines()) + 1, prefer_auto)
+    tuning = _parse_channel(channel, channel_line_number, prefer_auto)
     if tuning is not None:
         tunings.append(tuning)
     return tunings
@@ -207,7 +213,16 @@ def _parse_channel(
     channel: dict[str, str], line_number: int, prefer_auto: bool
 ) -> DVBTuning | None:
     """Convert one LinuxTV channel block into a DVB tuning value."""
-    if not channel or channel.get("DELIVERY_SYSTEM") != "DVBT":
+    if not channel:
+        return None
+    delivery_system = channel.get("DELIVERY_SYSTEM")
+    if delivery_system != "DVBT":
+        if delivery_system is not None:
+            logger.warning(
+                "Skipping unsupported delivery system %s in scan table at line %d",
+                delivery_system,
+                line_number,
+            )
         return None
     required = (
         "FREQUENCY",

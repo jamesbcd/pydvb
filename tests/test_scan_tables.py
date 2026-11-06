@@ -232,3 +232,31 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
     assert parse_table(scan_path) == [
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
+
+
+def test_scanner_skips_unsupported_delivery_system_and_warns(caplog):
+    contents = (
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBS2\n"
+        "FREQUENCY = 11954000\n"
+        "\n"
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBT\n"
+        "FREQUENCY = 177500000\n"
+        "BANDWIDTH_HZ = 7000000\n"
+        "CODE_RATE_HP = 3/4\n"
+        "CODE_RATE_LP = 1/2\n"
+        "MODULATION = QAM/64\n"
+        "TRANSMISSION_MODE = 8K\n"
+        "GUARD_INTERVAL = 1/32\n"
+        "HIERARCHY = NONE\n"
+    )
+
+    with caplog.at_level("WARNING", logger="pydvb.scan_tables"):
+        tunings = scan_tables_module._parse_table_contents(contents, prefer_auto=True)
+
+    assert tunings == [scan_tables_module.DVBTuning(177_500_000, 7_000_000)]
+    assert len(caplog.records) == 1
+    assert caplog.records[0].getMessage() == (
+        "Skipping unsupported delivery system DVBS2 in scan table at line 1"
+    )
