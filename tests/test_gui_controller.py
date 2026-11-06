@@ -18,6 +18,7 @@ from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
 from pydvb.gui.profile import GuiProfile, save_profile
 from pydvb.service_map import DVBServiceMap
+from pydvb.stream_scanner import DVBService, DVBStreamInfo, DVBTripletID
 from pydvb.usb import USBDeviceID, usb1
 
 
@@ -908,6 +909,24 @@ def test_channel_map_status_is_independent_of_channel_count(qt_application):
 
     assert controller.channelController.hasChannelMap is True
     assert controller.channelController.channels == []
+
+
+def test_channels_include_network_name_from_service_stream(qt_application):
+    controller = AppController()
+    triplet_id = DVBTripletID(1, 2, 3)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=triplet_id.original_network_id,
+            transport_stream_id=triplet_id.transport_stream_id,
+            network_name="Test network",
+            services=(DVBService(service_id=triplet_id.service_id, triplet_id=triplet_id),),
+        ),
+    )
+    controller._profile.service_map = service_map
+
+    assert controller.channelController.channels[0]["networkName"] == "Test network"
 
 
 def test_server_settings_are_exposed_by_server_controller(qt_application):

@@ -30,12 +30,22 @@ class ChannelController(QObject):
         rows: list[dict[str, object]] = []
         for service in service_map.services_sorted():
             triplet_id = service.triplet_id
+            stream_info = (
+                service_map.stream_infos.get(triplet_id)
+                if triplet_id is not None
+                else None
+            )
             rows.append(
                 {
                     "lcn": service.logical_channel_number,
                     "name": service.name or "Unnamed service",
                     "type": getattr(service.service_type, "name", "Other"),
                     "id": triplet_id.dotted() if triplet_id is not None else "Unknown",
+                    "networkName": (
+                        stream_info.network_name or "Unknown Network"
+                        if stream_info is not None
+                        else "Unknown Network"
+                    ),
                 }
             )
         return rows

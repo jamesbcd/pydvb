@@ -1237,7 +1237,7 @@ ApplicationWindow {
                         ColumnLayout {
                             spacing: 3
                             Label { text: "Channels"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
-                            Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
+                            // Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
                         Button { action: scanTuningsAction }
@@ -1310,6 +1310,7 @@ ApplicationWindow {
                             }
                             Label { text: "CHANNEL"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                             Label { text: "DVB ID"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                             Label { text: "TYPE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true; horizontalAlignment: Text.AlignLeft }
                         }
                         ListView {
@@ -1333,6 +1334,7 @@ ApplicationWindow {
                                 }
                                 Label { text: channelDelegate.modelData.name; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
                                 Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
+                                Label { text: channelDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#526158"; elide: Text.ElideRight }
                                 Label {
                                     text: channelDelegate.modelData.type
                                     Layout.fillWidth: true
