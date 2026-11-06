@@ -641,7 +641,7 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     monkeypatch,
     tmp_path,
 ):
-    from pydvb.gui.controllers import tuning as tuning_module
+    from pydvb.gui.controllers import service_map as service_map_module
 
     scan_started = Event()
     finish_scan = Event()
@@ -660,7 +660,7 @@ def test_profile_load_during_scan_discards_stale_scan_results(
         finish_scan.wait(timeout=2)
         return scan_map
 
-    monkeypatch.setattr(tuning_module, "map_from_tunings", scan)
+    monkeypatch.setattr(service_map_module, "map_from_tunings", scan)
     controller = AppController()
     controller.devicesController.autoDiscoverAndInitializeDevices = False
     adapter = type("Adapter", (), {"adapter_index": 0})()
@@ -676,7 +676,7 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     controller._devices = [device]
     controller._select_first_device()
     controller.tuningController.addTuning("177.5", "7")
-    controller.tuningController.scan()
+    controller.channelController.scan()
     assert scan_started.wait(timeout=1)
 
     controller.loadProfile(str(profile_path))

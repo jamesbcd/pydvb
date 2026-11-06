@@ -439,7 +439,7 @@ ApplicationWindow {
         text: "Scan Tuning for Channels"
         enabled: !window.controller.userDeviceBusy
             && window.controller.tuningController.tunings.length > 0
-        onTriggered: window.controller.tuningController.scan()
+        onTriggered: window.controller.channelController.scan()
     }
 
     Action {

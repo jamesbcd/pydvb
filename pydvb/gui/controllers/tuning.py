@@ -1,4 +1,4 @@
-"""Scan-table, tuning, and service-scan controller."""
+"""Scan-table and tuning controller."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.scan_tables import ScanTableResult, known_table_names, parse_table
-from pydvb.service_map import DVBServiceMap, map_from_tunings
 
 if TYPE_CHECKING:
     from ..app_controller import AppController
@@ -126,60 +125,6 @@ class TuningController(QObject):
             )
             app.tuningsChanged.emit()
             app.stateChanged.emit()
-
-    @Slot()
-    def scan(self) -> None:
-        """Scan through the device lane and publish results if inputs stay current."""
-        app = self._app
-        if app._server is not None:
-            app._set_status("Stop the server before scanning")
-            return
-        device = app._selected_device()
-        if device is None or not device.adapters:
-            app._set_status("Initialize a device before scanning")
-            return
-        if not app._profile.tunings:
-            app._set_status("Load a scan table or add a tuning first")
-            return
-        profile = app._profile
-        adapter = app._selected_adapter(device)
-        adapter_index = profile.selected_adapter
-        tunings = profile.tunings
-        app._set_status(f"Scanning {len(tunings)} tuning(s)...")
-
-        def scan() -> DVBServiceMap | None:
-            if (
-                device not in app._devices
-                or adapter_index >= len(device.adapters)
-                or device.adapters[adapter_index] is not adapter
-            ):
-                return None
-            return map_from_tunings(tunings, adapter)
-
-        def complete(service_map: object) -> None:
-            if service_map is None:
-                app._set_status("Selected device is no longer available")
-                return
-            if not isinstance(service_map, DVBServiceMap):
-                raise TypeError("scan worker returned an unexpected result")
-            if (
-                app._profile is not profile
-                or app._selected_device() is not device
-                or app._profile.selected_adapter != adapter_index
-                or app._profile.tunings != tunings
-            ):
-                app._set_status("Scan results discarded because the profile or device changed")
-                return
-            app._profile.service_map = service_map
-            app.channelsChanged.emit()
-            app.stateChanged.emit()
-            app._set_status(f"Scan complete: {len(service_map.services)} service(s) found")
-
-        app._run_task(
-            scan,
-            complete,
-            lane="device",
-        )
 
     def _parse_tuning(self, frequency_mhz: str, bandwidth_mhz: str) -> DVBTuning | None:
         try:
