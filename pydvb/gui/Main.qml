@@ -48,6 +48,20 @@ ApplicationWindow {
         + tableDividerLineHeight
     readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
 
+    function formatDataSent(bytesSent) {
+        let value = Number(bytesSent) / 1024
+        let unit = "KB"
+        if (value >= 1024) {
+            value /= 1024
+            unit = "MB"
+        }
+        if (value >= 1024) {
+            value /= 1024
+            unit = "GB"
+        }
+        return value.toFixed(2) + " " + unit
+    }
+
     component TableFrame: Flickable {
         id: tableFrame
         default property alias contentData: tableContents.data
@@ -1637,31 +1651,42 @@ ApplicationWindow {
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     RowLayout {
                         Layout.fillWidth: true
-                        Label { text: "CONNECTED CLIENTS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Item { Layout.fillWidth: true }
-                        Label { text: window.controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
+                        Label {
+                            text: "CONNECTED CLIENTS: " + window.controller.serverController.serverClients.length
+                            color: "#77847b"
+                            font.pixelSize: 11
+                            font.bold: true
+                        }
                     }
                         TableFrame {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            minimumContentWidth: 620
+                            minimumContentWidth: 665
                             TableHeaderRow {
                                 Label {
-                                    text: "SERVICE"
-                                    Layout.fillWidth: true
+                                    text: "LCN"
+                                    Layout.preferredWidth: 25
+                                    Layout.rightMargin: 10
                                     color: "#77847b"
                                     font.pixelSize: 11
                                     font.bold: true
                                 }
                                 Label {
-                                    text: "ID"
+                                    text: "CHANNEL"
+                                    Layout.preferredWidth: 180
+                                    color: "#77847b"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: "DVB ID"
                                     Layout.preferredWidth: 150
                                     color: "#77847b"
                                     font.pixelSize: 11
                                     font.bold: true
                                 }
                                 Label {
-                                    text: "CLIENT"
+                                    text: "CLIENT ADDRESS"
                                     Layout.preferredWidth: 170
                                     color: "#77847b"
                                     font.pixelSize: 11
@@ -1670,6 +1695,7 @@ ApplicationWindow {
                                 Label {
                                     text: "DATA SENT"
                                     Layout.preferredWidth: 110
+                                    Layout.fillWidth: true
                                     color: "#77847b"
                                     font.pixelSize: 11
                                     font.bold: true
@@ -1682,10 +1708,29 @@ ApplicationWindow {
                                     id: clientDelegate
                                     required property var modelData
                                     width: clientList.width
-                                    Label { text: clientDelegate.modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
+                                    Label {
+                                        text: clientDelegate.modelData.lcn === null
+                                            ? "-"
+                                            : clientDelegate.modelData.lcn
+                                        Layout.preferredWidth: 25
+                                        Layout.rightMargin: 10
+                                        color: "#526158"
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                    Label {
+                                        text: clientDelegate.modelData.service
+                                        Layout.preferredWidth: 180
+                                        color: "#26362c"
+                                        elide: Text.ElideRight
+                                    }
                                     Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
                                     Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
-                                    Label { text: Number(clientDelegate.modelData.bytesSent).toLocaleString() + " B"; Layout.preferredWidth: 110; color: "#526158" }
+                                    Label {
+                                        text: window.formatDataSent(clientDelegate.modelData.bytesSent)
+                                        Layout.preferredWidth: 110
+                                        Layout.fillWidth: true
+                                        color: "#526158"
+                                    }
                                 }
                                 Label {
                                     anchors.centerIn: parent

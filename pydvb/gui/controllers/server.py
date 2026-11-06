@@ -70,15 +70,31 @@ class ServerController(QObject):
         if server is None:
             return []
         client_statuses = getattr(server, "client_statuses", ())
-        return [
+        service_map = self._app._profile.service_map
+        services_by_id = (
             {
+                triplet_id.dotted(): service
+                for triplet_id, service in service_map.services.items()
+            }
+            if service_map is not None
+            else {}
+        )
+        clients = []
+        for client in client_statuses:
+            service_id = getattr(client, "service_id", "")
+            service = services_by_id.get(service_id)
+            clients.append({
                 "peer": getattr(client, "peer", "Unknown client"),
                 "service": getattr(client, "service_name", "Unknown service"),
-                "serviceId": getattr(client, "service_id", ""),
+                "serviceId": service_id,
                 "bytesSent": getattr(client, "bytes_sent", 0),
-            }
-            for client in client_statuses
-        ]
+                "lcn": (
+                    service.logical_channel_number
+                    if service is not None
+                    else None
+                ),
+            })
+        return clients
 
     @Property(str, notify=serverDetailsChanged)
     def serverSignalSummary(self) -> str:

@@ -929,6 +929,42 @@ def test_channels_include_network_name_from_service_stream(qt_application):
     assert controller.channelController.channels[0]["networkName"] == "Test network"
 
 
+def test_server_clients_include_service_lcn(qt_application):
+    from types import SimpleNamespace
+
+    controller = AppController()
+    triplet_id = DVBTripletID(1, 2, 3)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=triplet_id.original_network_id,
+            transport_stream_id=triplet_id.transport_stream_id,
+            services=(
+                DVBService(
+                    service_id=triplet_id.service_id,
+                    triplet_id=triplet_id,
+                    name="Test TV",
+                    logical_channel_number=7,
+                ),
+            ),
+        ),
+    )
+    controller._profile.service_map = service_map
+    controller._server = SimpleNamespace(
+        client_statuses=(
+            SimpleNamespace(
+                peer="127.0.0.1:1234",
+                service_name="Test TV",
+                service_id=triplet_id.dotted(),
+                bytes_sent=1234,
+            ),
+        )
+    )
+
+    assert controller.serverController.serverClients[0]["lcn"] == 7
+
+
 def test_server_settings_are_exposed_by_server_controller(qt_application):
     controller = AppController()
 
