@@ -309,7 +309,7 @@ ApplicationWindow {
 
     Action {
         id: scanTuningsAction
-        text: "Scan Tunings for Channels"
+        text: "Scan Tuning for Channels"
         enabled: !window.controller.userDeviceBusy
             && window.controller.tuningController.tunings.length > 0
         onTriggered: window.controller.tuningController.scan()
@@ -696,7 +696,7 @@ ApplicationWindow {
                             id: playerChannelDelegate
                             required property var modelData
                             width: playerChannelList.width
-                            height: 42
+                            height: 28
                             enabled: modelData.id !== "Unknown"
                             onClicked: {
                                 window.selectedChannelId = modelData.id
@@ -709,12 +709,13 @@ ApplicationWindow {
                                     : (playerChannelDelegate.hovered ? "#f0f3f0" : "transparent")
                             }
                             contentItem: RowLayout {
-                                spacing: 8
+                                spacing: 10
                                 Label {
                                     text: playerChannelDelegate.modelData.lcn === null ? "-" : playerChannelDelegate.modelData.lcn
                                     Layout.preferredWidth: 27
                                     color: "#758178"
                                     font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignRight
                                 }
                                 Label {
                                     text: playerChannelDelegate.modelData.name
@@ -1239,7 +1240,7 @@ ApplicationWindow {
                             Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
-                        Button { text: "Open profile"; onClicked: openProfileDialog.open() }
+                        Button { action: scanTuningsAction }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
                     RowLayout {
