@@ -753,7 +753,8 @@ ApplicationWindow {
                                 Layout.preferredHeight: 10
                                 Layout.rightMargin: 9
                                 radius: 5
-                                color: window.sectionReady(4) ? "#338457" : "#d7a63b"
+                                color: playerLoader.item && playerLoader.item.isConnectedToServer
+                                    ? "#338457" : "#d7a63b"
                             }
                             Label {
                                 text: "Player"

@@ -22,6 +22,12 @@ Item {
     signal playerOnlyModeToggleRequested()
     signal fullScreenRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
+    readonly property bool isConnectedToServer: !playbackStopped
+        && playbackError.length === 0
+        && player.source.toString().length > 0
+        && (player.mediaStatus === MediaPlayer.LoadedMedia
+            || player.mediaStatus === MediaPlayer.BufferingMedia
+            || player.mediaStatus === MediaPlayer.BufferedMedia)
     readonly property string playbackUrl: appController && selectedChannel
         && appController.serverController.streamBaseUrl.length > 0
         ? appController.serverController.streamBaseUrl + "/service/" + selectedChannel.id
