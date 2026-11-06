@@ -156,9 +156,15 @@ class DVBServiceMap:
 
 def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True):
     logger.info("Parsing scan table from %s", scan_table)
-    tunings = parse_table(scan_table, prefer_auto=prefer_auto)
-    logger.info("Parsed %d tunings from %s", len(tunings), scan_table)
-    return map_from_tunings(tunings, adapter)
+    result = parse_table(scan_table, prefer_auto=prefer_auto)
+    logger.info(
+        "Parsed %d tunings from %s (%d skipped, %d failed)",
+        len(result.tunings),
+        scan_table,
+        result.skipped_blocks,
+        result.failed_blocks,
+    )
+    return map_from_tunings(result.tunings, adapter)
 
 def map_from_tunings(
     tunings: Collection[DVBTuning],

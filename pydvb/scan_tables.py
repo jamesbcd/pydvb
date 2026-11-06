@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -35,6 +36,15 @@ DVB_T_SCAN_TABLE_URL = [
     "https://raw.githubusercontent.com/tvheadend/dtv-scan-tables/"
     "tvheadend/dvb-t/{name}",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class ScanTableResult:
+    """Parsed DVB tunings and counts of skipped or failed scan-table blocks."""
+
+    tunings: list[DVBTuning]
+    skipped_blocks: int = 0
+    failed_blocks: int = 0
 
 
 class _ScanTableLinkParser(HTMLParser):
@@ -102,7 +112,7 @@ def _parse_table_names(response: Response) -> list[str]:
     return sorted(parser.file_names)
 
 
-def parse_table(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
+def parse_table(scan: str | Path, prefer_auto: bool = True) -> ScanTableResult:
     """Read a local or known LinuxTV/mirror scan table into DVB tuning values.
 
     Args:
@@ -110,16 +120,15 @@ def parse_table(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
         prefer_auto: Whether to prefer 'auto' values when parsing.
 
     Returns:
-        A list of DVBTuning objects representing the parsed scan table.
+        Parsed tunings and the number of skipped and failed blocks.
     """
     scan_path = Path(scan)
     if scan_path.is_file():
-        return _parse_table_contents(
-            scan_path.read_text(encoding="utf-8"), prefer_auto
-        )
+        return _parse_table_contents(scan_path.read_text(encoding="utf-8"), prefer_auto)
 
     last_error: requests.RequestException | None = None
     successful_response = False
+    last_result = ScanTableResult([])
     for url in DVB_T_SCAN_TABLE_URL:
         try:
             response = _get_from_urls([url.format(name=scan_path.name)])
@@ -132,27 +141,46 @@ def parse_table(scan: str | Path, prefer_auto: bool = True) -> list[DVBTuning]:
             contents = response.content.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        tunings = _parse_table_contents(contents, prefer_auto)
-        if tunings:
-            return tunings
+        last_result = _parse_table_contents(contents, prefer_auto)
+        if last_result.tunings:
+            return last_result
 
     if last_error is not None and not successful_response:
         raise last_error
-    return []
+    return last_result
 
 
-def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
+def _parse_table_contents(contents: str, prefer_auto: bool) -> ScanTableResult:
     """Parse scan-table text into DVB tuning values."""
     tunings: list[DVBTuning] = []
     channel: dict[str, str] = {}
     channel_line_number = 0
+    skipped_blocks = 0
+    failed_blocks = 0
+
+    def parse_channel_block() -> None:
+        nonlocal skipped_blocks, failed_blocks
+        if not channel:
+            return
+        try:
+            tuning = _parse_channel(channel, channel_line_number, prefer_auto)
+        except ValueError as error:
+            logger.warning(
+                "Could not parse scan entry on line %d: %s",
+                channel_line_number,
+                error,
+            )
+            failed_blocks += 1
+            return
+        if tuning is None:
+            skipped_blocks += 1
+        else:
+            tunings.append(tuning)
 
     for line_number, line in enumerate(contents.splitlines(), 1):
         stripped = line.strip()
         if stripped == "[CHANNEL]":
-            tuning = _parse_channel(channel, channel_line_number, prefer_auto)
-            if tuning is not None:
-                tunings.append(tuning)
+            parse_channel_block()
             channel.clear()
             channel_line_number = line_number
             continue
@@ -175,23 +203,28 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
         fields = line.split()
         if not fields or fields[0] != "T":
             continue
-        if len(fields) != 9:
-            raise ValueError(f"invalid scan entry on line {line_number}")
-        tuning = DVBTuning(
-            frequency_hz=int(fields[1]),
-            bandwidth_hz=_parse_bandwidth(fields[2]),
-            code_rate_hp=CodeRate(fields[3].lower()),
-            code_rate_lp=CodeRate(fields[4].lower()),
-            modulation=Modulation(fields[5].lower()),
-            transmission_mode=TransmissionMode(fields[6].lower()),
-            guard_interval=GuardInterval(fields[7].lower()),
-            hierarchy=Hierarchy(fields[8].lower()),
-        )
+        try:
+            if len(fields) != 9:
+                raise ValueError(f"invalid scan entry on line {line_number}")
+            tuning = DVBTuning(
+                frequency_hz=int(fields[1]),
+                bandwidth_hz=_parse_bandwidth(fields[2]),
+                code_rate_hp=CodeRate(fields[3].lower()),
+                code_rate_lp=CodeRate(fields[4].lower()),
+                modulation=Modulation(fields[5].lower()),
+                transmission_mode=TransmissionMode(fields[6].lower()),
+                guard_interval=GuardInterval(fields[7].lower()),
+                hierarchy=Hierarchy(fields[8].lower()),
+            )
+        except ValueError as error:
+            logger.warning(
+                "Could not parse scan entry on line %d: %s", line_number, error
+            )
+            failed_blocks += 1
+            continue
         tunings.append(_prefer_auto_values(tuning) if prefer_auto else tuning)
-    tuning = _parse_channel(channel, channel_line_number, prefer_auto)
-    if tuning is not None:
-        tunings.append(tuning)
-    return tunings
+    parse_channel_block()
+    return ScanTableResult(tunings, skipped_blocks, failed_blocks)
 
 
 def _get_from_urls(urls: Iterable[str]) -> Response:

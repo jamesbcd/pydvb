@@ -81,7 +81,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_table(scan_path, prefer_auto=False) == [
+    assert parse_table(scan_path, prefer_auto=False).tunings == [
         scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -99,7 +99,7 @@ def test_scanner_parses_local_scan_table(tmp_path):
             modulation=Modulation.QPSK,
         ),
     ]
-    assert parse_table(scan_path) == [
+    assert parse_table(scan_path).tunings == [
         scan_tables_module.DVBTuning(177_500_000, 7_000_000),
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
@@ -122,10 +122,10 @@ def test_scanner_parses_inversion_from_linux_tv_channel_block(tmp_path):
         encoding="utf-8",
     )
 
-    tuning = parse_table(scan_path, prefer_auto=False)[0]
+    tuning = parse_table(scan_path, prefer_auto=False).tunings[0]
 
     assert tuning.inversion is SpectralInversion.OFF
-    assert parse_table(scan_path)[0].inversion is SpectralInversion.AUTO
+    assert parse_table(scan_path).tunings[0].inversion is SpectralInversion.AUTO
 
 
 def test_scanner_parses_known_scan_table(monkeypatch):
@@ -138,7 +138,7 @@ def test_scanner_parses_known_scan_table(monkeypatch):
     requests_get = lambda url, timeout: Response()
     monkeypatch.setattr(scan_tables_module.requests, "get", requests_get)
 
-    assert parse_table("au-Brisbane", prefer_auto=False) == [
+    assert parse_table("au-Brisbane", prefer_auto=False).tunings == [
         scan_tables_module.DVBTuning(
             177_500_000,
             7_000_000,
@@ -168,7 +168,7 @@ def test_scanner_parses_known_table_from_mirror_when_linux_tv_fails(monkeypatch)
 
     monkeypatch.setattr(scan_tables_module.requests, "get", get)
 
-    assert parse_table("au-Brisbane") == [
+    assert parse_table("au-Brisbane").tunings == [
         scan_tables_module.DVBTuning(177_500_000, 7_000_000)
     ]
 
@@ -192,7 +192,7 @@ def test_scanner_parses_known_table_from_mirror_when_linux_tv_returns_html(monke
 
     monkeypatch.setattr(scan_tables_module.requests, "get", get)
 
-    assert parse_table("au-Brisbane") == [
+    assert parse_table("au-Brisbane").tunings == [
         scan_tables_module.DVBTuning(177_500_000, 7_000_000)
     ]
     assert calls == [
@@ -217,7 +217,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
         encoding="utf-8",
     )
 
-    assert parse_table(scan_path, prefer_auto=False) == [
+    assert parse_table(scan_path, prefer_auto=False).tunings == [
         scan_tables_module.DVBTuning(
             226_500_000,
             7_000_000,
@@ -229,7 +229,7 @@ def test_scanner_parses_channel_scan_table_format(tmp_path):
             CodeRate.NONE,
         )
     ]
-    assert parse_table(scan_path) == [
+    assert parse_table(scan_path).tunings == [
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
 
@@ -253,10 +253,55 @@ def test_scanner_skips_unsupported_delivery_system_and_warns(caplog):
     )
 
     with caplog.at_level("WARNING", logger="pydvb.scan_tables"):
-        tunings = scan_tables_module._parse_table_contents(contents, prefer_auto=True)
+        result = scan_tables_module._parse_table_contents(contents, prefer_auto=True)
 
-    assert tunings == [scan_tables_module.DVBTuning(177_500_000, 7_000_000)]
+    assert result.tunings == [scan_tables_module.DVBTuning(177_500_000, 7_000_000)]
+    assert result.skipped_blocks == 1
+    assert result.failed_blocks == 0
     assert len(caplog.records) == 1
     assert caplog.records[0].getMessage() == (
         "Skipping unsupported delivery system DVBS2 in scan table at line 1"
     )
+
+
+def test_scanner_returns_stats_and_continues_after_invalid_blocks(tmp_path, caplog):
+    scan_path = tmp_path / "mixed"
+    scan_path.write_text(
+        "T 177500000 7MHz invalid\n"
+        "T 226500000 7000kHz AUTO AUTO QPSK 2K AUTO AUTO\n"
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBS2\n"
+        "FREQUENCY = 11954000\n"
+        "\n"
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBT\n"
+        "FREQUENCY = invalid\n"
+        "\n"
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBT\n"
+        "FREQUENCY = 177500000\n"
+        "BANDWIDTH_HZ = 7000000\n"
+        "CODE_RATE_HP = 3/4\n"
+        "CODE_RATE_LP = 1/2\n"
+        "MODULATION = QAM/64\n"
+        "TRANSMISSION_MODE = 8K\n"
+        "GUARD_INTERVAL = 1/32\n"
+        "HIERARCHY = NONE\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING", logger="pydvb.scan_tables"):
+        result = parse_table(scan_path)
+
+    assert result.tunings == [
+        scan_tables_module.DVBTuning(226_500_000, 7_000_000),
+        scan_tables_module.DVBTuning(177_500_000, 7_000_000),
+    ]
+    assert result.skipped_blocks == 1
+    assert result.failed_blocks == 2
+    assert len(caplog.records) == 3
+    messages = [record.message for record in caplog.records]
+    assert any(
+        "Skipping unsupported delivery system DVBS2" in message for message in messages
+    )
+    assert sum("Could not parse scan entry" in message for message in messages) == 2

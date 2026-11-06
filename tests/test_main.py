@@ -7,6 +7,7 @@ import pytest
 
 from pydvb import __main__
 from pydvb.driver_api.tuner import DVBTuning
+from pydvb.scan_tables import ScanTableResult
 from pydvb.stream_scanner import (
     DVBDoubletID,
     DVBService,
@@ -699,12 +700,12 @@ def test_known_scan_tables_prints_names_without_opening_device(monkeypatch, caps
 
 def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
     calls = []
-    tunings = ["tuning"]
+    result = ScanTableResult([DVBTuning(177_500_000, 7_000_000)])
 
     monkeypatch.setattr(
         __main__,
         "parse_table",
-        lambda scan: (calls.append(scan) or tunings),
+        lambda scan: (calls.append(scan) or result),
     )
     monkeypatch.setattr(
         __main__,
@@ -715,7 +716,9 @@ def test_parse_scan_prints_tunings_without_opening_device(monkeypatch, capsys):
 
     assert __main__.main() == 0
     assert calls == ["au-Brisbane"]
-    assert capsys.readouterr().out == "['tuning']\n"
+    assert capsys.readouterr().out == (
+        f"{__main__.pprint.pformat(result, underscore_numbers=True)}\n"
+    )
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from pydvb.driver_api.tuner import DVBTuning
-from pydvb.scan_tables import known_table_names, parse_table
+from pydvb.scan_tables import ScanTableResult, known_table_names, parse_table
 from pydvb.service_map import DVBServiceMap, map_from_tunings
 
 if TYPE_CHECKING:
@@ -62,16 +62,24 @@ class TuningController(QObject):
             return
         app = self._app
 
-        def complete(tunings: object) -> None:
-            parsed = tuple(tunings)  # type: ignore[arg-type]
+        def complete(result: object) -> None:
+            if not isinstance(result, ScanTableResult):
+                raise TypeError("scan-table parser returned an invalid result")
+            parsed = tuple(result.tunings)
             if not parsed:
-                app._set_status(f"No DVB-T tunings found in {name}")
+                app._set_status(
+                    f"No DVB-T tunings found in {name} "
+                    f"({result.skipped_blocks} skipped, {result.failed_blocks} failed)"
+                )
                 return
             app._profile.scan_table = name
             app._profile.tunings = parsed
             app.tuningsChanged.emit()
             app.stateChanged.emit()
-            app._set_status(f"Loaded {len(parsed)} tunings from {name}")
+            app._set_status(
+                f"Loaded {len(parsed)} tunings from {name} "
+                f"({result.skipped_blocks} skipped, {result.failed_blocks} failed)"
+            )
 
         app._set_status(f"Parsing scan table {name}...")
         app._run_task(lambda: parse_table(name), complete, lane="general")

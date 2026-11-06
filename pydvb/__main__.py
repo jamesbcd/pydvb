@@ -304,10 +304,16 @@ def _run_device(device: DVBDevice, args) -> int:
     if args.command == "tune" or args.load_services is None:
         if args.use_table is not None:
             logger.info("Parsing scan table from %s", args.use_table)
-            tunings = parse_table(args.use_table, prefer_auto=True)
+            scan_result = parse_table(args.use_table, prefer_auto=True)
+            tunings = scan_result.tunings
+            logger.info(
+                "Parsed %d tunings (%d skipped, %d failed)",
+                len(tunings),
+                scan_result.skipped_blocks,
+                scan_result.failed_blocks,
+            )
             if not tunings:
                 raise ValueError(f"scan table contains no DVB-T channels: {args.use_table}")
-            logger.info("Parsed %d tunings", len(tunings))
         else:
             tunings = [DVBTuning(frequency_hz=args.tuning[0], bandwidth_hz=args.tuning[1])]
 
