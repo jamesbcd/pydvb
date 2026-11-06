@@ -1007,7 +1007,12 @@ ApplicationWindow {
                             }
                         }
                         ToolButton {
-                            text: window.editingTuningIndex < 0 ? "+" : "✓"
+                            icon.source: window.editingTuningIndex < 0
+                                ? "icons/plus.svg"
+                                : "icons/check.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
                             Accessible.name: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
@@ -1024,7 +1029,10 @@ ApplicationWindow {
                             }
                         }
                         ToolButton {
-                            text: "↶"
+                            icon.source: "icons/undo-2.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
                             Accessible.name: "Cancel edit"
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
@@ -1111,7 +1119,10 @@ ApplicationWindow {
                                     Layout.minimumWidth: 90
                                 }
                                 ToolButton {
-                                    text: "✎"
+                                    icon.source: "icons/pencil.svg"
+                                    icon.width: 18
+                                    icon.height: 18
+                                    icon.color: "#26362c"
                                     Accessible.name: "Edit tuning"
                                     ToolTip.visible: hovered
                                     ToolTip.text: Accessible.name
@@ -1125,7 +1136,10 @@ ApplicationWindow {
                                     }
                                 }
                                 ToolButton {
-                                    text: "×"
+                                    icon.source: "icons/x.svg"
+                                    icon.width: 18
+                                    icon.height: 18
+                                    icon.color: "#26362c"
                                     Accessible.name: "Remove tuning"
                                     ToolTip.visible: hovered
                                     ToolTip.text: Accessible.name

@@ -26,7 +26,7 @@ pydvb-gui = "pydvb.gui.__main__:main"
 include = ["pydvb*"]
 
 [tool.setuptools.package-data]
-"pydvb.gui" = ["*.qml"]
+"pydvb.gui" = ["*.qml", "icons/*.svg", "icons/LICENSE.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
