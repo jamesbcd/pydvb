@@ -12,6 +12,7 @@ Item {
     property string selectedChannelId: ""
     property string playbackError: ""
     property bool hasVideoFrame: false
+    property bool mediaSourceReady: false
     property bool playerControlsVisible: false
     property bool playerOnlyMode: false
     property bool fullScreenMode: false
@@ -36,7 +37,8 @@ Item {
         && player.mediaStatus !== MediaPlayer.LoadingMedia
     readonly property bool canStopPlayback: player.playbackState !== MediaPlayer.StoppedState
     readonly property bool waitingForVideoFrame:
-        player.source.toString().length > 0 && !hasVideoFrame
+        player.source.toString().length > 0
+        && (!mediaSourceReady || !hasVideoFrame)
     readonly property var selectableChannels: appController
         ? appController.channelController.channels.filter(function(channel) {
             return channel.id !== "Unknown"
@@ -99,8 +101,20 @@ Item {
         }
         return null
     }
+    readonly property string selectedChannelDisplayName: {
+        if (!root.selectedChannel)
+            return ""
+        return root.selectedChannel.lcn === null
+            ? root.selectedChannel.name
+            : "channel " + root.selectedChannel.lcn + ": " + root.selectedChannel.name
+    }
 
-    onSelectedChannelIdChanged: root.playbackStopped = false
+    onSelectedChannelIdChanged: {
+        root.playbackStopped = false
+        root.hasVideoFrame = false
+        root.mediaSourceReady = false
+        root.playbackError = ""
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -169,9 +183,12 @@ Item {
 
             Rectangle {
                 anchors.left: parent.left
-                anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: 18
+                width: Math.min(
+                    overlayInfo.implicitWidth + 20,
+                    Math.max(0, parent.width - 36)
+                )
                 height: overlayInfo.implicitHeight + 20
                 radius: 8
                 color: "#b8141a16"
@@ -182,33 +199,23 @@ Item {
                     anchors.margins: 10
                     spacing: 12
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        Label {
-                            visible: !!root.selectedChannel
-                            text: root.selectedChannel
-                                ? (root.selectedChannel.lcn === null
-                                    ? "-" : root.selectedChannel.lcn)
-                                : ""
-                            color: "#eaf1ec"
-                            font.pixelSize: root.overlayTextPixelSize
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: root.selectedChannel
-                                ? root.selectedChannel.name
-                                : "Select a channel from the sidebar"
-                            color: "#eaf1ec"
-                            font.pixelSize: root.overlayTextPixelSize
-                            elide: Text.ElideRight
-                        }
-                    }
                     Label {
-                        text: root.playbackStateText()
+                        visible: !!root.selectedChannel
+                        text: root.selectedChannel
+                            ? (root.selectedChannel.lcn === null
+                                ? "-" : root.selectedChannel.lcn)
+                            : ""
                         color: "#eaf1ec"
                         font.pixelSize: root.overlayTextPixelSize
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.selectedChannel
+                            ? root.selectedChannel.name
+                            : "Select a channel from the sidebar"
+                        color: "#eaf1ec"
+                        font.pixelSize: root.overlayTextPixelSize
+                        elide: Text.ElideRight
                     }
                 }
             }
@@ -431,11 +438,19 @@ Item {
 
         onSourceChanged: {
             root.hasVideoFrame = false
+            root.mediaSourceReady = false
             root.playbackError = ""
             if (source.toString().length > 0)
                 play()
             else
                 stop()
+        }
+        onMediaStatusChanged: {
+            if (mediaStatus === MediaPlayer.LoadingMedia)
+                root.mediaSourceReady = false
+            else if (mediaStatus === MediaPlayer.LoadedMedia
+                     || mediaStatus === MediaPlayer.BufferedMedia)
+                root.mediaSourceReady = true
         }
         onErrorOccurred: function(error, errorString) {
             root.playbackError = errorString
@@ -446,20 +461,9 @@ Item {
         target: videoOutputItem.videoSink
 
         function onVideoFrameChanged(frame) {
-            if (root.hasVideoFrame)
+            if (!root.mediaSourceReady || root.hasVideoFrame)
                 return
             root.hasVideoFrame = true
-        }
-    }
-
-    function playbackStateText() {
-        switch (player.playbackState) {
-        case MediaPlayer.PlayingState:
-            return "Playing"
-        case MediaPlayer.PausedState:
-            return "Paused"
-        default:
-            return "Stopped"
         }
     }
 
@@ -472,22 +476,24 @@ Item {
         if (root.playbackStopped)
             return "Playback stopped."
         if (player.source.toString().length === 0)
-            return "Preparing " + root.selectedChannel.name + "..."
+            return "Preparing " + root.selectedChannelDisplayName + "..."
+        if (!root.mediaSourceReady)
+            return "Connecting to " + root.selectedChannelDisplayName + "..."
         switch (player.mediaStatus) {
         case MediaPlayer.LoadingMedia:
-            return "Connecting to " + root.selectedChannel.name + "..."
+            return "Connecting to " + root.selectedChannelDisplayName + "..."
         case MediaPlayer.BufferingMedia:
-            return "Buffering " + root.selectedChannel.name + "..."
+            return "Buffering " + root.selectedChannelDisplayName + "..."
         case MediaPlayer.StalledMedia:
-            return "Waiting for data from " + root.selectedChannel.name + "..."
+            return "Waiting for data from " + root.selectedChannelDisplayName + "..."
         case MediaPlayer.LoadedMedia:
-            return "Starting " + root.selectedChannel.name + "..."
+            return "Starting " + root.selectedChannelDisplayName + "..."
         case MediaPlayer.BufferedMedia:
-            return "Waiting for video from " + root.selectedChannel.name + "..."
+            return "Waiting for video from " + root.selectedChannelDisplayName + "..."
         default:
             return player.playbackState === MediaPlayer.PlayingState
-                ? "Waiting for video from " + root.selectedChannel.name + "..."
-                : "Preparing " + root.selectedChannel.name + "..."
+                ? "Waiting for video from " + root.selectedChannelDisplayName + "..."
+                : "Preparing " + root.selectedChannelDisplayName + "..."
         }
     }
 }
