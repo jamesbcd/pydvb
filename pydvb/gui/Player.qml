@@ -119,7 +119,8 @@ Item {
                 || (root.waitingForVideoFrame && root.playbackError.length === 0)
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
-                palette.highlight: "#ffffff"
+                palette.text: "#ffffff" // Used by Fusion style?
+                palette.highlight: "#ffffff" // Used by other styles?
                 running: root.waitingForVideoFrame
                     && root.playbackError.length === 0
                 visible: running
