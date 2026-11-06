@@ -30,18 +30,12 @@ class ChannelController(QObject):
         rows: list[dict[str, object]] = []
         for service in service_map.services_sorted():
             triplet_id = service.triplet_id
-            tuning = service_map.tunings.get(triplet_id) if triplet_id is not None else None
             rows.append(
                 {
                     "lcn": service.logical_channel_number,
                     "name": service.name or "Unnamed service",
                     "type": getattr(service.service_type, "name", "Other"),
                     "id": triplet_id.dotted() if triplet_id is not None else "Unknown",
-                    "frequency": (
-                        f"{tuning.frequency_hz / 1_000_000:.3f} MHz"
-                        if tuning is not None
-                        else "Unknown"
-                    ),
                 }
             )
         return rows
@@ -71,4 +65,3 @@ class ChannelController(QObject):
                     }
                 )
         return rows
-

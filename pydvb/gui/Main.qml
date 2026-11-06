@@ -753,7 +753,7 @@ ApplicationWindow {
             Item {
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 18
+                    spacing: 8
                     RowLayout {
                         Layout.fillWidth: true
                         ColumnLayout {
@@ -1243,76 +1243,109 @@ ApplicationWindow {
                         Button { action: scanTuningsAction }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                    }
-                    ListView {
-                        id: stationStreamList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(contentHeight, 200)
-                        clip: true
-                        model: window.controller.channelController.stationStreams
-                        delegate: RowLayout {
-                            id: stationStreamDelegate
-                            required property var modelData
-                            width: stationStreamList.width
-                            height: 40
-                            Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
-                            Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
-                            Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
-                            Label { text: stationStreamDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
-                            Label {
-                                text: stationStreamDelegate.modelData.bandwidth
-                                Layout.fillWidth: true
-                                color: "#526158"
-                            }
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 0
+                        spacing: 4
+                        Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                         }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: stationStreamList.count === 0
-                            text: "No streams scanned or loaded"
-                            color: "#849087"
+                        ListView {
+                            id: stationStreamList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 0
+                            clip: true
+                            model: window.controller.channelController.stationStreams
+                            delegate: RowLayout {
+                                id: stationStreamDelegate
+                                required property var modelData
+                                width: stationStreamList.width
+                                height: 32
+                                Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
+                                Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
+                                Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
+                                Label { text: stationStreamDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
+                                Label {
+                                    text: stationStreamDelegate.modelData.bandwidth
+                                    Layout.fillWidth: true
+                                    color: "#526158"
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: stationStreamList.count === 0
+                                text: "No streams scanned or loaded"
+                                color: "#849087"
+                            }
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Label { text: "LCN"; Layout.preferredWidth: 70; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "SERVICE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "TYPE"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        Label { text: "DVB ID"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                    }
-                    ListView {
-                        id: channelList
+                    ColumnLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        clip: true
-                        model: window.controller.channelController.channels
-                        delegate: RowLayout {
-                            id: channelDelegate
-                            required property var modelData
-                            width: channelList.width
-                            height: 50
-                            Label { text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn; Layout.preferredWidth: 70; color: "#526158" }
-                            Label { text: channelDelegate.modelData.name; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
-                            Label { text: channelDelegate.modelData.type; Layout.preferredWidth: 150; color: "#526158" }
-                            Label { text: channelDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
-                            Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#e1e6e2" }
+                        Layout.minimumHeight: 0
+                        spacing: 4
+                        Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                text: "LCN"
+                                Layout.preferredWidth: 25
+                                Layout.rightMargin: 10
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                                horizontalAlignment: Text.AlignLeft
+                                ToolTip.visible: lcnHeaderHover.hovered
+                                ToolTip.text: "Logical Channel Number"
+                                HoverHandler { id: lcnHeaderHover }
+                            }
+                            Label { text: "CHANNEL"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "DVB ID"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                            Label { text: "TYPE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true; horizontalAlignment: Text.AlignLeft }
                         }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: channelList.count === 0
-                            text: "No services scanned or loaded"
-                            color: "#849087"
+                        ListView {
+                            id: channelList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 0
+                            clip: true
+                            model: window.controller.channelController.channels
+                            delegate: RowLayout {
+                                id: channelDelegate
+                                required property var modelData
+                                width: channelList.width
+                                height: 32
+                                Label {
+                                    text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn
+                                    Layout.preferredWidth: 25
+                                    Layout.rightMargin: 10
+                                    color: "#526158"
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                                Label { text: channelDelegate.modelData.name; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
+                                Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
+                                Label {
+                                    text: channelDelegate.modelData.type
+                                    Layout.fillWidth: true
+                                    color: "#526158"
+                                    horizontalAlignment: Text.AlignLeft
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: channelList.count === 0
+                                text: "No services scanned or loaded"
+                                color: "#849087"
+                            }
                         }
                     }
                 }
