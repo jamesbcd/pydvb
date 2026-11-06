@@ -59,6 +59,10 @@ ApplicationWindow {
             value /= 1024
             unit = "GB"
         }
+        if (value >= 1024) {
+            value /= 1024
+            unit = "TB"
+        }
         return value.toFixed(2) + " " + unit
     }
 
@@ -1604,47 +1608,86 @@ ApplicationWindow {
                         Label { text: window.controller.serverController.serverState; color: "#526158" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    Label { text: "Listener"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
+                    Label { text: "Listening Address"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     RowLayout {
                         Layout.fillWidth: true
-                        TextField {
-                            id: hostField
-                            Layout.fillWidth: true
-                            text: window.controller.serverController.serverHost
-                            placeholderText: "Bind address"
-                            enabled: window.controller.serverController.serverState !== "Running"
-                            onEditingFinished: window.controller.serverController.serverHost = text
-                        }
-                        TextField {
-                            id: portField
-                            Layout.preferredWidth: 130
-                            text: window.controller.serverController.serverPort.toString()
-                            placeholderText: "Port"
-                            validator: IntValidator { bottom: 0; top: 65535 }
-                            enabled: window.controller.serverController.serverState !== "Running"
-                            onEditingFinished: {
-                                if (acceptableInput)
-                                    window.controller.serverController.serverPort = Number(text)
+                        ColumnLayout {
+                            spacing: 4
+                            Label { text: "Host"; color: "#526158"; font.pixelSize: 12 }
+                            TextField {
+                                id: hostField
+                                Layout.preferredWidth: 260
+                                text: window.controller.serverController.serverHost
+                                placeholderText: "Bind address"
+                                enabled: window.controller.serverController.serverState !== "Running"
+                                onEditingFinished: window.controller.serverController.serverHost = text
                             }
                         }
-                        Button {
-                            text: "Start"
-                            highlighted: true
+                        ColumnLayout {
+                            spacing: 4
+                            Label { text: "Port"; color: "#526158"; font.pixelSize: 12 }
+                            TextField {
+                                id: portField
+                                Layout.preferredWidth: 130
+                                text: window.controller.serverController.serverPort.toString()
+                                placeholderText: "Port"
+                                validator: IntValidator { bottom: 0; top: 65535 }
+                                enabled: window.controller.serverController.serverState !== "Running"
+                                onEditingFinished: {
+                                    if (acceptableInput)
+                                        window.controller.serverController.serverPort = Number(text)
+                                }
+                            }
+                        }
+                        ToolButton {
+                            Layout.alignment: Qt.AlignBottom
+                            icon.source: "icons/play.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
+                            Accessible.name: "Start server"
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Start server"
                             enabled: window.controller.serverController.serverState === "Stopped" && !window.controller.userDeviceBusy
                             onClicked: window.controller.serverController.startServer()
                         }
-                        Button {
-                            text: "Stop"
+                        ToolButton {
+                            Layout.alignment: Qt.AlignBottom
+                            icon.source: "icons/square.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
+                            Accessible.name: "Stop server"
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Stop server"
                             enabled: window.controller.serverController.serverState === "Running" && !window.controller.userDeviceBusy
                             onClicked: window.controller.serverController.stopServer()
                         }
                     }
                     Label { text: "Playlist URL"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
-                    TextField {
-                        Layout.fillWidth: true
-                        readOnly: true
-                        text: window.controller.serverController.playlistUrl || "Start the server to expose the playlist"
-                        selectByMouse: true
+                    RowLayout {
+                        TextField {
+                            id: playlistUrlField
+                            Layout.preferredWidth: 420
+                            readOnly: true
+                            text: window.controller.serverController.playlistUrl || "Start the server to expose the playlist"
+                            selectByMouse: true
+                        }
+                        ToolButton {
+                            icon.source: "icons/clipboard.svg"
+                            icon.width: 18
+                            icon.height: 18
+                            icon.color: "#26362c"
+                            Accessible.name: "Copy playlist URL"
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Copy playlist URL"
+                            enabled: window.controller.serverController.playlistUrl.length > 0
+                            onClicked: {
+                                playlistUrlField.selectAll()
+                                playlistUrlField.copy()
+                                playlistUrlField.deselect()
+                            }
+                        }
                     }
                     Label { text: "Adapter signal"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     Label { text: window.controller.serverController.serverSignalSummary; color: "#526158"; wrapMode: Text.Wrap }
@@ -1658,94 +1701,87 @@ ApplicationWindow {
                             font.bold: true
                         }
                     }
-                        TableFrame {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            minimumContentWidth: 665
-                            TableHeaderRow {
-                                Label {
-                                    text: "LCN"
-                                    Layout.preferredWidth: 25
-                                    Layout.rightMargin: 10
-                                    color: "#77847b"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-                                Label {
-                                    text: "CHANNEL"
-                                    Layout.preferredWidth: 180
-                                    color: "#77847b"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-                                Label {
-                                    text: "DVB ID"
-                                    Layout.preferredWidth: 150
-                                    color: "#77847b"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-                                Label {
-                                    text: "CLIENT ADDRESS"
-                                    Layout.preferredWidth: 170
-                                    color: "#77847b"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-                                Label {
-                                    text: "DATA SENT"
-                                    Layout.preferredWidth: 110
-                                    Layout.fillWidth: true
-                                    color: "#77847b"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
+                    TableFrame {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        minimumContentWidth: 665
+                        TableHeaderRow {
+                            Label {
+                                text: "LCN"
+                                Layout.preferredWidth: 25
+                                Layout.rightMargin: 10
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
                             }
-                            TableBody {
-                                id: clientList
-                                model: window.controller.serverController.serverClients
-                                delegate: TableRow {
-                                    id: clientDelegate
-                                    required property var modelData
-                                    width: clientList.width
-                                    Label {
-                                        text: clientDelegate.modelData.lcn === null
-                                            ? "-"
-                                            : clientDelegate.modelData.lcn
-                                        Layout.preferredWidth: 25
-                                        Layout.rightMargin: 10
-                                        color: "#526158"
-                                        horizontalAlignment: Text.AlignRight
-                                    }
-                                    Label {
-                                        text: clientDelegate.modelData.service
-                                        Layout.preferredWidth: 180
-                                        color: "#26362c"
-                                        elide: Text.ElideRight
-                                    }
-                                    Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
-                                    Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
-                                    Label {
-                                        text: window.formatDataSent(clientDelegate.modelData.bytesSent)
-                                        Layout.preferredWidth: 110
-                                        Layout.fillWidth: true
-                                        color: "#526158"
-                                    }
-                                }
-                                Label {
-                                    anchors.centerIn: parent
-                                    visible: clientList.count === 0
-                                    text: "No connected clients"
-                                    color: "#849087"
-                                }
+                            Label {
+                                text: "CHANNEL"
+                                Layout.preferredWidth: 180
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "DVB ID"
+                                Layout.preferredWidth: 150
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "CLIENT ADDRESS"
+                                Layout.preferredWidth: 170
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "DATA SENT"
+                                Layout.preferredWidth: 110
+                                Layout.fillWidth: true
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
                             }
                         }
-                    Label {
-                        Layout.fillWidth: true
-                        text: "Binding beyond localhost makes streams reachable on your network."
-                        color: "#947044"
-                        font.pixelSize: 12
-                        wrapMode: Text.Wrap
+                        TableBody {
+                            id: clientList
+                            model: window.controller.serverController.serverClients
+                            delegate: TableRow {
+                                id: clientDelegate
+                                required property var modelData
+                                width: clientList.width
+                                Label {
+                                    text: clientDelegate.modelData.lcn === null
+                                        ? "-"
+                                        : clientDelegate.modelData.lcn
+                                    Layout.preferredWidth: 25
+                                    Layout.rightMargin: 10
+                                    color: "#526158"
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                                Label {
+                                    text: clientDelegate.modelData.service
+                                    Layout.preferredWidth: 180
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
+                                Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
+                                Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
+                                Label {
+                                    text: window.formatDataSent(clientDelegate.modelData.bytesSent)
+                                    Layout.preferredWidth: 110
+                                    Layout.fillWidth: true
+                                    color: "#526158"
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: clientList.count === 0
+                                text: "No connected clients"
+                                color: "#849087"
+                            }
+                        }
                     }
                 }
             }
