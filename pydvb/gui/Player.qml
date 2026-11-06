@@ -16,6 +16,9 @@ Item {
     property bool playerOnlyMode: false
     property bool fullScreenMode: false
     property bool playbackStopped: false
+    readonly property int overlayControlSize: 56
+    readonly property int overlayIconSize: 24
+    readonly property int overlayTextPixelSize: 18
     signal playerOnlyModeToggleRequested()
     signal fullScreenRequested()
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
@@ -95,10 +98,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "#111512"
+        color: "#000000"
 
         VideoOutput {
-            id: videoOutput
+            id: videoOutputItem
             anchors.fill: parent
             fillMode: VideoOutput.PreserveAspectFit
         }
@@ -110,6 +113,7 @@ Item {
                 || (root.waitingForVideoFrame && root.playbackError.length === 0)
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
+                palette.highlight: "#ffffff"
                 running: root.waitingForVideoFrame
                     && root.playbackError.length === 0
                 visible: running
@@ -171,18 +175,33 @@ Item {
                     anchors.margins: 10
                     spacing: 12
 
-                    Label {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: root.selectedChannel
-                            ? root.selectedChannel.name
-                            : "Select a channel from the sidebar"
-                        color: "#eaf1ec"
-                        font.pixelSize: 18
-                        elide: Text.ElideRight
+                        spacing: 16
+
+                        Label {
+                            visible: !!root.selectedChannel
+                            text: root.selectedChannel
+                                ? (root.selectedChannel.lcn === null
+                                    ? "-" : root.selectedChannel.lcn)
+                                : ""
+                            color: "#eaf1ec"
+                            font.pixelSize: root.overlayTextPixelSize
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.selectedChannel
+                                ? root.selectedChannel.name
+                                : "Select a channel from the sidebar"
+                            color: "#eaf1ec"
+                            font.pixelSize: root.overlayTextPixelSize
+                            elide: Text.ElideRight
+                        }
                     }
                     Label {
                         text: root.playbackStateText()
                         color: "#eaf1ec"
+                        font.pixelSize: root.overlayTextPixelSize
                     }
                 }
             }
@@ -203,8 +222,8 @@ Item {
 
                     Button {
                         id: playerOnlyModeButton
-                        width: 56
-                        height: 56
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         Accessible.name: root.playerOnlyMode
                             ? "Restore window layout"
@@ -219,51 +238,23 @@ Item {
                                 : (playerOnlyModeButton.hovered ? "#f5faf6" : "#eaf1ec")
                         }
                         contentItem: Item {
-                            implicitWidth: 26
-                            implicitHeight: 22
-                            Item {
+                            Image {
+                                source: "icons/video-panel-left.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
                                 anchors.centerIn: parent
-                                width: 26
-                                height: 22
-
-                                Rectangle {
-                                    x: 1
-                                    y: 1
-                                    width: 24
-                                    height: 20
-                                    radius: 2
-                                    color: "transparent"
-                                    border.color: "#17251e"
-                                    border.width: 1.5
-                                }
-                                Rectangle {
-                                    x: 8
-                                    y: 3
-                                    width: 1.5
-                                    height: 16
-                                    color: "#17251e"
-                                }
-                                Repeater {
-                                    model: 3
-                                    Rectangle {
-                                        x: 3
-                                        y: 6 + index * 4
-                                        width: 3
-                                        height: 1.5
-                                        color: "#17251e"
-                                    }
-                                }
                             }
                         }
                     }
 
                     Button {
                         id: previousChannelButton
-                        width: 56
-                        height: 56
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         enabled: root.selectableChannels.length > 0
-                        text: "‹"
                         Accessible.name: "Previous channel"
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
@@ -275,22 +266,24 @@ Item {
                                 : (previousChannelButton.hovered ? "#f5faf6" : "#eaf1ec")
                             opacity: previousChannelButton.enabled ? 1 : 0.55
                         }
-                        contentItem: Label {
-                            text: previousChannelButton.text
-                            color: "#17251e"
-                            font.pixelSize: 38
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        contentItem: Item {
+                            Image {
+                                source: "icons/video-skip-back.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
+                                anchors.centerIn: parent
+                            }
                         }
                     }
 
                     Button {
                         id: playbackButton
-                        width: 68
-                        height: 68
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         enabled: root.canTogglePlayback
-                        text: root.isPlaying ? "Ⅱ" : "▶"
                         Accessible.name: root.isPlaying ? "Pause playback" : "Play playback"
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
@@ -302,22 +295,26 @@ Item {
                                 : (playbackButton.hovered ? "#f5faf6" : "#eaf1ec")
                             opacity: playbackButton.enabled ? 1 : 0.55
                         }
-                        contentItem: Label {
-                            text: playbackButton.text
-                            color: "#17251e"
-                            font.pixelSize: 36
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        contentItem: Item {
+                            Image {
+                                source: root.isPlaying
+                                    ? "icons/video-pause.svg"
+                                    : "icons/video-play.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
+                                anchors.centerIn: parent
+                            }
                         }
                     }
 
                     Button {
                         id: stopButton
-                        width: 68
-                        height: 68
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         enabled: root.canStopPlayback
-                        text: "■"
                         Accessible.name: "Stop playback"
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
@@ -329,22 +326,24 @@ Item {
                                 : (stopButton.hovered ? "#f5faf6" : "#eaf1ec")
                             opacity: stopButton.enabled ? 1 : 0.55
                         }
-                        contentItem: Label {
-                            text: stopButton.text
-                            color: "#17251e"
-                            font.pixelSize: 30
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        contentItem: Item {
+                            Image {
+                                source: "icons/video-stop.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
+                                anchors.centerIn: parent
+                            }
                         }
                     }
 
                     Button {
                         id: nextChannelButton
-                        width: 56
-                        height: 56
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         enabled: root.selectableChannels.length > 0
-                        text: "›"
                         Accessible.name: "Next channel"
                         ToolTip.visible: hovered
                         ToolTip.text: Accessible.name
@@ -356,19 +355,22 @@ Item {
                                 : (nextChannelButton.hovered ? "#f5faf6" : "#eaf1ec")
                             opacity: nextChannelButton.enabled ? 1 : 0.55
                         }
-                        contentItem: Label {
-                            text: nextChannelButton.text
-                            color: "#17251e"
-                            font.pixelSize: 38
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        contentItem: Item {
+                            Image {
+                                source: "icons/video-skip-forward.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
+                                anchors.centerIn: parent
+                            }
                         }
                     }
 
                     Button {
                         id: fullScreenButton
-                        width: 56
-                        height: 56
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
                         padding: 0
                         Accessible.name: root.fullScreenMode
                             ? "Exit full screen"
@@ -383,33 +385,15 @@ Item {
                                 : (fullScreenButton.hovered ? "#f5faf6" : "#eaf1ec")
                         }
                         contentItem: Item {
-                            implicitWidth: 26
-                            implicitHeight: 26
-                            Item {
+                            Image {
+                                source: root.fullScreenMode
+                                    ? "icons/video-minimize.svg"
+                                    : "icons/video-maximize.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
                                 anchors.centerIn: parent
-                                width: 22
-                                height: 22
-
-                                Repeater {
-                                    model: [
-                                        { x: 1, y: 1, horizontal: true },
-                                        { x: 1, y: 1, horizontal: false },
-                                        { x: 16, y: 1, horizontal: true },
-                                        { x: 21, y: 1, horizontal: false },
-                                        { x: 1, y: 21, horizontal: true },
-                                        { x: 1, y: 16, horizontal: false },
-                                        { x: 16, y: 21, horizontal: true },
-                                        { x: 21, y: 16, horizontal: false }
-                                    ]
-                                    Rectangle {
-                                        required property var modelData
-                                        x: modelData.x
-                                        y: modelData.y
-                                        width: modelData.horizontal ? 5 : 1.5
-                                        height: modelData.horizontal ? 1.5 : 5
-                                        color: "#17251e"
-                                    }
-                                }
                             }
                         }
                     }
@@ -436,7 +420,7 @@ Item {
         id: player
         source: root.playbackStopped ? "" : root.playbackUrl
         audioOutput: AudioOutput {}
-        videoOutput: videoOutput
+        videoOutput: videoOutputItem
 
         onSourceChanged: {
             root.hasVideoFrame = false
@@ -452,7 +436,7 @@ Item {
     }
 
     Connections {
-        target: videoOutput.videoSink
+        target: videoOutputItem.videoSink
 
         function onVideoFrameChanged(frame) {
             if (root.hasVideoFrame)
