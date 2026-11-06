@@ -31,6 +31,9 @@ ApplicationWindow {
     property real deviceStateColumnWidth: 120
     property real adapterNameColumnWidth: 210
     property real adapterStateColumnWidth: 140
+    property real tuningIndexColumnWidth: 48
+    property real tuningFrequencyColumnWidth: 180
+    property real tuningBandwidthColumnWidth: 110
     readonly property var sectionNames: ["Devices", "Tuning", "Stations", "Server"]
 
     component ResizableHeaderCell: Item {
@@ -44,6 +47,7 @@ ApplicationWindow {
         Layout.fillWidth: false
         Layout.preferredWidth: columnWidth
         Layout.minimumWidth: minimumColumnWidth
+        Layout.maximumWidth: columnWidth
 
         Label {
             anchors.fill: parent
@@ -962,6 +966,7 @@ ApplicationWindow {
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
+                    Label { text: "Known Tuning Lists (Scan Tables)"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     RowLayout {
                         Layout.fillWidth: true
                         ComboBox {
@@ -973,22 +978,41 @@ ApplicationWindow {
                             onActivated: window.controller.tuningController.selectScanTable(currentText)
                             onAccepted: window.controller.tuningController.selectScanTable(editText)
                         }
-                        Button { text: "Refresh tables"; enabled: !window.controller.generalBusy; onClicked: window.controller.tuningController.refreshKnownTables() }
-                        Button { text: "Open Scan Table"; onClicked: scanTableDialog.open() }
+                        Button { text: "Refresh list"; enabled: !window.controller.generalBusy; onClicked: window.controller.tuningController.refreshKnownTables() }
+                        Button { text: "Open Scan Table..."; onClicked: scanTableDialog.open() }
                     }
-                    Label { text: "Manual tuning"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
+                    Label { text: "Manual Tuning List"; font.pixelSize: 16; font.bold: true; color: "#26362c" }
                     RowLayout {
                         Layout.fillWidth: true
-                        TextField {
-                            id: frequencyField
-                            Layout.preferredWidth: 210
-                            placeholderText: "Frequency in MHz"
-                            validator: DoubleValidator { bottom: 1; decimals: 6 }
-                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        spacing: 8
+                        ColumnLayout {
+                            spacing: 2
+                            Label { text: "Frequency (MHz)"; color: "#68766d"; font.pixelSize: 12 }
+                            TextField {
+                                id: frequencyField
+                                Layout.preferredWidth: 180
+                                placeholderText: "Frequency"
+                                validator: DoubleValidator { bottom: 1; decimals: 6 }
+                                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            }
                         }
-                        ComboBox { id: bandwidthBox; model: ["6", "7", "8"]; currentIndex: 1; Layout.preferredWidth: 120 }
-                        Button {
-                            text: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
+                        ColumnLayout {
+                            spacing: 2
+                            Label { text: "Bandwidth (MHz)"; color: "#68766d"; font.pixelSize: 12 }
+                            ComboBox {
+                                id: bandwidthBox
+                                model: ["6", "7", "8"]
+                                currentIndex: 1
+                                Layout.preferredWidth: 120
+                            }
+                        }
+                        ToolButton {
+                            text: window.editingTuningIndex < 0 ? "+" : "✓"
+                            Accessible.name: window.editingTuningIndex < 0 ? "Add tuning" : "Save tuning"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
                             enabled: !window.controller.generalBusy
                             onClicked: {
                                 if (window.editingTuningIndex < 0)
@@ -999,8 +1023,13 @@ ApplicationWindow {
                                 window.editingTuningIndex = -1
                             }
                         }
-                        Button {
-                            text: "Cancel edit"
+                        ToolButton {
+                            text: "↶"
+                            Accessible.name: "Cancel edit"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
                             visible: window.editingTuningIndex >= 0
                             onClicked: {
                                 frequencyField.clear()
@@ -1011,31 +1040,101 @@ ApplicationWindow {
                         Label { text: window.controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 8
+                        Layout.rightMargin: 8
+                        spacing: 0
+                        ResizableHeaderCell {
+                            title: "ITEM"
+                            columnWidth: window.tuningIndexColumnWidth
+                            minimumColumnWidth: 40
+                            onResized: window.tuningIndexColumnWidth = newWidth
+                        }
+                        ResizableHeaderCell {
+                            title: "FREQUENCY"
+                            columnWidth: window.tuningFrequencyColumnWidth
+                            minimumColumnWidth: 130
+                            onResized: window.tuningFrequencyColumnWidth = newWidth
+                        }
+                        ResizableHeaderCell {
+                            title: "BANDWIDTH"
+                            columnWidth: window.tuningBandwidthColumnWidth
+                            minimumColumnWidth: 90
+                            onResized: window.tuningBandwidthColumnWidth = newWidth
+                        }
+                        Label {
+                            text: "ACTIONS"
+                            Layout.fillWidth: true
+                            color: "#77847b"
+                            font.pixelSize: 11
+                            font.bold: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
                     ListView {
                         id: tuningList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         model: window.controller.tuningController.tunings
-                        delegate: RowLayout {
+                        delegate: ItemDelegate {
                             id: tuningDelegate
                             required property var modelData
                             width: tuningList.width
                             height: 48
-                            Label { text: String(tuningDelegate.modelData.index + 1).padStart(2, "0"); color: "#829087"; Layout.preferredWidth: 48 }
-                            Label { text: Number(tuningDelegate.modelData.frequency).toFixed(3) + " MHz"; color: "#26362c"; Layout.fillWidth: true }
-                            Label { text: tuningDelegate.modelData.bandwidth + " MHz"; color: "#526158"; Layout.preferredWidth: 100 }
-                            ToolButton {
-                                text: "Edit"
-                                enabled: !window.controller.generalBusy
-                                onClicked: {
-                                    window.editingTuningIndex = tuningDelegate.modelData.index
-                                    frequencyField.text = Number(tuningDelegate.modelData.frequency).toFixed(3)
-                                    bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(tuningDelegate.modelData.bandwidth)))
-                                }
+                            leftPadding: 8
+                            rightPadding: 8
+                            topPadding: 0
+                            bottomPadding: 0
+                            background: Rectangle {
+                                color: tuningDelegate.hovered ? "#f8faf8" : "transparent"
                             }
-                            ToolButton { text: "Remove"; onClicked: window.controller.tuningController.removeTuning(tuningDelegate.modelData.index) }
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#e1e6e2" }
+                            contentItem: RowLayout {
+                                spacing: 0
+                                Label {
+                                    text: String(tuningDelegate.modelData.index + 1).padStart(2, "0")
+                                    color: "#829087"
+                                    Layout.preferredWidth: window.tuningIndexColumnWidth
+                                    Layout.minimumWidth: 40
+                                }
+                                Label {
+                                    text: Number(tuningDelegate.modelData.frequency).toFixed(3) + " MHz"
+                                    color: "#26362c"
+                                    Layout.preferredWidth: window.tuningFrequencyColumnWidth
+                                    Layout.minimumWidth: 130
+                                }
+                                Label {
+                                    text: tuningDelegate.modelData.bandwidth + " MHz"
+                                    color: "#526158"
+                                    Layout.preferredWidth: window.tuningBandwidthColumnWidth
+                                    Layout.minimumWidth: 90
+                                }
+                                ToolButton {
+                                    text: "✎"
+                                    Accessible.name: "Edit tuning"
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: Accessible.name
+                                    Layout.preferredWidth: 36
+                                    Layout.minimumWidth: 36
+                                    enabled: !window.controller.generalBusy
+                                    onClicked: {
+                                        window.editingTuningIndex = tuningDelegate.modelData.index
+                                        frequencyField.text = Number(tuningDelegate.modelData.frequency).toFixed(3)
+                                        bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(tuningDelegate.modelData.bandwidth)))
+                                    }
+                                }
+                                ToolButton {
+                                    text: "×"
+                                    Accessible.name: "Remove tuning"
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: Accessible.name
+                                    Layout.preferredWidth: 36
+                                    Layout.minimumWidth: 36
+                                    onClicked: window.controller.tuningController.removeTuning(tuningDelegate.modelData.index)
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
                         }
                         Label {
                             anchors.centerIn: parent
