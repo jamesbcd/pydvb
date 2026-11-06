@@ -34,7 +34,7 @@ ApplicationWindow {
     property real tuningIndexColumnWidth: 48
     property real tuningFrequencyColumnWidth: 180
     property real tuningBandwidthColumnWidth: 110
-    readonly property var sectionNames: ["Devices", "Tuning", "Stations", "Server"]
+    readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
 
     component ResizableHeaderCell: Item {
         id: headerCell
@@ -493,10 +493,10 @@ ApplicationWindow {
                     anchors.bottomMargin: 18
                     anchors.leftMargin: 14
                     anchors.rightMargin: 14
-                    spacing: 5
+                    spacing: 0
 
                     Label {
-                        text: "WORKSPACE"
+                        text: "CONFIGURE"
                         color: "#78857c"
                         font.pixelSize: 11
                         font.bold: true
@@ -511,6 +511,9 @@ ApplicationWindow {
                             required property int index
                             required property string modelData
                             Layout.fillWidth: true
+                            Layout.minimumHeight: 32
+                            Layout.preferredHeight: 32
+                            Layout.maximumHeight: 32
                             text: modelData
                             checkable: true
                             checked: window.sectionIndex === index
@@ -520,7 +523,6 @@ ApplicationWindow {
                                 window.playerOnlyMode = false
                             }
                             horizontalPadding: 13
-                            height: 46
                             Accessible.description: window.sectionStatus(index)
                             ToolTip.visible: hovered
                             ToolTip.text: window.sectionStatus(index)
@@ -531,6 +533,12 @@ ApplicationWindow {
                             }
                             contentItem: RowLayout {
                                 spacing: 10
+                                Rectangle {
+                                    Layout.preferredWidth: 10
+                                    Layout.preferredHeight: 10
+                                    radius: 5
+                                    color: window.sectionReady(sectionButton.index) ? "#338457" : "#d7a63b"
+                                }
                                 Label {
                                     text: sectionButton.modelData
                                     Layout.fillWidth: true
@@ -545,7 +553,6 @@ ApplicationWindow {
                                     Layout.preferredWidth: visible ? 28 : 0
                                     Layout.preferredHeight: visible ? 28 : 0
                                     enabled: toggleServerAction.enabled
-                                    text: window.controller.serverController.serverState === "Running" ? "■" : "▶"
                                     Accessible.name: toggleServerAction.text
                                     ToolTip.visible: hovered
                                     ToolTip.text: toggleServerAction.text
@@ -554,19 +561,19 @@ ApplicationWindow {
                                         radius: 4
                                         color: sectionServerButton.hovered ? "#c8d8cb" : "transparent"
                                     }
-                                    contentItem: Label {
-                                        text: sectionServerButton.text
-                                        color: "#26362c"
-                                        font.pixelSize: 12
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
+                                    contentItem: Item {
+                                        Image {
+                                            width: 12
+                                            height: 12
+                                            anchors.centerIn: parent
+                                            source: window.controller.serverController.serverState === "Running"
+                                                ? "icons/square.svg"
+                                                : "icons/play.svg"
+                                            sourceSize.width: 12
+                                            sourceSize.height: 12
+                                            fillMode: Image.PreserveAspectFit
+                                        }
                                     }
-                                }
-                                Rectangle {
-                                    Layout.preferredWidth: 10
-                                    Layout.preferredHeight: 10
-                                    radius: 5
-                                    color: window.sectionReady(sectionButton.index) ? "#338457" : "#d7a63b"
                                 }
                             }
                         }
@@ -575,13 +582,15 @@ ApplicationWindow {
                     Button {
                         id: playerSectionButton
                         Layout.fillWidth: true
+                        Layout.minimumHeight: 32
+                        Layout.preferredHeight: 32
+                        Layout.maximumHeight: 32
                         text: "Player"
                         checkable: true
                         checked: window.sectionIndex === 4
                         highlighted: checked
                         onClicked: window.sectionIndex = 4
                         horizontalPadding: 13
-                        height: 46
                         Accessible.description: window.sectionStatus(4)
                         ToolTip.visible: hovered
                         ToolTip.text: window.sectionStatus(4)
@@ -594,6 +603,13 @@ ApplicationWindow {
                         }
                         contentItem: RowLayout {
                             spacing: 1
+                            Rectangle {
+                                Layout.preferredWidth: 10
+                                Layout.preferredHeight: 10
+                                Layout.rightMargin: 9
+                                radius: 5
+                                color: window.sectionReady(4) ? "#338457" : "#d7a63b"
+                            }
                             Label {
                                 text: "Player"
                                 Layout.fillWidth: true
@@ -609,7 +625,6 @@ ApplicationWindow {
                                 Layout.leftMargin: 9
                                 enabled: playerLoader.item
                                     && playerLoader.item.canTogglePlayback
-                                text: playerLoader.item && playerLoader.item.isPlaying ? "Ⅱ" : "▶"
                                 Accessible.name: playerLoader.item && playerLoader.item.isPlaying
                                     ? "Pause playback"
                                     : "Play playback"
@@ -620,12 +635,18 @@ ApplicationWindow {
                                     radius: 4
                                     color: playerToggleButton.hovered ? "#c8d8cb" : "transparent"
                                 }
-                                contentItem: Label {
-                                    text: playerToggleButton.text
-                                    color: "#26362c"
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                contentItem: Item {
+                                    Image {
+                                        width: 12
+                                        height: 12
+                                        anchors.centerIn: parent
+                                        source: playerLoader.item && playerLoader.item.isPlaying
+                                            ? "icons/pause.svg"
+                                            : "icons/play.svg"
+                                        sourceSize.width: 12
+                                        sourceSize.height: 12
+                                        fillMode: Image.PreserveAspectFit
+                                    }
                                 }
                             }
                             ToolButton {
@@ -634,7 +655,6 @@ ApplicationWindow {
                                 Layout.preferredHeight: 28
                                 enabled: playerLoader.item
                                     && playerLoader.item.canStopPlayback
-                                text: "■"
                                 Accessible.name: "Stop playback"
                                 ToolTip.visible: hovered
                                 ToolTip.text: Accessible.name
@@ -643,31 +663,28 @@ ApplicationWindow {
                                     radius: 4
                                     color: playerStopButton.hovered ? "#c8d8cb" : "transparent"
                                 }
-                                contentItem: Label {
-                                    text: playerStopButton.text
-                                    color: "#26362c"
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                contentItem: Item {
+                                    Image {
+                                        width: 12
+                                        height: 12
+                                        anchors.centerIn: parent
+                                        source: "icons/square.svg"
+                                        sourceSize.width: 12
+                                        sourceSize.height: 12
+                                        fillMode: Image.PreserveAspectFit
+                                    }
                                 }
-                            }
-                            Rectangle {
-                                Layout.preferredWidth: 10
-                                Layout.preferredHeight: 10
-                                Layout.leftMargin: 9
-                                radius: 5
-                                color: window.sectionReady(4) ? "#338457" : "#d7a63b"
                             }
                         }
                     }
 
                     Label {
-                        text: "CHANNELS"
+                        text: "WATCH"
                         color: "#78857c"
                         font.pixelSize: 11
                         font.bold: true
                         Layout.leftMargin: 10
-                        Layout.topMargin: 8
+                        Layout.topMargin: 15
                     }
                     ListView {
                         id: playerChannelList
@@ -1218,7 +1235,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         ColumnLayout {
                             spacing: 3
-                            Label { text: "Stations"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
+                            Label { text: "Channels"; font.pixelSize: 26; font.bold: true; color: "#17251e" }
                             Label { text: window.controller.channelController.channels.length + " service(s) in the current map"; color: "#68766d" }
                         }
                         Item { Layout.fillWidth: true }
