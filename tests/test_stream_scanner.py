@@ -141,6 +141,33 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.current_event.text == "Live"
 
 
+def test_scanner_scan_reports_service_count_increases():
+    first_pat = section(
+        0x00,
+        b"\x12\x34\xC1\x00\x00"
+        + b"\x00\x01\xE1\x00",
+    )
+    second_pat = section(
+        0x00,
+        b"\x12\x34\xC1\x00\x00"
+        + b"\x00\x01\xE1\x00"
+        + b"\x00\x02\xE1\x01",
+    )
+    counts = []
+
+    result = DVBScanner().scan(
+        (
+            table_packet(0x0000, first_pat),
+            table_packet(0x0000, first_pat),
+            table_packet(0x0000, second_pat),
+        ),
+        on_service_count=counts.append,
+    )
+
+    assert counts == [1, 2]
+    assert len(result.services) == 2
+
+
 def test_result_sets_triplet_ids_for_each_service():
     pat = section(
         0x00,
@@ -311,5 +338,4 @@ def test_scanner_reads_a_started_adapter_until_complete():
     result = scanner.scan(adapter)
 
     assert result.complete
-
 

@@ -98,6 +98,9 @@ class ChannelController(QObject):
         tunings = profile.tunings
         app._set_status(f"Scanning {len(tunings)} tuning(s)...")
 
+        def on_service_count(count: int) -> None:
+            app._set_status(f"Scanning {len(tunings)} tuning(s)... {count} service(s) found")
+
         def scan() -> DVBServiceMap | None:
             if (
                 device not in app._devices
@@ -105,7 +108,7 @@ class ChannelController(QObject):
                 or device.adapters[adapter_index] is not adapter
             ):
                 return None
-            return map_from_tunings(tunings, adapter)
+            return map_from_tunings(tunings, adapter, on_service_count=on_service_count)
 
         def complete(service_map: object) -> None:
             if service_map is None:

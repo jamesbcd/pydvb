@@ -154,7 +154,18 @@ class DVBServiceMap:
         return instance
 
 
-def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool = True):
+def map_from_scan(
+    scan_table: str | Path,
+    adapter: DVBAdapter,
+    prefer_auto: bool = True,
+    *,
+    on_service_count: Callable[[int], None] | None = None,
+):
+    """Parse a scan table and build a service map.
+
+    ``on_service_count`` receives cumulative service discoveries across tunings,
+    counting services found on multiple tunings once per tuning.
+    """
     logger.info("Parsing scan table from %s", scan_table)
     result = parse_table(scan_table, prefer_auto=prefer_auto)
     logger.info(
@@ -164,20 +175,31 @@ def map_from_scan(scan_table: str | Path, adapter: DVBAdapter, prefer_auto: bool
         result.skipped_blocks,
         result.failed_blocks,
     )
-    return map_from_tunings(result.tunings, adapter)
+    if on_service_count is None:
+        return map_from_tunings(result.tunings, adapter)
+    return map_from_tunings(
+        result.tunings,
+        adapter,
+        on_service_count=on_service_count,
+    )
 
 def map_from_tunings(
     tunings: Collection[DVBTuning],
     adapter: DVBAdapter,
     *,
     on_scan_error: Callable[[Exception], None] | None = None,
+    on_service_count: Callable[[int], None] | None = None,
 ) -> DVBServiceMap:
     """Tune each channel, scan locked streams, and put the adapter to sleep.
 
     ``on_scan_error`` is called with a scanning exception before stream cleanup,
     allowing callers to collect diagnostics while the frontend remains awake.
+    ``on_service_count`` receives the cumulative number of services discovered
+    across the scanned tunings. Services found on multiple tunings are counted
+    once per tuning.
     """
     channel_map = DVBServiceMap()
+    total_service_count = 0
 
     try:
         for index, tuning in enumerate(tunings):
@@ -197,8 +219,21 @@ def map_from_tunings(
                     logger.info("Starting stream")
                     adapter.start()
                     logger.info("Scanning for services")
-                    stream_info = scanner.scan(adapter, policy=ScanPolicy.ALL_SERVICE_METADATA)
+                    if on_service_count is None:
+                        stream_info = scanner.scan(
+                            adapter,
+                            policy=ScanPolicy.ALL_SERVICE_METADATA,
+                        )
+                    else:
+                        stream_info = scanner.scan(
+                            adapter,
+                            policy=ScanPolicy.ALL_SERVICE_METADATA,
+                            on_service_count=lambda count: on_service_count(
+                                total_service_count + count
+                            ),
+                        )
                     channel_map.add_stream_info(tuning, stream_info)
+                    total_service_count += len(stream_info.services)
                 except Exception as error:
                     if on_scan_error is not None:
                         try:

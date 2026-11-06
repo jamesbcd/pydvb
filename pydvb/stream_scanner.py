@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from collections.abc import Iterable
 from enum import Enum, IntEnum, auto
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
 
@@ -413,6 +413,8 @@ class DVBScanner:
         source: Iterable[bytes] | DVBAdapter,
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
         read_timeout_ms: int = 2000,
+        *,
+        on_service_count: Callable[[int], None] | None = None,
     ) -> DVBStreamInfo:
         """Consume a transport-stream source and return the accumulated result.
 
@@ -420,6 +422,8 @@ class DVBScanner:
             source: An iterable of byte chunks, or a started DVB adapter.
             policy: The completion policy that determines when scanning stops.
             read_timeout_ms: The timeout in milliseconds for adapter reads.
+            on_service_count: Called with the number of discovered services after
+                a chunk adds one or more services.
 
         Returns:
             A DVBStreamInfo object containing the accumulated scan results.
@@ -431,14 +435,22 @@ class DVBScanner:
         """
         if read_timeout_ms < 0:
             raise ValueError("read_timeout_ms must be non-negative")
+
+        def feed_and_report(data: bytes) -> None:
+            previous_count = len(self._services)
+            self.feed(data)
+            service_count = len(self._services)
+            if on_service_count is not None and service_count > previous_count:
+                on_service_count(service_count)
+
         if isinstance(source, DVBAdapter):
             if not source.demuxer.running:
                 raise RuntimeError("start the adapter before scanning")
             while not self.complete(policy):
-                self.feed(source.read_stream(read_timeout_ms))
+                feed_and_report(source.read_stream(read_timeout_ms))
         else:
             for chunk in source:
-                self.feed(chunk)
+                feed_and_report(chunk)
                 if self.complete(policy):
                     break
         return self.result(policy)

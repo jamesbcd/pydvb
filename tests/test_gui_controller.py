@@ -655,7 +655,7 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     profile_path = tmp_path / "profile.json"
     save_profile(profile, profile_path)
 
-    def scan(_tunings, _adapter):
+    def scan(_tunings, _adapter, **kwargs):
         scan_started.set()
         finish_scan.wait(timeout=2)
         return scan_map
