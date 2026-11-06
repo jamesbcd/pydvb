@@ -34,7 +34,30 @@ ApplicationWindow {
     property real tuningIndexColumnWidth: 48
     property real tuningFrequencyColumnWidth: 180
     property real tuningBandwidthColumnWidth: 110
+    property real deviceTablesSplitRatio: 0.5
+    property real stationStreamsSplitRatio: 0.5
     readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
+
+    component HorizontalTableView: Flickable {
+        id: horizontalTable
+        default property alias contentData: tableContents.data
+        property real minimumContentWidth: 0
+        contentWidth: Math.max(width, minimumContentWidth)
+        contentHeight: height
+        flickableDirection: Flickable.HorizontalFlick
+        boundsBehavior: Flickable.StopAtBounds
+        clip: true
+        ScrollBar.horizontal: ScrollBar {
+            policy: ScrollBar.AsNeeded
+        }
+
+        ColumnLayout {
+            id: tableContents
+            width: horizontalTable.contentWidth
+            height: horizontalTable.height
+            spacing: 0
+        }
+    }
 
     component ResizableHeaderCell: Item {
         id: headerCell
@@ -685,6 +708,7 @@ ApplicationWindow {
                         font.bold: true
                         Layout.leftMargin: 10
                         Layout.topMargin: 15
+                        Layout.bottomMargin: 10
                     }
                     ListView {
                         id: playerChannelList
@@ -786,190 +810,285 @@ ApplicationWindow {
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 8
-                        Layout.rightMargin: 8
-                        spacing: 0
-                        ResizableHeaderCell {
-                            title: "DEVICE"
-                            columnWidth: window.deviceNameColumnWidth
-                            minimumColumnWidth: 130
-                            onResized: window.deviceNameColumnWidth = newWidth
-                        }
-                        ResizableHeaderCell {
-                            title: "STATE"
-                            columnWidth: window.deviceStateColumnWidth
-                            minimumColumnWidth: 70
-                            onResized: window.deviceStateColumnWidth = newWidth
-                        }
-                        Label {
-                            text: "SIGNAL"
-                            Layout.fillWidth: true
-                            color: "#77847b"
-                            font.pixelSize: 11
-                            font.bold: true
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        Item { Layout.preferredWidth: 36 }
-                    }
-                    ListView {
-                        id: deviceList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 270
-                        Layout.minimumHeight: 160
-                        clip: true
-                        model: window.controller.devicesController.devices
-                        delegate: ItemDelegate {
-                            id: deviceDelegate
-                            required property var modelData
-                            width: deviceList.width
-                            height: 76
-                            leftPadding: 8
-                            rightPadding: 8
-                            topPadding: 0
-                            bottomPadding: 0
-                            onClicked: window.controller.devicesController.selectDevice(modelData.deviceIndex)
-                            background: Rectangle {
-                                color: deviceDelegate.modelData.selected ? "#e4eee6" : (deviceDelegate.hovered ? "#f8faf8" : "transparent")
-                                border.color: deviceDelegate.modelData.selected ? "#b8cdbd" : "transparent"
-                                radius: 5
-                            }
-                            contentItem: RowLayout {
-                                spacing: 0
-                                ColumnLayout {
-                                    Layout.fillWidth: false
-                                    Layout.preferredWidth: window.deviceNameColumnWidth
-                                    Layout.minimumWidth: 130
-                                    Label { text: deviceDelegate.modelData.name; font.bold: true; color: "#26362c"; elide: Text.ElideRight }
-                                    Label { text: deviceDelegate.modelData.deviceId; color: "#758178"; font.pixelSize: 12 }
-                                }
-                                Label {
-                                    text: deviceDelegate.modelData.state
-                                    Layout.fillWidth: false
-                                    Layout.preferredWidth: window.deviceStateColumnWidth
-                                    Layout.minimumWidth: 70
-                                    color: "#4e5e53"
-                                    elide: Text.ElideRight
-                                }
-                                Label { text: deviceDelegate.modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
-                                ToolButton {
-                                    id: initializeDeviceButton
-                                    visible: deviceDelegate.modelData.deviceIndex >= 0
-                                    Layout.preferredWidth: visible ? 36 : 0
-                                    Layout.preferredHeight: 36
-                                    enabled: visible
-                                        && !deviceDelegate.modelData.initializing
-                                        && !window.controller.userDeviceBusy
-                                    text: "⏻"
-                                    Accessible.name: "Initialize"
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: "Initialize"
-                                    onClicked: window.controller.devicesController.initializeDevice(
-                                        deviceDelegate.modelData.deviceIndex
-                                    )
-                                    background: Rectangle {
-                                        radius: 5
-                                        color: initializeDeviceButton.hovered ? "#e4eee6" : "transparent"
-                                    }
-                                    contentItem: Label {
-                                        text: initializeDeviceButton.text
-                                        color: "#26362c"
-                                        font.pixelSize: 20
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-                            }
-                        }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: deviceList.count === 0
-                            text: "No devices discovered"
-                            color: "#849087"
-                        }
-                    }
-                    // Label { text: "DEVICE ADAPTERS"; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 8
-                        Layout.rightMargin: 8
-                        spacing: 0
-                        ResizableHeaderCell {
-                            title: "ADAPTER"
-                            columnWidth: window.adapterNameColumnWidth
-                            minimumColumnWidth: 130
-                            onResized: window.adapterNameColumnWidth = newWidth
-                        }
-                        ResizableHeaderCell {
-                            title: "STATE"
-                            columnWidth: window.adapterStateColumnWidth
-                            minimumColumnWidth: 90
-                            onResized: window.adapterStateColumnWidth = newWidth
-                        }
-                        Label {
-                            text: "SIGNAL"
-                            Layout.fillWidth: true
-                            color: "#77847b"
-                            font.pixelSize: 11
-                            font.bold: true
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-                    ListView {
-                        id: adapterList
+                    Item {
+                        id: deviceTables
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.minimumHeight: 90
-                        clip: true
-                        model: window.controller.devicesController.adapters
-                        delegate: ItemDelegate {
-                            id: adapterDelegate
-                            required property var modelData
-                            width: adapterList.width
-                            height: 54
-                            leftPadding: 8
-                            rightPadding: 8
-                            topPadding: 0
-                            bottomPadding: 0
-                            onClicked: window.controller.devicesController.selectAdapter(modelData.adapterIndex)
-                            highlighted: modelData.selected
-                            contentItem: RowLayout {
-                                spacing: 0
-                                Label {
-                                    text: adapterDelegate.modelData.name
-                                    Layout.fillWidth: false
-                                    Layout.preferredWidth: window.adapterNameColumnWidth
-                                    Layout.minimumWidth: 130
-                                    color: "#26362c"
-                                    elide: Text.ElideRight
-                                }
-                                Label {
-                                    text: adapterDelegate.modelData.state
-                                    Layout.fillWidth: false
-                                    Layout.preferredWidth: window.adapterStateColumnWidth
-                                    Layout.minimumWidth: 90
-                                    color: "#26362c"
-                                    elide: Text.ElideRight
-                                }
-                                Label {
-                                    text: adapterDelegate.modelData.signal
+                        Layout.minimumHeight: 0
+                        property real dividerHeight: 8
+
+                        Item {
+                            id: devicesPane
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            height: (deviceTables.height - deviceTables.dividerHeight)
+                                * window.deviceTablesSplitRatio
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                HorizontalTableView {
                                     Layout.fillWidth: true
-                                    color: "#26362c"
-                                    elide: Text.ElideRight
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 182
+                                    minimumContentWidth: 16 + window.deviceNameColumnWidth
+                                        + window.deviceStateColumnWidth + 160 + 36
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 8
+                                        Layout.rightMargin: 8
+                                        spacing: 0
+                                        ResizableHeaderCell {
+                                            title: "DEVICE"
+                                            columnWidth: window.deviceNameColumnWidth
+                                            minimumColumnWidth: 130
+                                            onResized: window.deviceNameColumnWidth = newWidth
+                                        }
+                                        ResizableHeaderCell {
+                                            title: "STATE"
+                                            columnWidth: window.deviceStateColumnWidth
+                                            minimumColumnWidth: 70
+                                            onResized: window.deviceStateColumnWidth = newWidth
+                                        }
+                                        Label {
+                                            text: "SIGNAL"
+                                            Layout.fillWidth: true
+                                            color: "#77847b"
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        Item { Layout.preferredWidth: 36 }
+                                    }
+                                    ListView {
+                                        id: deviceList
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        Layout.minimumHeight: 160
+                                        clip: true
+                                        model: window.controller.devicesController.devices
+                                        delegate: ItemDelegate {
+                                            id: deviceDelegate
+                                            required property var modelData
+                                            width: deviceList.width
+                                            height: 76
+                                            leftPadding: 8
+                                            rightPadding: 8
+                                            topPadding: 0
+                                            bottomPadding: 0
+                                            onClicked: window.controller.devicesController.selectDevice(modelData.deviceIndex)
+                                            background: Rectangle {
+                                                color: deviceDelegate.modelData.selected ? "#e4eee6" : (deviceDelegate.hovered ? "#f8faf8" : "transparent")
+                                                border.color: deviceDelegate.modelData.selected ? "#b8cdbd" : "transparent"
+                                                radius: 5
+                                            }
+                                            contentItem: RowLayout {
+                                                spacing: 0
+                                                ColumnLayout {
+                                                    Layout.fillWidth: false
+                                                    Layout.preferredWidth: window.deviceNameColumnWidth
+                                                    Layout.minimumWidth: 130
+                                                    Label { text: deviceDelegate.modelData.name; font.bold: true; color: "#26362c"; elide: Text.ElideRight }
+                                                    Label { text: deviceDelegate.modelData.deviceId; color: "#758178"; font.pixelSize: 12 }
+                                                }
+                                                Label {
+                                                    text: deviceDelegate.modelData.state
+                                                    Layout.fillWidth: false
+                                                    Layout.preferredWidth: window.deviceStateColumnWidth
+                                                    Layout.minimumWidth: 70
+                                                    color: "#4e5e53"
+                                                    elide: Text.ElideRight
+                                                }
+                                                Label { text: deviceDelegate.modelData.signal; Layout.fillWidth: true; color: "#4e5e53"; elide: Text.ElideRight }
+                                                ToolButton {
+                                                    id: initializeDeviceButton
+                                                    visible: deviceDelegate.modelData.deviceIndex >= 0
+                                                    Layout.preferredWidth: visible ? 36 : 0
+                                                    Layout.preferredHeight: 36
+                                                    enabled: visible
+                                                        && !deviceDelegate.modelData.initializing
+                                                        && !window.controller.userDeviceBusy
+                                                    text: "⏻"
+                                                    Accessible.name: "Initialize"
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: "Initialize"
+                                                    onClicked: window.controller.devicesController.initializeDevice(
+                                                        deviceDelegate.modelData.deviceIndex
+                                                    )
+                                                    background: Rectangle {
+                                                        radius: 5
+                                                        color: initializeDeviceButton.hovered ? "#e4eee6" : "transparent"
+                                                    }
+                                                    contentItem: Label {
+                                                        text: initializeDeviceButton.text
+                                                        color: "#26362c"
+                                                        font.pixelSize: 20
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: deviceList.count === 0
+                                            text: "No devices discovered"
+                                            color: "#849087"
+                                        }
+                                    }
                                 }
-                            }
-                            background: Rectangle {
-                                color: adapterDelegate.modelData.selected ? "#e4eee6" : (adapterDelegate.hovered ? "#f8faf8" : "transparent")
-                                border.color: adapterDelegate.modelData.selected ? "#b8cdbd" : "transparent"
-                                radius: 5
                             }
                         }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: adapterList.count === 0
-                            text: "Initialize a device to configure its adapters"
-                            color: "#849087"
+
+                        Rectangle {
+                            id: deviceTablesDivider
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: devicesPane.bottom
+                            height: deviceTables.dividerHeight
+                            color: "transparent"
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width
+                                height: 1
+                                color: deviceDividerHover.hovered || deviceDividerDrag.active
+                                    ? "#9aa99e" : "#d9dfda"
+                            }
+
+                            HoverHandler {
+                                id: deviceDividerHover
+                                cursorShape: Qt.SplitVCursor
+                            }
+
+                            DragHandler {
+                                id: deviceDividerDrag
+                                target: null
+                                property real splitRatioAtStart: window.deviceTablesSplitRatio
+
+                                onActiveChanged: {
+                                    if (active)
+                                        splitRatioAtStart = window.deviceTablesSplitRatio
+                                }
+                                onTranslationChanged: {
+                                    if (active) {
+                                        const availableHeight = deviceTables.height
+                                            - deviceTablesDivider.height
+                                        if (availableHeight > 0) {
+                                            const minimumRatio = Math.max(0.2, 182 / availableHeight)
+                                            const maximumRatio = Math.min(0.8, 1 - 112 / availableHeight)
+                                            window.deviceTablesSplitRatio = Math.max(
+                                                minimumRatio,
+                                                Math.min(
+                                                    maximumRatio,
+                                                    splitRatioAtStart + translation.y / availableHeight
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: adaptersPane
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: deviceTablesDivider.bottom
+                            anchors.bottom: parent.bottom
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                HorizontalTableView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 112
+                                    minimumContentWidth: 16 + window.adapterNameColumnWidth
+                                        + window.adapterStateColumnWidth + 160
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 8
+                                        Layout.rightMargin: 8
+                                        spacing: 0
+                                        ResizableHeaderCell {
+                                            title: "ADAPTER"
+                                            columnWidth: window.adapterNameColumnWidth
+                                            minimumColumnWidth: 130
+                                            onResized: window.adapterNameColumnWidth = newWidth
+                                        }
+                                        ResizableHeaderCell {
+                                            title: "STATE"
+                                            columnWidth: window.adapterStateColumnWidth
+                                            minimumColumnWidth: 90
+                                            onResized: window.adapterStateColumnWidth = newWidth
+                                        }
+                                        Label {
+                                            text: "SIGNAL"
+                                            Layout.fillWidth: true
+                                            color: "#77847b"
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
+                                    ListView {
+                                        id: adapterList
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        Layout.minimumHeight: 90
+                                        clip: true
+                                        model: window.controller.devicesController.adapters
+                                        delegate: ItemDelegate {
+                                            id: adapterDelegate
+                                            required property var modelData
+                                            width: adapterList.width
+                                            height: 54
+                                            leftPadding: 8
+                                            rightPadding: 8
+                                            topPadding: 0
+                                            bottomPadding: 0
+                                            onClicked: window.controller.devicesController.selectAdapter(modelData.adapterIndex)
+                                            highlighted: modelData.selected
+                                            contentItem: RowLayout {
+                                                spacing: 0
+                                                Label {
+                                                    text: adapterDelegate.modelData.name
+                                                    Layout.fillWidth: false
+                                                    Layout.preferredWidth: window.adapterNameColumnWidth
+                                                    Layout.minimumWidth: 130
+                                                    color: "#26362c"
+                                                    elide: Text.ElideRight
+                                                }
+                                                Label {
+                                                    text: adapterDelegate.modelData.state
+                                                    Layout.fillWidth: false
+                                                    Layout.preferredWidth: window.adapterStateColumnWidth
+                                                    Layout.minimumWidth: 90
+                                                    color: "#26362c"
+                                                    elide: Text.ElideRight
+                                                }
+                                                Label {
+                                                    text: adapterDelegate.modelData.signal
+                                                    Layout.fillWidth: true
+                                                    color: "#26362c"
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                            background: Rectangle {
+                                                color: adapterDelegate.modelData.selected ? "#e4eee6" : (adapterDelegate.hovered ? "#f8faf8" : "transparent")
+                                                border.color: adapterDelegate.modelData.selected ? "#b8cdbd" : "transparent"
+                                                radius: 5
+                                            }
+                                        }
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: adapterList.count === 0
+                                            text: "Initialize a device to configure its adapters"
+                                            color: "#849087"
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1116,113 +1235,120 @@ ApplicationWindow {
                         Label { text: window.controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 8
-                        Layout.rightMargin: 8
-                        spacing: 0
-                        ResizableHeaderCell {
-                            title: "ITEM"
-                            columnWidth: window.tuningIndexColumnWidth
-                            minimumColumnWidth: 40
-                            onResized: window.tuningIndexColumnWidth = newWidth
-                        }
-                        ResizableHeaderCell {
-                            title: "FREQUENCY"
-                            columnWidth: window.tuningFrequencyColumnWidth
-                            minimumColumnWidth: 130
-                            onResized: window.tuningFrequencyColumnWidth = newWidth
-                        }
-                        ResizableHeaderCell {
-                            title: "BANDWIDTH"
-                            columnWidth: window.tuningBandwidthColumnWidth
-                            minimumColumnWidth: 90
-                            onResized: window.tuningBandwidthColumnWidth = newWidth
-                        }
-                        Label {
-                            text: "ACTIONS"
-                            Layout.fillWidth: true
-                            color: "#77847b"
-                            font.pixelSize: 11
-                            font.bold: true
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-                    ListView {
-                        id: tuningList
+                    HorizontalTableView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        clip: true
-                        model: window.controller.tuningController.tunings
-                        delegate: ItemDelegate {
-                            id: tuningDelegate
-                            required property var modelData
-                            width: tuningList.width
-                            height: 48
-                            leftPadding: 8
-                            rightPadding: 8
-                            topPadding: 0
-                            bottomPadding: 0
-                            background: Rectangle {
-                                color: tuningDelegate.hovered ? "#f8faf8" : "transparent"
+                        minimumContentWidth: 16 + window.tuningIndexColumnWidth
+                            + window.tuningFrequencyColumnWidth
+                            + window.tuningBandwidthColumnWidth + 72
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 8
+                            Layout.rightMargin: 8
+                            spacing: 0
+                            ResizableHeaderCell {
+                                title: "ITEM"
+                                columnWidth: window.tuningIndexColumnWidth
+                                minimumColumnWidth: 40
+                                onResized: window.tuningIndexColumnWidth = newWidth
                             }
-                            contentItem: RowLayout {
-                                spacing: 0
-                                Label {
-                                    text: String(tuningDelegate.modelData.index + 1).padStart(2, "0")
-                                    color: "#829087"
-                                    Layout.preferredWidth: window.tuningIndexColumnWidth
-                                    Layout.minimumWidth: 40
-                                }
-                                Label {
-                                    text: Number(tuningDelegate.modelData.frequency).toFixed(3) + " MHz"
-                                    color: "#26362c"
-                                    Layout.preferredWidth: window.tuningFrequencyColumnWidth
-                                    Layout.minimumWidth: 130
-                                }
-                                Label {
-                                    text: tuningDelegate.modelData.bandwidth + " MHz"
-                                    color: "#526158"
-                                    Layout.preferredWidth: window.tuningBandwidthColumnWidth
-                                    Layout.minimumWidth: 90
-                                }
-                                ToolButton {
-                                    icon.source: "icons/pencil.svg"
-                                    icon.width: 18
-                                    icon.height: 18
-                                    icon.color: "#26362c"
-                                    Accessible.name: "Edit tuning"
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: Accessible.name
-                                    Layout.preferredWidth: 36
-                                    Layout.minimumWidth: 36
-                                    enabled: !window.controller.generalBusy
-                                    onClicked: {
-                                        window.editingTuningIndex = tuningDelegate.modelData.index
-                                        frequencyField.text = Number(tuningDelegate.modelData.frequency).toFixed(3)
-                                        bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(tuningDelegate.modelData.bandwidth)))
-                                    }
-                                }
-                                ToolButton {
-                                    icon.source: "icons/x.svg"
-                                    icon.width: 18
-                                    icon.height: 18
-                                    icon.color: "#26362c"
-                                    Accessible.name: "Remove tuning"
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: Accessible.name
-                                    Layout.preferredWidth: 36
-                                    Layout.minimumWidth: 36
-                                    onClicked: window.controller.tuningController.removeTuning(tuningDelegate.modelData.index)
-                                }
-                                Item { Layout.fillWidth: true }
+                            ResizableHeaderCell {
+                                title: "FREQUENCY"
+                                columnWidth: window.tuningFrequencyColumnWidth
+                                minimumColumnWidth: 130
+                                onResized: window.tuningFrequencyColumnWidth = newWidth
+                            }
+                            ResizableHeaderCell {
+                                title: "BANDWIDTH"
+                                columnWidth: window.tuningBandwidthColumnWidth
+                                minimumColumnWidth: 90
+                                onResized: window.tuningBandwidthColumnWidth = newWidth
+                            }
+                            Label {
+                                text: "ACTIONS"
+                                Layout.fillWidth: true
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: tuningList.count === 0
-                            text: "No tunings configured"
-                            color: "#849087"
+                        ListView {
+                            id: tuningList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: window.controller.tuningController.tunings
+                            delegate: ItemDelegate {
+                                id: tuningDelegate
+                                required property var modelData
+                                width: tuningList.width
+                                height: 48
+                                leftPadding: 8
+                                rightPadding: 8
+                                topPadding: 0
+                                bottomPadding: 0
+                                background: Rectangle {
+                                    color: tuningDelegate.hovered ? "#f8faf8" : "transparent"
+                                }
+                                contentItem: RowLayout {
+                                    spacing: 0
+                                    Label {
+                                        text: String(tuningDelegate.modelData.index + 1).padStart(2, "0")
+                                        color: "#829087"
+                                        Layout.preferredWidth: window.tuningIndexColumnWidth
+                                        Layout.minimumWidth: 40
+                                    }
+                                    Label {
+                                        text: Number(tuningDelegate.modelData.frequency).toFixed(3) + " MHz"
+                                        color: "#26362c"
+                                        Layout.preferredWidth: window.tuningFrequencyColumnWidth
+                                        Layout.minimumWidth: 130
+                                    }
+                                    Label {
+                                        text: tuningDelegate.modelData.bandwidth + " MHz"
+                                        color: "#526158"
+                                        Layout.preferredWidth: window.tuningBandwidthColumnWidth
+                                        Layout.minimumWidth: 90
+                                    }
+                                    ToolButton {
+                                        icon.source: "icons/pencil.svg"
+                                        icon.width: 18
+                                        icon.height: 18
+                                        icon.color: "#26362c"
+                                        Accessible.name: "Edit tuning"
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: Accessible.name
+                                        Layout.preferredWidth: 36
+                                        Layout.minimumWidth: 36
+                                        enabled: !window.controller.generalBusy
+                                        onClicked: {
+                                            window.editingTuningIndex = tuningDelegate.modelData.index
+                                            frequencyField.text = Number(tuningDelegate.modelData.frequency).toFixed(3)
+                                            bandwidthBox.currentIndex = Math.max(0, ["6", "7", "8"].indexOf(String(tuningDelegate.modelData.bandwidth)))
+                                        }
+                                    }
+                                    ToolButton {
+                                        icon.source: "icons/x.svg"
+                                        icon.width: 18
+                                        icon.height: 18
+                                        icon.color: "#26362c"
+                                        Accessible.name: "Remove tuning"
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: Accessible.name
+                                        Layout.preferredWidth: 36
+                                        Layout.minimumWidth: 36
+                                        onClicked: window.controller.tuningController.removeTuning(tuningDelegate.modelData.index)
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: tuningList.count === 0
+                                text: "No tunings configured"
+                                color: "#849087"
+                            }
                         }
                     }
                 }
@@ -1243,110 +1369,191 @@ ApplicationWindow {
                         Button { action: scanTuningsAction }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    ColumnLayout {
+                    Item {
+                        id: channelTables
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 0
-                        spacing: 4
-                        Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                        }
-                        ListView {
-                            id: stationStreamList
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumHeight: 0
-                            clip: true
-                            model: window.controller.channelController.stationStreams
-                            delegate: RowLayout {
-                                id: stationStreamDelegate
-                                required property var modelData
-                                width: stationStreamList.width
-                                height: 32
-                                Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
-                                Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
-                                Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
-                                Label { text: stationStreamDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
-                                Label {
-                                    text: stationStreamDelegate.modelData.bandwidth
+                        property real dividerHeight: 8
+
+                        Item {
+                            id: stationStreamsPane
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            height: (channelTables.height - channelTables.dividerHeight)
+                                * window.stationStreamsSplitRatio
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 4
+                                Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
+                                HorizontalTableView {
                                     Layout.fillWidth: true
-                                    color: "#526158"
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 0
+                                    minimumContentWidth: 630
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                    }
+                                    ListView {
+                                        id: stationStreamList
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        Layout.minimumHeight: 0
+                                        clip: true
+                                        model: window.controller.channelController.stationStreams
+                                        delegate: RowLayout {
+                                            id: stationStreamDelegate
+                                            required property var modelData
+                                            width: stationStreamList.width
+                                            height: 32
+                                            Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
+                                            Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
+                                            Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
+                                            Label { text: stationStreamDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
+                                            Label {
+                                                text: stationStreamDelegate.modelData.bandwidth
+                                                Layout.fillWidth: true
+                                                color: "#526158"
+                                            }
+                                        }
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: stationStreamList.count === 0
+                                            text: "No streams scanned or loaded"
+                                            color: "#849087"
+                                        }
+                                    }
                                 }
                             }
-                            Label {
+                        }
+
+                        Rectangle {
+                            id: channelTablesDivider
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: stationStreamsPane.bottom
+                            height: channelTables.dividerHeight
+                            color: "transparent"
+
+                            Rectangle {
                                 anchors.centerIn: parent
-                                visible: stationStreamList.count === 0
-                                text: "No streams scanned or loaded"
-                                color: "#849087"
+                                width: parent.width
+                                height: 1
+                                color: channelDividerHover.hovered || channelDividerDrag.active
+                                    ? "#9aa99e" : "#d9dfda"
                             }
-                        }
-                    }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: 0
-                        spacing: 4
-                        Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Label {
-                                text: "LCN"
-                                Layout.preferredWidth: 25
-                                Layout.rightMargin: 10
-                                color: "#77847b"
-                                font.pixelSize: 11
-                                font.bold: true
-                                horizontalAlignment: Text.AlignLeft
-                                ToolTip.visible: lcnHeaderHover.hovered
-                                ToolTip.text: "Logical Channel Number"
-                                HoverHandler { id: lcnHeaderHover }
+
+                            HoverHandler {
+                                id: channelDividerHover
+                                cursorShape: Qt.SplitVCursor
                             }
-                            Label { text: "CHANNEL"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "DVB ID"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
-                            Label { text: "TYPE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true; horizontalAlignment: Text.AlignLeft }
-                        }
-                        ListView {
-                            id: channelList
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumHeight: 0
-                            clip: true
-                            model: window.controller.channelController.channels
-                            delegate: RowLayout {
-                                id: channelDelegate
-                                required property var modelData
-                                width: channelList.width
-                                height: 32
-                                Label {
-                                    text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn
-                                    Layout.preferredWidth: 25
-                                    Layout.rightMargin: 10
-                                    color: "#526158"
-                                    horizontalAlignment: Text.AlignRight
+
+                            DragHandler {
+                                id: channelDividerDrag
+                                target: null
+                                property real splitRatioAtStart: window.stationStreamsSplitRatio
+
+                                onActiveChanged: {
+                                    if (active)
+                                        splitRatioAtStart = window.stationStreamsSplitRatio
                                 }
-                                Label { text: channelDelegate.modelData.name; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
-                                Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
-                                Label { text: channelDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#526158"; elide: Text.ElideRight }
-                                Label {
-                                    text: channelDelegate.modelData.type
+                                onTranslationChanged: {
+                                    if (active) {
+                                        const availableHeight = channelTables.height
+                                            - channelTablesDivider.height
+                                        if (availableHeight > 0) {
+                                            window.stationStreamsSplitRatio = Math.max(
+                                                0.2,
+                                                Math.min(
+                                                    0.8,
+                                                    splitRatioAtStart + translation.y / availableHeight
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: servicesPane
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: channelTablesDivider.bottom
+                            anchors.bottom: parent.bottom
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 4
+                                Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
+                                HorizontalTableView {
                                     Layout.fillWidth: true
-                                    color: "#526158"
-                                    horizontalAlignment: Text.AlignLeft
+                                    Layout.fillHeight: true
+                                    Layout.minimumHeight: 0
+                                    minimumContentWidth: 665
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: "LCN"
+                                            Layout.preferredWidth: 25
+                                            Layout.rightMargin: 10
+                                            color: "#77847b"
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            horizontalAlignment: Text.AlignLeft
+                                            ToolTip.visible: lcnHeaderHover.hovered
+                                            ToolTip.text: "Logical Channel Number"
+                                            HoverHandler { id: lcnHeaderHover }
+                                        }
+                                        Label { text: "CHANNEL"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "DVB ID"; Layout.preferredWidth: 150; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                                        Label { text: "TYPE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true; horizontalAlignment: Text.AlignLeft }
+                                    }
+                                    ListView {
+                                        id: channelList
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        Layout.minimumHeight: 0
+                                        clip: true
+                                        model: window.controller.channelController.channels
+                                        delegate: RowLayout {
+                                            id: channelDelegate
+                                            required property var modelData
+                                            width: channelList.width
+                                            height: 32
+                                            Label {
+                                                text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn
+                                                Layout.preferredWidth: 25
+                                                Layout.rightMargin: 10
+                                                color: "#526158"
+                                                horizontalAlignment: Text.AlignRight
+                                            }
+                                            Label { text: channelDelegate.modelData.name; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
+                                            Label { text: channelDelegate.modelData.id; Layout.preferredWidth: 150; color: "#758178"; font.pixelSize: 12 }
+                                            Label { text: channelDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#526158"; elide: Text.ElideRight }
+                                            Label {
+                                                text: channelDelegate.modelData.type
+                                                Layout.fillWidth: true
+                                                color: "#526158"
+                                                horizontalAlignment: Text.AlignLeft
+                                            }
+                                        }
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: channelList.count === 0
+                                            text: "No services scanned or loaded"
+                                            color: "#849087"
+                                        }
+                                    }
                                 }
-                            }
-                            Label {
-                                anchors.centerIn: parent
-                                visible: channelList.count === 0
-                                text: "No services scanned or loaded"
-                                color: "#849087"
                             }
                         }
                     }
@@ -1423,29 +1630,34 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Label { text: window.controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
                     }
-                    ListView {
-                        id: clientList
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: window.controller.serverController.serverClients
-                        delegate: RowLayout {
-                            id: clientDelegate
-                            required property var modelData
-                            width: clientList.width
-                            height: 48
-                            Label { text: clientDelegate.modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
-                            Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
-                            Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
-                            Label { text: Number(clientDelegate.modelData.bytesSent).toLocaleString() + " B"; Layout.preferredWidth: 110; color: "#526158" }
+                        HorizontalTableView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            minimumContentWidth: 620
+                            ListView {
+                                id: clientList
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                model: window.controller.serverController.serverClients
+                                delegate: RowLayout {
+                                    id: clientDelegate
+                                    required property var modelData
+                                    width: clientList.width
+                                    height: 48
+                                    Label { text: clientDelegate.modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
+                                    Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
+                                    Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
+                                    Label { text: Number(clientDelegate.modelData.bytesSent).toLocaleString() + " B"; Layout.preferredWidth: 110; color: "#526158" }
+                                }
+                                Label {
+                                    anchors.centerIn: parent
+                                    visible: clientList.count === 0
+                                    text: "No connected clients"
+                                    color: "#849087"
+                                }
+                            }
                         }
-                        Label {
-                            anchors.centerIn: parent
-                            visible: clientList.count === 0
-                            text: "No connected clients"
-                            color: "#849087"
-                        }
-                    }
                     Label {
                         Layout.fillWidth: true
                         text: "Binding beyond localhost makes streams reachable on your network."
