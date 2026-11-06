@@ -99,7 +99,7 @@ class ChannelController(QObject):
         app._set_status(f"Scanning {len(tunings)} tuning(s)...")
 
         def on_service_count(count: int) -> None:
-            app._set_status(f"Scanning {len(tunings)} tuning(s)... {count} service(s) found")
+            app._set_status(f"Scanning {len(tunings)} tuning(s)... {count} channel(s) found")
 
         def scan() -> DVBServiceMap | None:
             if (
@@ -115,7 +115,7 @@ class ChannelController(QObject):
                 app._set_status("Selected device is no longer available")
                 return
             if not isinstance(service_map, DVBServiceMap):
-                raise TypeError("scan worker returned an unexpected result")
+                raise TypeError("Scan worker thread returned an unexpected result")
             if (
                 app._profile is not profile
                 or app._selected_device() is not device
@@ -127,7 +127,7 @@ class ChannelController(QObject):
             app._profile.service_map = service_map
             app.channelsChanged.emit()
             app.stateChanged.emit()
-            app._set_status(f"Scan complete: {len(service_map.services)} service(s) found")
+            app._set_status(f"Scan complete: {len(service_map.services)} channel(s) found")
 
         app._run_task(
             scan,
