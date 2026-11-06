@@ -11,7 +11,16 @@ from .bridge import AF9015Bridge
 from ...driver_api.frontend import DVBFrontend, DVBFrontendStatus
 from ...driver_api.locking import with_control_lock
 from ...driver_api.registers import RegisterIO, RegisterMap
-from ...driver_api.tuner import CodeRate, DVBTuning, DVBTuner, GuardInterval, Hierarchy, Modulation, TransmissionMode
+from ...driver_api.tuner import (
+    CodeRate,
+    DVBTuning,
+    DVBTuner,
+    GuardInterval,
+    Hierarchy,
+    Modulation,
+    SpectralInversion,
+    TransmissionMode,
+)
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 15.0
@@ -442,6 +451,8 @@ class AF9013Frontend(DVBFrontend):
     def tune(self, tuning: DVBTuning, wait_for_lock: bool = True) -> DVBFrontendStatus:
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
+        if tuning.inversion is not SpectralInversion.AUTO:
+            raise ValueError("AF9013 does not support explicit spectral inversion")
         if not self._initialized or self._sleeping:
             self.init_hardware()
         if self.clock_hz <= 0 or self.intermediate_frequency_hz <= 0:

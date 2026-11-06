@@ -4,6 +4,7 @@ from pydvb.driver_api.tuner import (
     GuardInterval,
     Hierarchy,
     Modulation,
+    SpectralInversion,
     TransmissionMode,
 )
 from pydvb.scan_tables import parse_table
@@ -102,6 +103,29 @@ def test_scanner_parses_local_scan_table(tmp_path):
         scan_tables_module.DVBTuning(177_500_000, 7_000_000),
         scan_tables_module.DVBTuning(226_500_000, 7_000_000),
     ]
+
+
+def test_scanner_parses_inversion_from_linux_tv_channel_block(tmp_path):
+    scan_path = tmp_path / "inversion"
+    scan_path.write_text(
+        "[CHANNEL]\n"
+        "DELIVERY_SYSTEM = DVBT\n"
+        "FREQUENCY = 177500000\n"
+        "BANDWIDTH_HZ = 7000000\n"
+        "CODE_RATE_HP = 3/4\n"
+        "CODE_RATE_LP = 1/2\n"
+        "MODULATION = QAM/64\n"
+        "TRANSMISSION_MODE = 8K\n"
+        "GUARD_INTERVAL = 1/32\n"
+        "HIERARCHY = NONE\n"
+        "INVERSION = OFF\n",
+        encoding="utf-8",
+    )
+
+    tuning = parse_table(scan_path, prefer_auto=False)[0]
+
+    assert tuning.inversion is SpectralInversion.OFF
+    assert parse_table(scan_path)[0].inversion is SpectralInversion.AUTO
 
 
 def test_scanner_parses_known_scan_table(monkeypatch):

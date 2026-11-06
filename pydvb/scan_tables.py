@@ -16,6 +16,7 @@ from pydvb.driver_api.tuner import (
     GuardInterval,
     Hierarchy,
     Modulation,
+    SpectralInversion,
     TransmissionMode,
 )
 
@@ -161,6 +162,7 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> list[DVBTuning]:
                 "TRANSMISSION_MODE",
                 "GUARD_INTERVAL",
                 "HIERARCHY",
+                "INVERSION",
             }:
                 channel[key] = value
             continue
@@ -228,6 +230,7 @@ def _parse_channel(
         transmission_mode=TransmissionMode(channel["TRANSMISSION_MODE"].lower()),
         guard_interval=GuardInterval(channel["GUARD_INTERVAL"].lower()),
         hierarchy=Hierarchy(channel["HIERARCHY"].lower()),
+        inversion=SpectralInversion(channel.get("INVERSION", "auto").lower()),
     )
     return _prefer_auto_values(tuning) if prefer_auto else tuning
 

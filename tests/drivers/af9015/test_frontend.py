@@ -3,7 +3,7 @@ from math import log10
 import pytest
 
 from pydvb.drivers.af9015.frontend import AF9013Frontend, DVBFrontendStatus
-from pydvb.driver_api.tuner import DVBTuning
+from pydvb.driver_api.tuner import DVBTuning, SpectralInversion
 
 
 class FakeBus:
@@ -87,6 +87,19 @@ def test_frontend_tune_waits_for_lock_by_default(monkeypatch):
     monkeypatch.setattr(frontend, "wait_for_lock", lambda: expected_status)
 
     assert frontend.tune(DVBTuning(650_000_000, 8_000_000)) is expected_status
+
+
+@pytest.mark.parametrize("inversion", [SpectralInversion.OFF, SpectralInversion.ON])
+def test_frontend_rejects_explicit_spectral_inversion(inversion):
+    bus = FakeBus()
+    tuner = FakeTuner()
+    frontend = AF9013Frontend(bus, 0x1C, tuner, 28_800_000, 4_570_000, False)
+
+    with pytest.raises(ValueError, match="does not support explicit spectral inversion"):
+        frontend.tune(DVBTuning(650_000_000, inversion=inversion), wait_for_lock=False)
+
+    assert tuner.tunings == []
+    assert bus.writes == []
 
 
 def test_frontend_uses_tuner_selected_if_frequency():

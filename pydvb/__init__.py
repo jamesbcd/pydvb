@@ -12,6 +12,7 @@ from .driver_api.tuner import (
     Hierarchy,
     Modulation,
     DVBTuning,
+    SpectralInversion,
     TransmissionMode,
 )
 from .drivers.af9015.adapter import AF9015Adapter
@@ -62,6 +63,7 @@ __all__ = [
     "Hierarchy",
     "DVBFrontendStatus",
     "Modulation",
+    "SpectralInversion",
     "USBTransport",
     "USBDeviceID",
     "USBDeviceInfo",

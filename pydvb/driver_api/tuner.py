@@ -12,6 +12,13 @@ from .locking import ControlLockMixin
 
 
 @serializable
+class SpectralInversion(str, Enum):
+    AUTO = "auto"
+    OFF = "off"
+    ON = "on"
+
+
+@serializable
 class TransmissionMode(str, Enum):
     AUTO = "auto"
     K2 = "2k"
@@ -58,6 +65,14 @@ class CodeRate(str, Enum):
 @serializable
 @dataclass(frozen=True)
 class DVBTuning:
+    """Tuning parameters for a DVB-T channel.
+
+    This model covers the original DVB-T delivery system, not DVB-T2 or other
+    digital television standards. Frontends may support only a subset of the
+    parameters; unsupported explicit settings should be rejected by the
+    frontend implementation.
+    """
+
     frequency_hz: int
     bandwidth_hz: int = 8_000_000
     transmission_mode: TransmissionMode = TransmissionMode.AUTO
@@ -66,6 +81,7 @@ class DVBTuning:
     modulation: Modulation = Modulation.AUTO
     code_rate_hp: CodeRate = CodeRate.AUTO
     code_rate_lp: CodeRate = CodeRate.AUTO
+    inversion: SpectralInversion = SpectralInversion.AUTO
 
 
 class DVBTuner(ControlLockMixin, ABC):
