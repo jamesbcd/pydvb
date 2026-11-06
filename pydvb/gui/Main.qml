@@ -36,10 +36,20 @@ ApplicationWindow {
     property real tuningBandwidthColumnWidth: 110
     property real deviceTablesSplitRatio: 0.5
     property real stationStreamsSplitRatio: 0.5
+    readonly property real tableHorizontalPadding: 8
+    readonly property real tableVerticalPadding: 4
+    readonly property real tableHeaderContentHeight: 22
+    readonly property real tableRowMinimumHeight: 32
+    readonly property real tableColumnSpacing: 0
+    readonly property real tableRowSpacing: 0
+    readonly property real tableDividerVerticalMargin: 10
+    readonly property real tableDividerLineHeight: 1
+    readonly property real tableDividerHeight: 2 * tableDividerVerticalMargin
+        + tableDividerLineHeight
     readonly property var sectionNames: ["Devices", "Tuning", "Channels", "Server"]
 
-    component HorizontalTableView: Flickable {
-        id: horizontalTable
+    component TableFrame: Flickable {
+        id: tableFrame
         default property alias contentData: tableContents.data
         property real minimumContentWidth: 0
         contentWidth: Math.max(width, minimumContentWidth)
@@ -53,9 +63,103 @@ ApplicationWindow {
 
         ColumnLayout {
             id: tableContents
-            width: horizontalTable.contentWidth
-            height: horizontalTable.height
+            width: tableFrame.contentWidth
+            height: tableFrame.height
             spacing: 0
+        }
+    }
+
+    component TableHeaderRow: RowLayout {
+        Layout.fillWidth: true
+        Layout.leftMargin: window.tableHorizontalPadding
+        Layout.rightMargin: window.tableHorizontalPadding
+        Layout.topMargin: window.tableVerticalPadding
+        Layout.bottomMargin: window.tableVerticalPadding
+        Layout.minimumHeight: window.tableHeaderContentHeight
+        implicitHeight: window.tableHeaderContentHeight
+        spacing: window.tableColumnSpacing
+    }
+
+    component TableBody: ListView {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        clip: true
+        spacing: window.tableRowSpacing
+    }
+
+    component TableRow: Item {
+        default property alias contentData: tableRowContents.data
+        implicitHeight: Math.max(
+            window.tableRowMinimumHeight,
+            tableRowContents.implicitHeight + 2 * window.tableVerticalPadding
+        )
+        height: implicitHeight
+
+        RowLayout {
+            id: tableRowContents
+            anchors.fill: parent
+            anchors.leftMargin: window.tableHorizontalPadding
+            anchors.rightMargin: window.tableHorizontalPadding
+            anchors.topMargin: window.tableVerticalPadding
+            anchors.bottomMargin: window.tableVerticalPadding
+            spacing: window.tableColumnSpacing
+        }
+    }
+
+    component TableSplitDivider: Item {
+        id: splitDivider
+        property real splitRatio: 0.5
+        property real availableHeight: 0
+        property real minimumRatio: 0.2
+        property real maximumRatio: 0.8
+        property real minimumFirstPaneHeight: 0
+        property real minimumSecondPaneHeight: 0
+        signal ratioRequested(real newRatio)
+
+        height: window.tableDividerHeight
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.width
+            height: window.tableDividerLineHeight
+            color: splitDividerHover.hovered || splitDividerDrag.active
+                ? "#9aa99e" : "#d9dfda"
+        }
+
+        HoverHandler {
+            id: splitDividerHover
+            cursorShape: Qt.SplitVCursor
+        }
+
+        DragHandler {
+            id: splitDividerDrag
+            target: null
+            property real splitRatioAtStart: splitDivider.splitRatio
+
+            onActiveChanged: {
+                if (active)
+                    splitRatioAtStart = splitDivider.splitRatio
+            }
+            onTranslationChanged: {
+                const availableHeight = splitDivider.availableHeight
+                if (active && availableHeight > 0) {
+                    const minimumRatio = Math.max(
+                        splitDivider.minimumRatio,
+                        splitDivider.minimumFirstPaneHeight / availableHeight
+                    )
+                    const maximumRatio = Math.min(
+                        splitDivider.maximumRatio,
+                        1 - splitDivider.minimumSecondPaneHeight / availableHeight
+                    )
+                    splitDivider.ratioRequested(Math.max(
+                        minimumRatio,
+                        Math.min(
+                            maximumRatio,
+                            splitRatioAtStart + translation.y / availableHeight
+                        )
+                    ))
+                }
+            }
         }
     }
 
@@ -815,29 +919,24 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 0
-                        property real dividerHeight: 8
 
                         Item {
                             id: devicesPane
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: parent.top
-                            height: (deviceTables.height - deviceTables.dividerHeight)
+                            height: (deviceTables.height - deviceTablesDivider.height)
                                 * window.deviceTablesSplitRatio
 
                             ColumnLayout {
                                 anchors.fill: parent
-                                HorizontalTableView {
+                                TableFrame {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     Layout.minimumHeight: 182
                                     minimumContentWidth: 16 + window.deviceNameColumnWidth
                                         + window.deviceStateColumnWidth + 160 + 36
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 8
-                                        Layout.rightMargin: 8
-                                        spacing: 0
+                                    TableHeaderRow {
                                         ResizableHeaderCell {
                                             title: "DEVICE"
                                             columnWidth: window.deviceNameColumnWidth
@@ -860,22 +959,23 @@ ApplicationWindow {
                                         }
                                         Item { Layout.preferredWidth: 36 }
                                     }
-                                    ListView {
+                                    TableBody {
                                         id: deviceList
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
                                         Layout.minimumHeight: 160
-                                        clip: true
                                         model: window.controller.devicesController.devices
                                         delegate: ItemDelegate {
                                             id: deviceDelegate
                                             required property var modelData
                                             width: deviceList.width
-                                            height: 76
-                                            leftPadding: 8
-                                            rightPadding: 8
-                                            topPadding: 0
-                                            bottomPadding: 0
+                                            height: Math.max(
+                                                window.tableRowMinimumHeight,
+                                                76,
+                                                contentItem.implicitHeight + 2 * window.tableVerticalPadding
+                                            )
+                                            leftPadding: window.tableHorizontalPadding
+                                            rightPadding: window.tableHorizontalPadding
+                                            topPadding: window.tableVerticalPadding
+                                            bottomPadding: window.tableVerticalPadding
                                             onClicked: window.controller.devicesController.selectDevice(modelData.deviceIndex)
                                             background: Rectangle {
                                                 color: deviceDelegate.modelData.selected ? "#e4eee6" : (deviceDelegate.hovered ? "#f8faf8" : "transparent")
@@ -883,7 +983,7 @@ ApplicationWindow {
                                                 radius: 5
                                             }
                                             contentItem: RowLayout {
-                                                spacing: 0
+                                                spacing: window.tableColumnSpacing
                                                 ColumnLayout {
                                                     Layout.fillWidth: false
                                                     Layout.preferredWidth: window.deviceNameColumnWidth
@@ -940,54 +1040,16 @@ ApplicationWindow {
                             }
                         }
 
-                        Rectangle {
+                        TableSplitDivider {
                             id: deviceTablesDivider
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: devicesPane.bottom
-                            height: deviceTables.dividerHeight
-                            color: "transparent"
-
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width
-                                height: 1
-                                color: deviceDividerHover.hovered || deviceDividerDrag.active
-                                    ? "#9aa99e" : "#d9dfda"
-                            }
-
-                            HoverHandler {
-                                id: deviceDividerHover
-                                cursorShape: Qt.SplitVCursor
-                            }
-
-                            DragHandler {
-                                id: deviceDividerDrag
-                                target: null
-                                property real splitRatioAtStart: window.deviceTablesSplitRatio
-
-                                onActiveChanged: {
-                                    if (active)
-                                        splitRatioAtStart = window.deviceTablesSplitRatio
-                                }
-                                onTranslationChanged: {
-                                    if (active) {
-                                        const availableHeight = deviceTables.height
-                                            - deviceTablesDivider.height
-                                        if (availableHeight > 0) {
-                                            const minimumRatio = Math.max(0.2, 182 / availableHeight)
-                                            const maximumRatio = Math.min(0.8, 1 - 112 / availableHeight)
-                                            window.deviceTablesSplitRatio = Math.max(
-                                                minimumRatio,
-                                                Math.min(
-                                                    maximumRatio,
-                                                    splitRatioAtStart + translation.y / availableHeight
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            splitRatio: window.deviceTablesSplitRatio
+                            availableHeight: deviceTables.height - height
+                            minimumFirstPaneHeight: 182
+                            minimumSecondPaneHeight: 112
+                            onRatioRequested: window.deviceTablesSplitRatio = newRatio
                         }
 
                         Item {
@@ -999,17 +1061,13 @@ ApplicationWindow {
 
                             ColumnLayout {
                                 anchors.fill: parent
-                                HorizontalTableView {
+                                TableFrame {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     Layout.minimumHeight: 112
                                     minimumContentWidth: 16 + window.adapterNameColumnWidth
                                         + window.adapterStateColumnWidth + 160
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: 8
-                                        Layout.rightMargin: 8
-                                        spacing: 0
+                                    TableHeaderRow {
                                         ResizableHeaderCell {
                                             title: "ADAPTER"
                                             columnWidth: window.adapterNameColumnWidth
@@ -1031,26 +1089,28 @@ ApplicationWindow {
                                             verticalAlignment: Text.AlignVCenter
                                         }
                                     }
-                                    ListView {
+                                    TableBody {
                                         id: adapterList
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
                                         Layout.minimumHeight: 90
-                                        clip: true
                                         model: window.controller.devicesController.adapters
                                         delegate: ItemDelegate {
                                             id: adapterDelegate
                                             required property var modelData
                                             width: adapterList.width
-                                            height: 54
-                                            leftPadding: 8
-                                            rightPadding: 8
-                                            topPadding: 0
-                                            bottomPadding: 0
+                                            height: Math.max(
+                                                window.tableRowMinimumHeight,
+                                                54,
+                                                contentItem.implicitHeight + 2 * window.tableVerticalPadding,
+                                                contentItem.implicitHeight + 2 * window.tableVerticalPadding
+                                            )
+                                            leftPadding: window.tableHorizontalPadding
+                                            rightPadding: window.tableHorizontalPadding
+                                            topPadding: window.tableVerticalPadding
+                                            bottomPadding: window.tableVerticalPadding
                                             onClicked: window.controller.devicesController.selectAdapter(modelData.adapterIndex)
                                             highlighted: modelData.selected
                                             contentItem: RowLayout {
-                                                spacing: 0
+                                                spacing: window.tableColumnSpacing
                                                 Label {
                                                     text: adapterDelegate.modelData.name
                                                     Layout.fillWidth: false
@@ -1235,17 +1295,13 @@ ApplicationWindow {
                         Label { text: window.controller.tuningController.tunings.length + " tuning(s)"; color: "#68766d" }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
-                    HorizontalTableView {
+                    TableFrame {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         minimumContentWidth: 16 + window.tuningIndexColumnWidth
                             + window.tuningFrequencyColumnWidth
                             + window.tuningBandwidthColumnWidth + 72
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 8
-                            Layout.rightMargin: 8
-                            spacing: 0
+                        TableHeaderRow {
                             ResizableHeaderCell {
                                 title: "ITEM"
                                 columnWidth: window.tuningIndexColumnWidth
@@ -1273,26 +1329,26 @@ ApplicationWindow {
                                 verticalAlignment: Text.AlignVCenter
                             }
                         }
-                        ListView {
+                        TableBody {
                             id: tuningList
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
                             model: window.controller.tuningController.tunings
                             delegate: ItemDelegate {
                                 id: tuningDelegate
                                 required property var modelData
                                 width: tuningList.width
-                                height: 48
-                                leftPadding: 8
-                                rightPadding: 8
-                                topPadding: 0
-                                bottomPadding: 0
+                                height: Math.max(
+                                    window.tableRowMinimumHeight,
+                                    contentItem.implicitHeight + 2 * window.tableVerticalPadding
+                                )
+                                leftPadding: window.tableHorizontalPadding
+                                rightPadding: window.tableHorizontalPadding
+                                topPadding: window.tableVerticalPadding
+                                bottomPadding: window.tableVerticalPadding
                                 background: Rectangle {
                                     color: tuningDelegate.hovered ? "#f8faf8" : "transparent"
                                 }
                                 contentItem: RowLayout {
-                                    spacing: 0
+                                    spacing: window.tableColumnSpacing
                                     Label {
                                         text: String(tuningDelegate.modelData.index + 1).padStart(2, "0")
                                         color: "#829087"
@@ -1374,45 +1430,39 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 0
-                        property real dividerHeight: 8
 
                         Item {
                             id: stationStreamsPane
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: parent.top
-                            height: (channelTables.height - channelTables.dividerHeight)
+                            height: (channelTables.height - channelTablesDivider.height)
                                 * window.stationStreamsSplitRatio
 
                             ColumnLayout {
                                 anchors.fill: parent
                                 spacing: 4
                                 Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                                HorizontalTableView {
+                                TableFrame {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     Layout.minimumHeight: 0
                                     minimumContentWidth: 630
-                                    RowLayout {
-                                        Layout.fillWidth: true
+                                    TableHeaderRow {
                                         Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                         Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                         Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                         Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                         Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                     }
-                                    ListView {
+                                    TableBody {
                                         id: stationStreamList
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
                                         Layout.minimumHeight: 0
-                                        clip: true
                                         model: window.controller.channelController.stationStreams
-                                        delegate: RowLayout {
+                                        delegate: TableRow {
                                             id: stationStreamDelegate
                                             required property var modelData
                                             width: stationStreamList.width
-                                            height: 32
                                             Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
                                             Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
                                             Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
@@ -1434,52 +1484,14 @@ ApplicationWindow {
                             }
                         }
 
-                        Rectangle {
+                        TableSplitDivider {
                             id: channelTablesDivider
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: stationStreamsPane.bottom
-                            height: channelTables.dividerHeight
-                            color: "transparent"
-
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width
-                                height: 1
-                                color: channelDividerHover.hovered || channelDividerDrag.active
-                                    ? "#9aa99e" : "#d9dfda"
-                            }
-
-                            HoverHandler {
-                                id: channelDividerHover
-                                cursorShape: Qt.SplitVCursor
-                            }
-
-                            DragHandler {
-                                id: channelDividerDrag
-                                target: null
-                                property real splitRatioAtStart: window.stationStreamsSplitRatio
-
-                                onActiveChanged: {
-                                    if (active)
-                                        splitRatioAtStart = window.stationStreamsSplitRatio
-                                }
-                                onTranslationChanged: {
-                                    if (active) {
-                                        const availableHeight = channelTables.height
-                                            - channelTablesDivider.height
-                                        if (availableHeight > 0) {
-                                            window.stationStreamsSplitRatio = Math.max(
-                                                0.2,
-                                                Math.min(
-                                                    0.8,
-                                                    splitRatioAtStart + translation.y / availableHeight
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            splitRatio: window.stationStreamsSplitRatio
+                            availableHeight: channelTables.height - height
+                            onRatioRequested: window.stationStreamsSplitRatio = newRatio
                         }
 
                         Item {
@@ -1493,13 +1505,12 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 spacing: 4
                                 Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
-                                HorizontalTableView {
+                                TableFrame {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     Layout.minimumHeight: 0
                                     minimumContentWidth: 665
-                                    RowLayout {
-                                        Layout.fillWidth: true
+                                    TableHeaderRow {
                                         Label {
                                             text: "LCN"
                                             Layout.preferredWidth: 25
@@ -1517,18 +1528,14 @@ ApplicationWindow {
                                         Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
                                         Label { text: "TYPE"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true; horizontalAlignment: Text.AlignLeft }
                                     }
-                                    ListView {
+                                    TableBody {
                                         id: channelList
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
                                         Layout.minimumHeight: 0
-                                        clip: true
                                         model: window.controller.channelController.channels
-                                        delegate: RowLayout {
+                                        delegate: TableRow {
                                             id: channelDelegate
                                             required property var modelData
                                             width: channelList.width
-                                            height: 32
                                             Label {
                                                 text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn
                                                 Layout.preferredWidth: 25
@@ -1630,21 +1637,47 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
                         Label { text: window.controller.serverController.serverClients.length; color: "#77847b"; font.pixelSize: 11 }
                     }
-                        HorizontalTableView {
+                        TableFrame {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             minimumContentWidth: 620
-                            ListView {
+                            TableHeaderRow {
+                                Label {
+                                    text: "SERVICE"
+                                    Layout.fillWidth: true
+                                    color: "#77847b"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: "ID"
+                                    Layout.preferredWidth: 150
+                                    color: "#77847b"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: "CLIENT"
+                                    Layout.preferredWidth: 170
+                                    color: "#77847b"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                Label {
+                                    text: "DATA SENT"
+                                    Layout.preferredWidth: 110
+                                    color: "#77847b"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                            }
+                            TableBody {
                                 id: clientList
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
                                 model: window.controller.serverController.serverClients
-                                delegate: RowLayout {
+                                delegate: TableRow {
                                     id: clientDelegate
                                     required property var modelData
                                     width: clientList.width
-                                    height: 48
                                     Label { text: clientDelegate.modelData.service; Layout.fillWidth: true; color: "#26362c"; elide: Text.ElideRight }
                                     Label { text: clientDelegate.modelData.serviceId; Layout.preferredWidth: 150; color: "#758178" }
                                     Label { text: clientDelegate.modelData.peer; Layout.preferredWidth: 170; color: "#526158" }
