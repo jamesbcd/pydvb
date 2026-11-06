@@ -14,11 +14,13 @@ class ChannelController(QObject):
     """Expose the current service map to the TV stations view."""
 
     channelsChanged = Signal()
+    stationStreamsChanged = Signal()
 
     def __init__(self, app: AppController) -> None:
         super().__init__(app)
         self._app = app
         app.channelsChanged.connect(self.channelsChanged.emit)
+        app.channelsChanged.connect(self.stationStreamsChanged.emit)
 
     @Property("QVariantList", notify=channelsChanged)
     def channels(self) -> list[dict[str, object]]:
@@ -48,3 +50,25 @@ class ChannelController(QObject):
     def hasChannelMap(self) -> bool:
         """Report whether a channel map is loaded, even if it has no services."""
         return self._app._profile.service_map is not None
+
+    @Property("QVariantList", notify=stationStreamsChanged)
+    def stationStreams(self) -> list[dict[str, object]]:
+        service_map = self._app._profile.service_map
+        if service_map is None:
+            return []
+        rows: list[dict[str, object]] = []
+        for doublet_id, tuning in service_map.tunings_by_doublet.items():
+            stream_info = service_map.stream_infos_by_doublet.get(doublet_id)
+            if stream_info is not None:
+                service_count = len(stream_info.services)
+                rows.append(
+                    {
+                        "networkName": stream_info.network_name or "Unknown Network",
+                        "dvbId": doublet_id.dotted() if doublet_id is not None else "Unknown",
+                        "channels": service_count,
+                        "frequency": f"{tuning.frequency_hz / 1_000_000:.3f} MHz",
+                        "bandwidth": f"{tuning.bandwidth_hz / 1_000_000:.1f} MHz",
+                    }
+                )
+        return rows
+

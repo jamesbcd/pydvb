@@ -1243,6 +1243,45 @@ ApplicationWindow {
                         Button { action: scanTuningsAction }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
+                    Label { text: "Station Streams"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "NETWORK NAME"; Layout.preferredWidth: 180; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Label { text: "DVB ID"; Layout.preferredWidth: 120; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Label { text: "CHANNELS"; Layout.preferredWidth: 80; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Label { text: "FREQUENCY"; Layout.preferredWidth: 130; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                        Label { text: "BANDWIDTH"; Layout.fillWidth: true; color: "#77847b"; font.pixelSize: 11; font.bold: true }
+                    }
+                    ListView {
+                        id: stationStreamList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 200)
+                        clip: true
+                        model: window.controller.channelController.stationStreams
+                        delegate: RowLayout {
+                            id: stationStreamDelegate
+                            required property var modelData
+                            width: stationStreamList.width
+                            height: 40
+                            Label { text: stationStreamDelegate.modelData.networkName; Layout.preferredWidth: 180; color: "#26362c"; elide: Text.ElideRight }
+                            Label { text: stationStreamDelegate.modelData.dvbId; Layout.preferredWidth: 120; color: "#758178"; font.pixelSize: 12 }
+                            Label { text: stationStreamDelegate.modelData.channels; Layout.preferredWidth: 80; color: "#526158"; horizontalAlignment: Text.AlignHCenter }
+                            Label { text: stationStreamDelegate.modelData.frequency; Layout.preferredWidth: 130; color: "#526158" }
+                            Label {
+                                text: stationStreamDelegate.modelData.bandwidth
+                                Layout.fillWidth: true
+                                color: "#526158"
+                            }
+                        }
+                        Label {
+                            anchors.centerIn: parent
+                            visible: stationStreamList.count === 0
+                            text: "No streams scanned or loaded"
+                            color: "#849087"
+                        }
+                    }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
+                    Label { text: "Services"; font.pixelSize: 14; font.bold: true; color: "#26362c" }
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: "LCN"; Layout.preferredWidth: 70; color: "#77847b"; font.pixelSize: 11; font.bold: true }
