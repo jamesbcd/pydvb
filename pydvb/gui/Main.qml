@@ -1049,7 +1049,9 @@ ApplicationWindow {
                             availableHeight: deviceTables.height - height
                             minimumFirstPaneHeight: 182
                             minimumSecondPaneHeight: 112
-                            onRatioRequested: window.deviceTablesSplitRatio = newRatio
+                            function onRatioRequested(newRatio) {
+                                window.deviceTablesSplitRatio = newRatio
+                            }
                         }
 
                         Item {
@@ -1491,7 +1493,9 @@ ApplicationWindow {
                             anchors.top: stationStreamsPane.bottom
                             splitRatio: window.stationStreamsSplitRatio
                             availableHeight: channelTables.height - height
-                            onRatioRequested: window.stationStreamsSplitRatio = newRatio
+                            function onRatioRequested(newRatio) {
+                                window.stationStreamsSplitRatio = newRatio
+                            }
                         }
 
                         Item {
