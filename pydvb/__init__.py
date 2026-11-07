@@ -29,6 +29,7 @@ from .device_manager import (
 from .stream_scanner import (
     DVBDescriptor,
     DVBElementaryStream,
+    DVBEventScanner,
     DVBEvent,
     DVBStreamInfo,
     DVBScanner,
@@ -78,6 +79,7 @@ __all__ = [
     "TransmissionMode",
     "LocalTS_HTTPServer",
     "DVBEvent",
+    "DVBEventScanner",
     "DVBDescriptor",
     "DVBElementaryStream",
     "DVBStreamInfo",

@@ -67,6 +67,7 @@ class DVBEvent:
     name: str | None = None
     text: str | None = None
     running_status: int | None = None
+    triplet_id: DVBTripletID | None = None
 
 
 @serializable
@@ -372,13 +373,20 @@ class DVBStreamInfo:
 
     @property
     def doublet_id(self) -> DVBDoubletID | None:
-        """Return a DVBDoubletID for this stream, or None if the ONID or TSID is missing."""
+        """Return this stream's ID, inferring it from a service if necessary."""
         if self.original_network_id is not None and self.transport_stream_id is not None:
             return DVBDoubletID(
                 original_network_id=self.original_network_id,
                 transport_stream_id=self.transport_stream_id,
             )
-        return None
+        return next(
+            (
+                service.triplet_id.doublet_id
+                for service in self.services
+                if service.triplet_id is not None
+            ),
+            None,
+        )
 
     def _serialize(self, ctx: Context) -> dict:
         output = standard_serializer(self, ctx)
@@ -782,6 +790,11 @@ class DVBScanner:
             self._warnings.append("truncated EIT section")
             return
         service_id = int.from_bytes(section[3:5], "big")
+        triplet_id = DVBTripletID(
+            original_network_id=int.from_bytes(section[10:12], "big"),
+            transport_stream_id=int.from_bytes(section[8:10], "big"),
+            service_id=service_id,
+        )
         service = self._services.setdefault(service_id, DVBService(service_id))
         events: list[DVBEvent] = []
         offset = 14
@@ -804,7 +817,15 @@ class DVBScanner:
                     text_offset = 4 + name_length
                     if text_offset < len(value):
                         text = _decode_text(value[text_offset + 1 : text_offset + 1 + value[text_offset]])
-            event = DVBEvent(event_id, start_time, duration, name, text, running_status)
+            event = DVBEvent(
+                event_id,
+                start_time,
+                duration,
+                name,
+                text,
+                running_status,
+                triplet_id,
+            )
             events.append(event)
             current_event = service.current_event
             if (
@@ -817,6 +838,57 @@ class DVBScanner:
 
         if section[0] == 0x4E:
             service.next_event = events[1] if len(events) > 1 else None
+
+
+class DVBEventScanner(DVBScanner):
+    """Scan present/following events and update services in an existing stream info."""
+
+    def __init__(
+        self,
+        stream_info: DVBStreamInfo,
+        *,
+        verify_crc: bool = True,
+    ) -> None:
+        """Create a scanner that updates only services in ``stream_info``.
+
+        EIT sections for services outside this stream info are ignored.
+        """
+        super().__init__(verify_crc=verify_crc)
+        doublet_id = stream_info.doublet_id
+        # Create small mapping of triplet IDs to known services in the existing stream_info for quick lookup
+        self._existing_services: dict[DVBTripletID, DVBService] = {}
+        for service in stream_info.services:
+            triplet_id = service.triplet_id
+            if triplet_id is None and doublet_id is not None:
+                triplet_id = doublet_id.triplet_id(service.service_id)
+            if triplet_id is not None:
+                self._existing_services[triplet_id] = service
+
+    def _feed_packet(self, packet: bytes) -> None:
+        """Ignore every transport-stream PID except the EIT PID."""
+        pid = ((packet[1] & 0x1F) << 8) | packet[2]
+        if pid == 0x12:
+            super()._feed_packet(packet)
+
+    def _decode_eit(self, section: bytes) -> None:
+        """Decode EIT for a known service and update its existing event metadata."""
+        if len(section) < 12:
+            return
+        service_id = int.from_bytes(section[3:5], "big")
+        triplet_id = DVBTripletID(
+            original_network_id=int.from_bytes(section[10:12], "big"),
+            transport_stream_id=int.from_bytes(section[8:10], "big"),
+            service_id=service_id,
+        )
+        existing_service = self._existing_services.get(triplet_id)
+        if existing_service is None:
+            return
+
+        super()._decode_eit(section)
+        decoded_service = self._services.get(service_id)
+        if decoded_service is not None:
+            existing_service.current_event = decoded_service.current_event
+            existing_service.next_event = decoded_service.next_event
 
 
 def _descriptors(data: bytes):

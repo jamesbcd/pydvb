@@ -9,7 +9,14 @@ from pydvb.driver_api.adapter import DVBAdapter
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.scan_tables import parse_table
 from pydvb.serialize import Context, serializable, standard_serializer
-from pydvb.stream_scanner import DVBScanner, DVBStreamInfo, DVBService, DVBDoubletID, DVBTripletID, ScanPolicy
+from pydvb.stream_scanner import (
+    DVBScanner,
+    DVBStreamInfo,
+    DVBService,
+    DVBDoubletID,
+    DVBTripletID,
+    ScanPolicy,
+)
 
 
 logger = logging.getLogger(__name__)

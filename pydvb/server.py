@@ -17,13 +17,14 @@ from urllib.parse import urlsplit
 from pydvb.driver_api.adapter import DVBAdapter
 from pydvb.driver_api.tuner import DVBTuning
 from .service_map import DVBServiceMap
-from .stream_scanner import DVBTripletID
+from .stream_scanner import DVBEventScanner, DVBDoubletID, DVBStreamInfo, DVBTripletID
 
 
 logger = logging.getLogger(__name__)
 
 ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
+EVENT_SCAN_QUEUE_SIZE = 8
 
 
 @dataclass(eq=False)
@@ -52,6 +53,7 @@ class HTTPClientStatus:
 class _MultiplexSession:
     adapter: DVBAdapter
     tuning: DVBTuning
+    stream_info: DVBStreamInfo
     subscribers: set[_StreamSubscriber]
     pid_routes: dict[int, tuple[_StreamSubscriber, ...]]
     stop_event: Event
@@ -84,7 +86,7 @@ class LocalTS_HTTPServer:
             raise ValueError("client_queue_size must be positive")
         self.service_map = service_map
         self._available_adapters = list(adapters)
-        self._sessions: dict[DVBTuning, _MultiplexSession] = {}
+        self._sessions: dict[DVBDoubletID, _MultiplexSession] = {}
         self._active_sessions: list[_MultiplexSession] = []
         self._adapters_condition = Condition(Lock())
         self.client_queue_size = client_queue_size
@@ -158,18 +160,22 @@ class LocalTS_HTTPServer:
     def _subscribe(
         self,
         tuning: DVBTuning,
+        stream_info: DVBStreamInfo,
         pids: frozenset[int],
         *,
         peer: str = "",
         service_name: str = "",
         service_id: str = "",
     ) -> tuple[_MultiplexSession, _StreamSubscriber] | None:
+        doublet_id = stream_info.doublet_id
+        if doublet_id is None:
+            raise ValueError("stream info must identify its multiplex")
         deadline = monotonic() + ADAPTER_LEASE_RETRY_TIMEOUT
         wait_started = monotonic()
         waiting_logged = False
         with self._adapters_condition:
             while not self._stop_event.is_set():
-                session = self._sessions.get(tuning)
+                session = self._sessions.get(doublet_id)
                 if session is not None and not session.stop_event.is_set():
                     subscriber = self._add_subscriber_locked(
                         session, pids, peer, service_name, service_id
@@ -185,6 +191,7 @@ class LocalTS_HTTPServer:
                     session = _MultiplexSession(
                         adapter=self._available_adapters.pop(),
                         tuning=tuning,
+                        stream_info=stream_info,
                         subscribers=set(),
                         pid_routes={},
                         stop_event=Event(),
@@ -194,7 +201,7 @@ class LocalTS_HTTPServer:
                     subscriber = self._add_subscriber_locked(
                         session, pids, peer, service_name, service_id
                     )
-                    self._sessions[tuning] = session
+                    self._sessions[doublet_id] = session
                     self._active_sessions.append(session)
                     session.producer = Thread(
                         target=self._run_session,
@@ -206,7 +213,7 @@ class LocalTS_HTTPServer:
                         session.producer.start()
                     except RuntimeError:
                         self._active_sessions.remove(session)
-                        del self._sessions[tuning]
+                        del self._sessions[doublet_id]
                         self._available_adapters.append(session.adapter)
                         self._adapters_condition.notify_all()
                         return None
@@ -297,6 +304,9 @@ class LocalTS_HTTPServer:
                 subscriber.bytes_sent += count
 
     def _run_session(self, session: _MultiplexSession) -> None:
+        dvb_event_scan_queue: Queue[bytes] | None = None
+        dvb_event_scan_stop = Event()
+        dvb_event_scanner: Thread | None = None
         try:
             logger.info(
                 "Tuning adapter to %s Hz (bandwidth %s Hz)",
@@ -311,10 +321,25 @@ class LocalTS_HTTPServer:
             session.adapter.set_pid_filter_enabled(False)
             session.adapter.start()
             logger.info(
-                "Started multiplex stream at %s Hz for %d subscriber(s)",
-                session.tuning.frequency_hz,
+                "Started multiplex stream with ID %s for %d subscriber(s)",
+                session.stream_info.doublet_id,
                 len(session.subscribers),
             )
+            if session.stream_info.services:
+                # Start DVB event scanner if there are services in the stream info
+                dvb_event_scan_queue = Queue(maxsize=EVENT_SCAN_QUEUE_SIZE)
+                dvb_event_scanner = Thread(
+                    target=self._run_dvb_event_scanner,
+                    args=(session, dvb_event_scan_queue, dvb_event_scan_stop),
+                    name=f"dvb-events-{session.stream_info.doublet_id}",
+                    daemon=True,
+                )
+                try:
+                    dvb_event_scanner.start()
+                except RuntimeError as error:
+                    dvb_event_scan_queue = None
+                    dvb_event_scanner = None
+                    logger.error("Could not start DVB event scanner: %s", error)
             session.ready_event.set()
             while not self._stop_event.is_set() and not session.stop_event.is_set():
                 try:
@@ -322,6 +347,11 @@ class LocalTS_HTTPServer:
                 except TimeoutError:
                     continue
                 self._route_stream_chunk(session, chunk)
+                if dvb_event_scanner is not None and not dvb_event_scanner.is_alive():
+                    # DVB event scanner has stopped unexpectedly, stop feeding it chunks
+                    dvb_event_scan_queue = None
+                if dvb_event_scan_queue is not None:
+                    self._enqueue_dvb_event_scan_chunk(dvb_event_scan_queue, chunk)
         except Exception as error:
             session.startup_error = error
             session.stop_event.set()
@@ -332,6 +362,9 @@ class LocalTS_HTTPServer:
                 error,
             )
         finally:
+            dvb_event_scan_stop.set()
+            if dvb_event_scanner is not None:
+                dvb_event_scanner.join(timeout=1.0)
             session.ready_event.set()
             try:
                 session.adapter.stop()
@@ -342,8 +375,9 @@ class LocalTS_HTTPServer:
             except (RuntimeError, OSError):
                 pass
             with self._adapters_condition:
-                if self._sessions.get(session.tuning) is session:
-                    del self._sessions[session.tuning]
+                doublet_id = session.stream_info.doublet_id
+                if doublet_id is not None and self._sessions.get(doublet_id) is session:
+                    del self._sessions[doublet_id]
                 if session in self._active_sessions:
                     self._active_sessions.remove(session)
                 session.subscribers.clear()
@@ -351,6 +385,44 @@ class LocalTS_HTTPServer:
                 self._available_adapters.append(session.adapter)
                 self._adapters_condition.notify_all()
             session.done_event.set()
+
+    def _run_dvb_event_scanner(
+        self,
+        session: _MultiplexSession,
+        scan_queue: Queue[bytes],
+        stop_event: Event,
+    ) -> None:
+        """Consume queued multiplex chunks and update mapped service DVB events (i.e., programs)."""
+        try:
+            scanner = DVBEventScanner(session.stream_info)
+            while not stop_event.is_set():
+                try:
+                    chunk = scan_queue.get(timeout=0.1)
+                except Empty:
+                    continue
+                scanner.feed(chunk)
+        except Exception as error:
+            logger.error(
+                "Event scan failed for multiplex %s: %s: %s",
+                session.stream_info.doublet_id,
+                type(error).__name__,
+                error,
+            )
+
+    @staticmethod
+    def _enqueue_dvb_event_scan_chunk(scan_queue: Queue[bytes], chunk: bytes) -> None:
+        """Enqueue a chunk without blocking stream delivery, dropping stale scan data."""
+        try:
+            scan_queue.put_nowait(chunk)
+        except Full:
+            try:
+                scan_queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                scan_queue.put_nowait(chunk)
+            except Full:
+                logger.debug("Dropping transport-stream chunk from event scan queue")
 
     def _route_stream_chunk(self, session: _MultiplexSession, chunk: bytes) -> None:
         packet_size = 188
@@ -489,6 +561,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         try:
             tuning = owner.service_map.tunings[triplet]
             service = owner.service_map.services[triplet]
+            stream_info = owner.service_map.stream_infos[triplet]
         except KeyError:
             self._log(
                 f"Service triplet not found in service map: {triplet}",
@@ -504,6 +577,7 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         client_address = f"{self.client_address[0]}:{self.client_address[1]}"
         subscription = owner._subscribe(
             tuning,
+            stream_info,
             service.pids(),
             peer=client_address,
             service_name=service.name or "Unnamed service",

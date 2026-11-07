@@ -5,9 +5,12 @@ import pytest
 from pydvb import DVBDescriptor, DVBElementaryStream
 from pydvb.stream_scanner import (
     DVBScanner,
+    DVBEventScanner,
+    DVBDoubletID,
     DVBService,
     DVBServiceMetatype,
     DVBServiceType,
+    DVBStreamInfo,
     DVBTripletID,
     ScanPolicy,
 )
@@ -203,6 +206,38 @@ def test_scanner_discovers_next_event_from_present_following_eit():
     assert service.next_event.name == "Next"
 
 
+def test_event_scanner_only_decodes_selected_present_following_services():
+    def eit_packet(service_id, event_id, name):
+        short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
+        event_descriptor = descriptor(0x4D, short_event)
+        event = (
+            event_id.to_bytes(2, "big")
+            + b"\xff" * 5
+            + b"\x01\x00\x00"
+            + b"\x80"
+            + bytes((len(event_descriptor),))
+            + event_descriptor
+        )
+        body = (
+            service_id.to_bytes(2, "big")
+            + b"\xc1\x00\x00\x12\x34\x00\x01\x00\x4e"
+            + event
+        )
+        return table_packet(0x12, section(0x4E, body))
+
+    triplet_id = DVBTripletID(1, 0x1234, 1)
+    service = DVBService(service_id=1, triplet_id=triplet_id)
+    scanner = DVBEventScanner(DVBStreamInfo(services=(service,)))
+    scanner.feed(table_packet(0, section(0, b"\x12\x34\xc1\x00\x00\x00\x02\xe1\x00")))
+    scanner.feed(eit_packet(2, 20, b"Ignored"))
+    scanner.feed(eit_packet(1, 10, b"Selected"))
+
+    assert service.current_event is not None
+    assert service.current_event.triplet_id == triplet_id
+    assert service.current_event.name == "Selected"
+    assert service.next_event is None
+
+
 def test_scanner_scan_reports_service_count_increases():
     first_pat = section(
         0x00,
@@ -253,6 +288,18 @@ def test_result_sets_triplet_ids_for_each_service():
         DVBTripletID(1, 0x1234, 1),
         DVBTripletID(1, 0x1234, 2),
     ]
+
+
+def test_stream_info_doublet_id_falls_back_to_first_identified_service():
+    service = DVBService(service_id=3, triplet_id=DVBTripletID(1, 2, 3))
+
+    assert DVBStreamInfo(services=(service,)).doublet_id == DVBDoubletID(1, 2)
+    assert DVBStreamInfo(
+        original_network_id=4,
+        transport_stream_id=5,
+        services=(service,),
+    ).doublet_id == DVBDoubletID(4, 5)
+    assert DVBStreamInfo().doublet_id is None
 
 
 def test_dvb_service_type_uses_int_compatible_standard_codes():
@@ -400,4 +447,3 @@ def test_scanner_reads_a_started_adapter_until_complete():
     result = scanner.scan(adapter)
 
     assert result.complete
-

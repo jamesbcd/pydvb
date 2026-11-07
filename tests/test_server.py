@@ -65,6 +65,7 @@ class ShutdownRaceAdapter(FakeAdapter):
 
 TRIPLET = DVBTripletID(1, 2, 3)
 TRIPLET_2 = DVBTripletID(4, 5, 6)
+TRIPLET_3 = DVBTripletID(1, 2, 6)
 TUNING = DVBTuning(650_000_000)
 OTHER_TUNING = DVBTuning(666_000_000)
 
@@ -79,7 +80,14 @@ def make_service_map():
         elementary_streams=(DVBElementaryStream(200, 0x1B),),
     )
     service_map = DVBServiceMap()
-    service_map.add_stream_info(TUNING, DVBStreamInfo(services=(service,)))
+    service_map.add_stream_info(
+        TUNING,
+        DVBStreamInfo(
+            original_network_id=TRIPLET.original_network_id,
+            transport_stream_id=TRIPLET.transport_stream_id,
+            services=(service,),
+        ),
+    )
     return service_map
 
 
@@ -93,12 +101,55 @@ def make_service_map_with_another_multiplex():
         pmt_pid=101,
         elementary_streams=(DVBElementaryStream(201, 0x1B),),
     )
-    service_map.add_stream_info(OTHER_TUNING, DVBStreamInfo(services=(service,)))
+    service_map.add_stream_info(
+        OTHER_TUNING,
+        DVBStreamInfo(
+            original_network_id=TRIPLET_2.original_network_id,
+            transport_stream_id=TRIPLET_2.transport_stream_id,
+            services=(service,),
+        ),
+    )
     return service_map
 
 
 def make_ts_packet(pid, payload_byte=0):
     return bytes((0x47, (pid >> 8) & 0x1F, pid & 0xFF)) + bytes((payload_byte,)) * 185
+
+
+def make_eit_packet(service_id, name):
+    short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
+    event_descriptor = bytes((0x4D, len(short_event))) + short_event
+    event = (
+        b"\x00\x01"
+        + b"\xff" * 5
+        + b"\x01\x00\x00"
+        + b"\x80"
+        + bytes((len(event_descriptor),))
+        + event_descriptor
+    )
+    body = (
+        service_id.to_bytes(2, "big")
+        + b"\xc1\x00\x00\x00\x02\x00\x01\x00\x4e"
+        + event
+    )
+    length = len(body) + 4
+    data = bytes((0x4E, 0xB0 | (length >> 8), length & 0xFF)) + body
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc ^= byte << 24
+        for _ in range(8):
+            crc = (
+                ((crc << 1) ^ 0x04C11DB7) & 0xFFFFFFFF
+                if crc & 0x80000000
+                else (crc << 1) & 0xFFFFFFFF
+            )
+    section = data + crc.to_bytes(4, "big")
+    payload = b"\x00" + section
+    return (
+        bytes((0x47, 0x40, 0x12, 0x10))
+        + payload
+        + b"\xff" * (184 - len(payload))
+    )
 
 
 def test_server_streams_requested_service_and_releases_adapter(caplog):
@@ -160,6 +211,35 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
     assert any("Started multiplex stream at 650000000 Hz" in message for message in messages)
     assert any("path='/service/1.2.3'" in message for message in messages)
     assert "token=secret" not in "\n".join(messages)
+
+
+def test_server_updates_service_events_while_streaming():
+    adapter = FakeAdapter()
+    service_map = make_service_map()
+    server = LocalTS_HTTPServer([adapter], service_map, port=0)
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    connection = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        connection.request("GET", "/service/1.2.3")
+        response = connection.getresponse()
+        assert response.status == 200
+
+        packet = make_eit_packet(3, b"Current programme")
+        adapter.chunks.put(packet)
+
+        assert response.read(188) == packet
+        deadline = monotonic() + 2
+        service = service_map.services[TRIPLET]
+        while monotonic() < deadline and service.current_event is None:
+            sleep(0.01)
+        assert service.current_event is not None
+        assert service.current_event.name == "Current programme"
+    finally:
+        connection.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
 
 
 def test_server_suppresses_demuxer_error_when_stopping_stream(caplog):
@@ -391,6 +471,8 @@ def test_server_shares_same_multiplex_even_when_eviction_is_enabled():
     try:
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
+        session = server._sessions[TRIPLET.doublet_id]
+        assert session.stream_info is server.service_map.stream_infos[TRIPLET]
 
         second.request("GET", "/service/1.2.3")
         response = second.getresponse()
@@ -432,6 +514,7 @@ def test_server_drops_oldest_filtered_block_when_subscriber_queue_is_full():
     session = _MultiplexSession(
         adapter=FakeAdapter(),
         tuning=TUNING,
+        stream_info=DVBStreamInfo(),
         subscribers={subscriber},
         pid_routes={200: (subscriber,)},
         stop_event=Event(),
@@ -449,14 +532,21 @@ def test_server_drops_oldest_filtered_block_when_subscriber_queue_is_full():
 def test_server_routes_each_subscriber_only_its_service_pids():
     second_service = DVBService(
         service_id=6,
-        triplet_id=TRIPLET_2,
+        triplet_id=TRIPLET_3,
         name="Second TV",
         service_type=DVBServiceType.DIGITAL_TELEVISION,
         pmt_pid=101,
         elementary_streams=(DVBElementaryStream(201, 0x1B),),
     )
     service_map = make_service_map()
-    service_map.add_stream_info(TUNING, DVBStreamInfo(services=(second_service,)))
+    service_map.add_stream_info(
+        TUNING,
+        DVBStreamInfo(
+            original_network_id=TRIPLET_3.original_network_id,
+            transport_stream_id=TRIPLET_3.transport_stream_id,
+            services=(second_service,),
+        ),
+    )
     adapter = FakeAdapter()
     server = LocalTS_HTTPServer([adapter], service_map, port=0)
     serving = Thread(target=server.serve_forever)
@@ -466,7 +556,7 @@ def test_server_routes_each_subscriber_only_its_service_pids():
     try:
         first.request("GET", "/service/1.2.3")
         first_response = first.getresponse()
-        second.request("GET", "/service/4.5.6")
+        second.request("GET", "/service/1.2.6")
         second_response = second.getresponse()
         assert first_response.status == second_response.status == 200
 
@@ -496,13 +586,24 @@ def test_server_retunes_evicted_adapter_for_different_tuning():
     try:
         first.request("GET", "/service/1.2.3")
         assert first.getresponse().status == 200
-        service = server.service_map.services[TRIPLET]
+        triplet = DVBTripletID(7, 8, 3)
+        service = DVBService(
+            service_id=3,
+            triplet_id=triplet,
+            name="Retuned TV",
+            pmt_pid=100,
+            elementary_streams=(DVBElementaryStream(200, 0x1B),),
+        )
         server.service_map.add_stream_info(
             DVBTuning(666_000_000),
-            DVBStreamInfo(services=(service,)),
+            DVBStreamInfo(
+                original_network_id=triplet.original_network_id,
+                transport_stream_id=triplet.transport_stream_id,
+                services=(service,),
+            ),
         )
 
-        second.request("GET", "/service/1.2.3")
+        second.request("GET", f"/service/{triplet.dotted()}")
         assert second.getresponse().status == 200
         assert [call[0] for call in adapter.calls].count("tune") == 2
     finally:
@@ -531,14 +632,14 @@ def test_server_eviction_stops_all_subscribers_of_the_old_multiplex():
         assert first.getresponse().status == 200
         second.request("GET", "/service/1.2.3")
         assert second.getresponse().status == 200
-        old_session = server._sessions[TUNING]
+        old_session = server._sessions[TRIPLET.doublet_id]
         assert len(old_session.subscribers) == 2
 
         replacement.request("GET", "/service/4.5.6")
         assert replacement.getresponse().status == 200
         assert old_session.done_event.wait(timeout=2)
         assert old_session.subscribers == set()
-        assert set(server._sessions) == {OTHER_TUNING}
+        assert set(server._sessions) == {TRIPLET_2.doublet_id}
         assert [call[1] for call in adapter.calls if call[0] == "tune"] == [
             TUNING,
             OTHER_TUNING,
