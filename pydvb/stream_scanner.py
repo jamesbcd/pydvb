@@ -333,6 +333,7 @@ class DVBService:
     pcr_pid: int | None = None  # PCR = Program Clock Reference PID. PID = Packet Identifier
     elementary_streams: tuple[DVBElementaryStream, ...] = ()
     current_event: DVBEvent | None = None
+    next_event: DVBEvent | None = None
 
     def pids(self) -> frozenset[int]:
         """Return the transport-stream PIDs required to describe this service."""
@@ -351,8 +352,9 @@ class DVBService:
 
     def _serialize(self, ctx: Context) -> dict:
         output = standard_serializer(self, ctx)
-        # No need to serialize the current event.
+        # No need to serialize the current event or the next event.
         output["current_event"] = None
+        output["next_event"] = None
         return output
 
 
@@ -524,6 +526,7 @@ class DVBScanner:
                     for stream in service.elementary_streams
                 ),
                 current_event=service.current_event,
+                next_event=service.next_event,
             )
             for service in sorted(self._services.values(), key=lambda item: item.service_id)
         )
@@ -654,7 +657,7 @@ class DVBScanner:
             self._decode_bat(section)
         elif pid == 0x10 and table_id in (0x40, 0x41): # NIT (Network Information Table)
             self._decode_nit(section)
-        elif pid == 0x12 and 0x4E <= table_id <= 0x6F: # EIT (Event Information Table)
+        elif pid == 0x12 and table_id == 0x4E: # EIT present/following for the actual transport stream
             self._decode_eit(section)
         elif pid in self._pmt_pids.values() and table_id == 0x02: # PMT (Program Map Table)
             self._decode_pmt(pid, section)
@@ -780,27 +783,40 @@ class DVBScanner:
             return
         service_id = int.from_bytes(section[3:5], "big")
         service = self._services.setdefault(service_id, DVBService(service_id))
-        event_id = int.from_bytes(section[14:16], "big")
-        start_time = _decode_dvb_time(section[16:21])
-        duration = _decode_duration(section[21:24])
-        running_status = section[24] >> 5
-        descriptor_length = ((section[24] & 0x0F) << 8) | section[25]
-        name = text = None
-        for tag, value in _descriptors(section[26 : 26 + descriptor_length]):
-            if tag == 0x4D and len(value) >= 4:
-                name_length = value[3]
-                name = _decode_text(value[4 : 4 + name_length])
-                text_offset = 4 + name_length
-                if text_offset < len(value):
-                    text = _decode_text(value[text_offset + 1 : text_offset + 1 + value[text_offset]])
-        event = DVBEvent(event_id, start_time, duration, name, text, running_status)
-        current_event = service.current_event
-        if (
-            current_event is None
-            or running_status == 4
-            or (running_status in (2, 3) and current_event.running_status != 4)
-        ):
-            service.current_event = event
+        events: list[DVBEvent] = []
+        offset = 14
+        section_end = _section_end(section)
+        while offset + 12 <= section_end:
+            event_id = int.from_bytes(section[offset : offset + 2], "big")
+            start_time = _decode_dvb_time(section[offset + 2 : offset + 7])
+            duration = _decode_duration(section[offset + 7 : offset + 10])
+            running_status = section[offset + 10] >> 5
+            descriptor_length = ((section[offset + 10] & 0x0F) << 8) | section[offset + 11]
+            descriptor_start = offset + 12
+            descriptor_end = descriptor_start + descriptor_length
+            if descriptor_end > section_end:
+                break
+            name = text = None
+            for tag, value in _descriptors(section[descriptor_start:descriptor_end]):
+                if tag == 0x4D and len(value) >= 4:
+                    name_length = value[3]
+                    name = _decode_text(value[4 : 4 + name_length])
+                    text_offset = 4 + name_length
+                    if text_offset < len(value):
+                        text = _decode_text(value[text_offset + 1 : text_offset + 1 + value[text_offset]])
+            event = DVBEvent(event_id, start_time, duration, name, text, running_status)
+            events.append(event)
+            current_event = service.current_event
+            if (
+                current_event is None
+                or running_status == 4
+                or (running_status in (2, 3) and current_event.running_status != 4)
+            ):
+                service.current_event = event
+            offset = descriptor_end
+
+        if section[0] == 0x4E:
+            service.next_event = events[1] if len(events) > 1 else None
 
 
 def _descriptors(data: bytes):

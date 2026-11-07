@@ -168,6 +168,41 @@ def test_scanner_prefers_running_event_over_other_eit_statuses():
     assert service.current_event.running_status == 4
 
 
+def test_scanner_discovers_next_event_from_present_following_eit():
+    scanner = DVBScanner()
+
+    def eit_event(event_id, running_status, name):
+        short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
+        event_descriptor = descriptor(0x4D, short_event)
+        return (
+            event_id.to_bytes(2, "big")
+            + b"\xff" * 5
+            + b"\x01\x00\x00"
+            + bytes((running_status << 5, len(event_descriptor)))
+            + event_descriptor
+        )
+
+    body = (
+        b"\x00\x01\xC1\x00\x00\x12\x34\x00\x01\x01\x00"
+        + eit_event(1, 4, b"Current")
+        + eit_event(2, 1, b"Next")
+    )
+    scanner._decode_eit(section(0x4E, body))
+    other_transport_body = (
+        b"\x00\x01\xC1\x00\x00\x56\x78\x00\x02\x01\x00"
+        + eit_event(3, 4, b"Other current")
+        + eit_event(4, 1, b"Other next")
+    )
+    scanner._decode_section(0x12, section(0x4F, other_transport_body))
+
+    service = scanner.result().services[0]
+    assert service.current_event is not None
+    assert service.current_event.name == "Current"
+    assert service.next_event is not None
+    assert service.next_event.event_id == 2
+    assert service.next_event.name == "Next"
+
+
 def test_scanner_scan_reports_service_count_increases():
     first_pat = section(
         0x00,
