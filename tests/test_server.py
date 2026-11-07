@@ -208,7 +208,10 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
         "Tuning adapter to 650000000 Hz (bandwidth 8000000 Hz)" in message
         for message in messages
     )
-    assert any("Started multiplex stream at 650000000 Hz" in message for message in messages)
+    assert any(
+        "Started multiplex stream with ID 1.2 for 1 subscriber(s)" in message
+        for message in messages
+    )
     assert any("path='/service/1.2.3'" in message for message in messages)
     assert "token=secret" not in "\n".join(messages)
 
