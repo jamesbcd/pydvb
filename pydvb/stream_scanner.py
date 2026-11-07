@@ -794,7 +794,12 @@ class DVBScanner:
                 if text_offset < len(value):
                     text = _decode_text(value[text_offset + 1 : text_offset + 1 + value[text_offset]])
         event = DVBEvent(event_id, start_time, duration, name, text, running_status)
-        if running_status in (2, 3) or service.current_event is None:
+        current_event = service.current_event
+        if (
+            current_event is None
+            or running_status == 4
+            or (running_status in (2, 3) and current_event.running_status != 4)
+        ):
             service.current_event = event
 
 

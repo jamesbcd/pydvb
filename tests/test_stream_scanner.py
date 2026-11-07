@@ -141,6 +141,33 @@ def test_scanner_discovers_service_metadata_from_split_packets():
     assert service.current_event.text == "Live"
 
 
+def test_scanner_prefers_running_event_over_other_eit_statuses():
+    scanner = DVBScanner()
+
+    def eit_event(event_id, running_status, name):
+        short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
+        event_descriptor = descriptor(0x4D, short_event)
+        body = (
+            b"\x00\x01\xC1\x00\x00\x12\x34\x00\x01\x01\x00"
+            + event_id.to_bytes(2, "big")
+            + b"\xff" * 5
+            + b"\x01\x00\x00"
+            + bytes((running_status << 5, len(event_descriptor)))
+            + event_descriptor
+        )
+        scanner._decode_eit(section(0x4E, body))
+
+    eit_event(1, 2, b"Starting soon")
+    eit_event(2, 4, b"Running now")
+    eit_event(3, 3, b"Pausing")
+
+    service = scanner.result().services[0]
+    assert service.current_event is not None
+    assert service.current_event.event_id == 2
+    assert service.current_event.name == "Running now"
+    assert service.current_event.running_status == 4
+
+
 def test_scanner_scan_reports_service_count_increases():
     first_pat = section(
         0x00,
