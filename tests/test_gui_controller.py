@@ -539,8 +539,9 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
     started_servers = []
 
     class FakeServer:
-        def __init__(self, _adapters, _service_map, host, port):
+        def __init__(self, _adapters, _service_map, host, port, scan_dvb_events):
             self.address = (host, port)
+            self.scan_dvb_events = scan_dvb_events
             started_servers.append(self)
 
         def start(self):
@@ -560,7 +561,7 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
 
     monkeypatch.setattr(server_module, "LocalTS_HTTPServer", FakeServer)
     monkeypatch.setattr(server_module, "Thread", FakeThread)
-    profile = GuiProfile()
+    profile = GuiProfile(show_program_guide_info=False)
     profile.service_map = SimpleNamespace(services={"service": object()})
     controller = AppController(profile=profile)
     controller._discovery_timer.stop()
@@ -594,6 +595,7 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
     qt_application.exec()
 
     assert len(started_servers) == 1
+    assert started_servers[0].scan_dvb_events is False
     assert controller.serverController.serverState == "Running"
     assert not controller.userDeviceBusy
 
@@ -1032,6 +1034,24 @@ def test_program_guide_refreshes_on_map_change_and_while_server_runs(qt_applicat
     controller._server_state = "Stopped"
     controller.serverChanged.emit()
     assert not refresh_timer.isActive()
+
+
+def test_program_guide_setting_hides_data_and_stops_polling(qt_application):
+    controller = AppController()
+    controller._profile.service_map = DVBServiceMap()
+    refresh_timer = controller.channelController._program_guide_refresh_timer
+
+    assert controller.channelController.showProgramGuideInfo is True
+    controller._server_state = "Running"
+    controller.serverChanged.emit()
+    assert refresh_timer.isActive()
+
+    controller.channelController.showProgramGuideInfo = False
+
+    assert not refresh_timer.isActive()
+    assert controller.channelController.programGuide == []
+    controller.channelController.showProgramGuideInfo = True
+    assert refresh_timer.isActive()
 
 
 def test_server_clients_include_service_lcn(qt_application):

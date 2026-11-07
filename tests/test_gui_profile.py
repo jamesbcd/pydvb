@@ -14,6 +14,7 @@ def test_gui_profile_round_trips(tmp_path):
         server_host="127.0.0.1",
         server_port=8090,
         selected_device="0413:6029",
+        show_program_guide_info=False,
         service_map=DVBServiceMap(),
     )
 
@@ -29,6 +30,7 @@ def test_gui_profile_round_trips(tmp_path):
     assert loaded.server_port == profile.server_port
     assert loaded.selected_device == profile.selected_device
     assert loaded.selected_adapter == profile.selected_adapter
+    assert loaded.show_program_guide_info is False
     assert isinstance(loaded.service_map, DVBServiceMap)
     assert loaded.service_map.services == profile.service_map.services
 
@@ -40,6 +42,7 @@ def test_gui_profile_round_trips(tmp_path):
         ("server_host", "", "server_host must not be empty"),
         ("server_port", 65536, "server_port must be between"),
         ("selected_adapter", -1, "selected_adapter must be non-negative"),
+        ("show_program_guide_info", 1, "show_program_guide_info must be a bool"),
         ("tunings", [DVBTuning(frequency_hz=177_500_000)], "tunings must be a tuple"),
         (
             "tunings",

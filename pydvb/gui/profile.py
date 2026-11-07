@@ -25,6 +25,7 @@ class GuiProfile:
     server_port: int = 8080
     selected_device: str | None = None
     selected_adapter: int = 0
+    show_program_guide_info: bool = True
     service_map: DVBServiceMap | None = None
 
     def __post_init__(self) -> None:
@@ -41,6 +42,8 @@ class GuiProfile:
             raise ValueError("server_port must be between 0 and 65535")
         if type(self.selected_adapter) is not int or self.selected_adapter < 0:
             raise ValueError("selected_adapter must be non-negative")
+        if type(self.show_program_guide_info) is not bool:
+            raise ValueError("show_program_guide_info must be a bool")
         if not isinstance(self.tunings, tuple) or any(
             not isinstance(tuning, DVBTuning) for tuning in self.tunings
         ):

@@ -250,6 +250,36 @@ def test_server_updates_service_events_while_streaming(caplog):
         serving.join(timeout=2)
 
 
+def test_server_does_not_scan_events_when_disabled():
+    adapter = FakeAdapter()
+    service_map = make_service_map()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        service_map,
+        port=0,
+        scan_dvb_events=False,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    connection = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        connection.request("GET", "/service/1.2.3")
+        response = connection.getresponse()
+        assert response.status == 200
+
+        packet = make_eit_packet(3, b"Current programme")
+        adapter.chunks.put(packet)
+        assert response.read(188) == packet
+        sleep(0.2)
+
+        assert service_map.services[TRIPLET].current_event is None
+    finally:
+        connection.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
 def test_server_suppresses_demuxer_error_when_stopping_stream(caplog):
     caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = ShutdownRaceAdapter()

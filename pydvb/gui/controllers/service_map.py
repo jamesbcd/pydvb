@@ -17,13 +17,13 @@ class ChannelController(QObject):
 
     channelsChanged = Signal()
     programGuideChanged = Signal()
+    showProgramGuideInfoChanged = Signal()
     stationStreamsChanged = Signal()
 
     def __init__(self, app: AppController) -> None:
         super().__init__(app)
         self._app = app
-        app.channelsChanged.connect(self.channelsChanged.emit)
-        app.channelsChanged.connect(self.programGuideChanged.emit)
+        app.channelsChanged.connect(self._channels_changed)
         app.channelsChanged.connect(self.stationStreamsChanged.emit)
         app.serverChanged.connect(self._sync_program_guide_refresh_timer)
         self._program_guide_refresh_timer = QTimer(self)
@@ -33,12 +33,41 @@ class ChannelController(QObject):
 
     @Slot()
     def _sync_program_guide_refresh_timer(self) -> None:
-        """Refresh guide bindings periodically only while the server is running."""
-        if self._app._server_state == "Running":
+        """Refresh guide bindings only while enabled and the server is running."""
+        if (
+            self.showProgramGuideInfo
+            and self._app._server_state == "Running"
+        ):
             if not self._program_guide_refresh_timer.isActive():
                 self._program_guide_refresh_timer.start()
         else:
             self._program_guide_refresh_timer.stop()
+
+    def _channels_changed(self) -> None:
+        """Notify channel bindings and refresh guide bindings only when enabled."""
+        self.channelsChanged.emit()
+        self.showProgramGuideInfoChanged.emit()
+        if self.showProgramGuideInfo:
+            self.programGuideChanged.emit()
+
+    @Property(bool, notify=showProgramGuideInfoChanged)
+    def showProgramGuideInfo(self) -> bool:
+        """Return whether program-guide display and event scanning are enabled."""
+        return self._app._profile.show_program_guide_info
+
+    @showProgramGuideInfo.setter
+    def showProgramGuideInfo(self, value: bool) -> None:
+        if type(value) is not bool:
+            raise ValueError("showProgramGuideInfo must be a bool")
+        app = self._app
+        if app._profile.show_program_guide_info == value:
+            return
+        app._profile.show_program_guide_info = value
+        if app._server is not None:
+            app._server.scan_dvb_events = value
+        self._sync_program_guide_refresh_timer()
+        self.showProgramGuideInfoChanged.emit()
+        self.programGuideChanged.emit()
 
     @Property("QVariantList", notify=channelsChanged)
     def channels(self) -> list[dict[str, object]]:
@@ -71,6 +100,8 @@ class ChannelController(QObject):
     @Property("QVariantList", notify=programGuideChanged)
     def programGuide(self) -> list[dict[str, object]]:
         """Return channel rows with present and following event metadata."""
+        if not self.showProgramGuideInfo:
+            return []
         service_map = self._app._profile.service_map
         if service_map is None:
             return []

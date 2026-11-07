@@ -74,6 +74,7 @@ class LocalTS_HTTPServer:
         port: int = 8080,
         client_queue_size: int = 20,
         buffer_log: bool = False,
+        scan_dvb_events: bool = True,
         # When evict_oldest_on_exhaustion is True, the server stops the oldest
         # multiplex session, disconnecting all subscribers using that adapter.
         # When False, the server will wait for an adapter to become available, potentially timing out if
@@ -84,6 +85,8 @@ class LocalTS_HTTPServer:
             raise ValueError("port must be between 0 and 65535")
         if client_queue_size <= 0:
             raise ValueError("client_queue_size must be positive")
+        if type(scan_dvb_events) is not bool:
+            raise ValueError("scan_dvb_events must be a bool")
         self.service_map = service_map
         self._available_adapters = list(adapters)
         self._sessions: dict[DVBDoubletID, _MultiplexSession] = {}
@@ -91,6 +94,7 @@ class LocalTS_HTTPServer:
         self._adapters_condition = Condition(Lock())
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
+        self.scan_dvb_events = scan_dvb_events
         self.evict_oldest_on_exhaustion = evict_oldest_on_exhaustion
         self._stop_event = Event()
         self.httpd = _HTTPServer((host, port), _StreamRequestHandler, self)
@@ -325,28 +329,46 @@ class LocalTS_HTTPServer:
                 session.stream_info.doublet_id,
                 len(session.subscribers),
             )
-            if session.stream_info.services:
-                # Start DVB event scanner if there are services in the stream info
-                dvb_event_scan_queue = Queue(maxsize=EVENT_SCAN_QUEUE_SIZE)
-                dvb_event_scanner = Thread(
-                    target=self._run_dvb_event_scanner,
-                    args=(session, dvb_event_scan_queue, dvb_event_scan_stop),
-                    name=f"dvb-events-{session.stream_info.doublet_id}",
-                    daemon=True,
-                )
-                try:
-                    dvb_event_scanner.start()
-                    logger.info("Started DVB event scanner for stream ID %s", session.stream_info.doublet_id)
-                except RuntimeError as error:
+
+            def sync_dvb_event_scanner() -> None:
+                nonlocal dvb_event_scan_queue, dvb_event_scan_stop, dvb_event_scanner
+                if not session.stream_info.services:
+                    return
+                if self.scan_dvb_events:
+                    if dvb_event_scanner is not None:
+                        return
+                    dvb_event_scan_queue = Queue(maxsize=EVENT_SCAN_QUEUE_SIZE)
+                    dvb_event_scan_stop = Event()
+                    dvb_event_scanner = Thread(
+                        target=self._run_dvb_event_scanner,
+                        args=(session, dvb_event_scan_queue, dvb_event_scan_stop),
+                        name=f"dvb-events-{session.stream_info.doublet_id}",
+                        daemon=True,
+                    )
+                    try:
+                        dvb_event_scanner.start()
+                        logger.info(
+                            "Started DVB event scanner for stream ID %s",
+                            session.stream_info.doublet_id,
+                        )
+                    except RuntimeError as error:
+                        dvb_event_scan_queue = None
+                        dvb_event_scanner = None
+                        logger.error("Could not start DVB event scanner: %s", error)
+                elif dvb_event_scanner is not None:
+                    dvb_event_scan_stop.set()
+                    dvb_event_scanner.join(timeout=1.0)
                     dvb_event_scan_queue = None
                     dvb_event_scanner = None
-                    logger.error("Could not start DVB event scanner: %s", error)
+
             session.ready_event.set()
             while not self._stop_event.is_set() and not session.stop_event.is_set():
                 try:
                     chunk = session.adapter.read_stream(1000)
                 except TimeoutError:
+                    sync_dvb_event_scanner()
                     continue
+                sync_dvb_event_scanner()
                 self._route_stream_chunk(session, chunk)
                 if dvb_event_scanner is not None and not dvb_event_scanner.is_alive():
                     # DVB event scanner has stopped unexpectedly, stop feeding it chunks

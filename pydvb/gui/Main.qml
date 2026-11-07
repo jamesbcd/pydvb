@@ -542,6 +542,12 @@ ApplicationWindow {
                 checked: window.controller.devicesController.showUnsupportedDevices
                 onTriggered: window.controller.devicesController.showUnsupportedDevices = checked
             }
+            MenuItem {
+                text: "Show program guide info"
+                checkable: true
+                checked: window.controller.channelController.showProgramGuideInfo
+                onTriggered: window.controller.channelController.showProgramGuideInfo = checked
+            }
             MenuSeparator {}
             MenuItem {
                 action: openScanTableAction
@@ -571,6 +577,16 @@ ApplicationWindow {
         function onChannelsChanged() {
             if (window.selectedChannelId && !window.channelExists(window.selectedChannelId))
                 window.selectedChannelId = ""
+        }
+    }
+
+    Connections {
+        target: window.controller.channelController
+        function onShowProgramGuideInfoChanged() {
+            if (!window.controller.channelController.showProgramGuideInfo
+                    && window.sectionIndex === 5) {
+                window.sectionIndex = 2
+            }
         }
     }
 
@@ -846,6 +862,7 @@ ApplicationWindow {
                     Button {
                         id: programGuideSectionButton
                         visible: playerLoader.playbackAvailable
+                            && window.controller.channelController.showProgramGuideInfo
                         Layout.fillWidth: true
                         Layout.minimumHeight: 32
                         Layout.preferredHeight: 32
@@ -943,7 +960,12 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.margins: currentIndex === 4 ? 0 : 26
-            currentIndex: window.playerOnlyMode ? 4 : window.sectionIndex
+            currentIndex: window.playerOnlyMode
+                ? 4
+                : (window.sectionIndex === 5
+                    && (!playerLoader.playbackAvailable
+                        || !window.controller.channelController.showProgramGuideInfo)
+                    ? 2 : window.sectionIndex)
 
             Item {
                 ColumnLayout {
@@ -1922,8 +1944,6 @@ ApplicationWindow {
             }
 
             Item {
-                visible: playerLoader.playbackAvailable
-
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 12
