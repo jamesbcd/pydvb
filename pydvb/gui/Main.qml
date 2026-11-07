@@ -23,6 +23,7 @@ ApplicationWindow {
     property string selectedProgramEventKey: ""
     property string selectedProgramEventTitle: ""
     property string selectedProgramEventDescription: ""
+    property string selectedProgramEventTime: ""
     property var logWindowObject: null
     property bool scanTablesRefreshAttempted: false
     property bool playerOnlyMode: false
@@ -2044,6 +2045,8 @@ ApplicationWindow {
                                         window.selectedProgramEventTitle = programGuideRow.modelData.now
                                         window.selectedProgramEventDescription =
                                             programGuideRow.modelData.nowDescription
+                                        window.selectedProgramEventTime =
+                                            programGuideRow.modelData.nowTime
                                     }
                                     background: Rectangle {
                                         color: window.selectedProgramEventKey
@@ -2075,6 +2078,8 @@ ApplicationWindow {
                                         window.selectedProgramEventTitle = programGuideRow.modelData.next
                                         window.selectedProgramEventDescription =
                                             programGuideRow.modelData.nextDescription
+                                        window.selectedProgramEventTime =
+                                            programGuideRow.modelData.nextTime
                                     }
                                     background: Rectangle {
                                         color: window.selectedProgramEventKey
@@ -2120,6 +2125,13 @@ ApplicationWindow {
                                 color: "#26362c"
                             }
                             Label {
+                                visible: window.selectedProgramEventTime.length > 0
+                                text: window.selectedProgramEventTime
+                                color: "#68766d"
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+                            Label {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 text: window.selectedProgramEventTitle.length > 0
@@ -2140,6 +2152,7 @@ ApplicationWindow {
                         window.selectedProgramEventKey = ""
                         window.selectedProgramEventTitle = ""
                         window.selectedProgramEventDescription = ""
+                        window.selectedProgramEventTime = ""
                     }
                 }
             }

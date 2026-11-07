@@ -7,9 +7,19 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from pydvb.service_map import DVBServiceMap, map_from_tunings
+from pydvb.stream_scanner import DVBEvent
 
 if TYPE_CHECKING:
     from ..app_controller import AppController
+
+
+def _format_event_time(event: DVBEvent | None) -> str:
+    """Return an event's start and stop times in the system's local timezone."""
+    if event is None or event.start_time is None or event.duration is None:
+        return ""
+    start_time = event.start_time.astimezone()
+    stop_time = (event.start_time + event.duration).astimezone()
+    return f"{start_time:%H:%M}–{stop_time:%H:%M}"
 
 
 class ChannelController(QObject):
@@ -117,10 +127,12 @@ class ChannelController(QObject):
                     "nowDescription": (
                         current_event.text or "" if current_event is not None else ""
                     ),
+                    "nowTime": _format_event_time(current_event),
                     "next": next_event.name or "" if next_event is not None else "",
                     "nextDescription": (
                         next_event.text or "" if next_event is not None else ""
                     ),
+                    "nextTime": _format_event_time(next_event),
                 }
             )
         return rows

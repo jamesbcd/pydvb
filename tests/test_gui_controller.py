@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 
 import pytest
@@ -983,26 +986,75 @@ def test_program_guide_includes_now_and_next_event_details(qt_application):
             "name": "News",
             "now": "Current bulletin",
             "nowDescription": "Current programme description",
+            "nowTime": "",
             "next": "Evening news",
             "nextDescription": "Next programme description",
+            "nextTime": "",
         },
         {
             "lcn": 2,
             "name": "Drama",
             "now": "",
             "nowDescription": "",
+            "nowTime": "",
             "next": "New series",
             "nextDescription": "",
+            "nextTime": "",
         },
         {
             "lcn": 3,
             "name": "Radio",
             "now": "",
             "nowDescription": "",
+            "nowTime": "",
             "next": "",
             "nextDescription": "",
+            "nextTime": "",
         },
     ]
+
+
+def test_program_guide_formats_event_times_in_local_timezone(
+    qt_application, monkeypatch
+):
+    old_tz = os.environ.get("TZ")
+    try:
+        monkeypatch.setenv("TZ", "Australia/Brisbane")
+        time.tzset()
+        controller = AppController()
+        triplet_id = DVBTripletID(1, 2, 3)
+        service_map = DVBServiceMap()
+        service_map.add_stream_info(
+            DVBTuning(frequency_hz=650_000_000),
+            DVBStreamInfo(
+                original_network_id=1,
+                transport_stream_id=2,
+                services=(
+                    DVBService(
+                        service_id=triplet_id.service_id,
+                        triplet_id=triplet_id,
+                        current_event=DVBEvent(
+                            event_id=10,
+                            start_time=datetime(2024, 1, 1, 20, 30, tzinfo=timezone.utc),
+                            duration=timedelta(minutes=45),
+                        ),
+                        next_event=DVBEvent(event_id=11),
+                    ),
+                ),
+            ),
+        )
+        controller._profile.service_map = service_map
+
+        row = controller.channelController.programGuide[0]
+
+        assert row["nowTime"] == "06:30–07:15"
+        assert row["nextTime"] == ""
+    finally:
+        if old_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", old_tz)
+        time.tzset()
 
 
 def test_program_guide_refreshes_on_map_change_and_while_server_runs(qt_application):
