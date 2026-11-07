@@ -18,7 +18,7 @@ from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
 from pydvb.gui.profile import GuiProfile, save_profile
 from pydvb.service_map import DVBServiceMap
-from pydvb.stream_scanner import DVBService, DVBStreamInfo, DVBTripletID
+from pydvb.stream_scanner import DVBEvent, DVBService, DVBStreamInfo, DVBTripletID
 from pydvb.usb import USBDeviceID, usb1
 
 
@@ -927,6 +927,111 @@ def test_channels_include_network_name_from_service_stream(qt_application):
     controller._profile.service_map = service_map
 
     assert controller.channelController.channels[0]["networkName"] == "Test network"
+
+
+def test_program_guide_includes_now_and_next_event_details(qt_application):
+    controller = AppController()
+    now_id = DVBTripletID(1, 2, 3)
+    next_id = DVBTripletID(1, 2, 4)
+    unknown_id = DVBTripletID(1, 2, 5)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=1,
+            transport_stream_id=2,
+            services=(
+                DVBService(
+                    service_id=now_id.service_id,
+                    triplet_id=now_id,
+                    name="News",
+                    logical_channel_number=1,
+                    current_event=DVBEvent(
+                        event_id=10,
+                        name="Current bulletin",
+                        text="Current programme description",
+                    ),
+                    next_event=DVBEvent(
+                        event_id=11,
+                        name="Evening news",
+                        text="Next programme description",
+                    ),
+                ),
+                DVBService(
+                    service_id=next_id.service_id,
+                    triplet_id=next_id,
+                    name="Drama",
+                    logical_channel_number=2,
+                    next_event=DVBEvent(event_id=12, name="New series"),
+                ),
+                DVBService(
+                    service_id=unknown_id.service_id,
+                    triplet_id=unknown_id,
+                    name="Radio",
+                    logical_channel_number=3,
+                ),
+            ),
+        ),
+    )
+    controller._profile.service_map = service_map
+
+    assert controller.channelController.programGuide == [
+        {
+            "lcn": 1,
+            "name": "News",
+            "now": "Current bulletin",
+            "nowDescription": "Current programme description",
+            "next": "Evening news",
+            "nextDescription": "Next programme description",
+        },
+        {
+            "lcn": 2,
+            "name": "Drama",
+            "now": "",
+            "nowDescription": "",
+            "next": "New series",
+            "nextDescription": "",
+        },
+        {
+            "lcn": 3,
+            "name": "Radio",
+            "now": "",
+            "nowDescription": "",
+            "next": "",
+            "nextDescription": "",
+        },
+    ]
+
+
+def test_program_guide_refreshes_on_map_change_and_while_server_runs(qt_application):
+    controller = AppController()
+    guide_changes = []
+    channel_changes = []
+    controller.channelController.programGuideChanged.connect(
+        lambda: guide_changes.append(True)
+    )
+    controller.channelController.channelsChanged.connect(
+        lambda: channel_changes.append(True)
+    )
+    refresh_timer = controller.channelController._program_guide_refresh_timer
+
+    assert not refresh_timer.isActive()
+    controller._profile.service_map = DVBServiceMap()
+    controller.channelsChanged.emit()
+
+    assert guide_changes == [True]
+    assert channel_changes == [True]
+
+    controller._server_state = "Running"
+    controller.serverChanged.emit()
+    assert refresh_timer.isActive()
+    refresh_timer.timeout.emit()
+    assert guide_changes == [True, True]
+    assert channel_changes == [True]
+
+    controller._server_state = "Stopped"
+    controller.serverChanged.emit()
+    assert not refresh_timer.isActive()
 
 
 def test_server_clients_include_service_lcn(qt_application):

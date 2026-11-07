@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from collections.abc import Iterable
 from enum import Enum, IntEnum, auto
+import logging
 from typing import Any, Callable, NamedTuple
 
 from construct import Bit, BitStruct, BitsInteger
@@ -13,6 +14,8 @@ from construct import Bit, BitStruct, BitsInteger
 from pydvb.driver_api.adapter import DVBAdapter
 from pydvb.serialize import Context, serializable, standard_serializer
 
+
+logger = logging.getLogger(__name__)
 
 TS_PACKET_SIZE = 188    # Standard size of an MPEG transport stream packet in bytes
 TS_SYNC_BYTE = 0x47     # Sync byte value for MPEG transport stream packets
@@ -737,7 +740,6 @@ class DVBScanner:
 
     def _decode_nit(self, section: bytes) -> None:
         """Decode a Network Information Table (NIT) section."""
-        self._original_network_id = int.from_bytes(section[3:5], "big")
         end = _section_end(section)
         network_length = ((section[8] & 0x0F) << 8) | section[9]
         for tag, value in _descriptors(section[10 : 10 + network_length]):
@@ -750,7 +752,14 @@ class DVBScanner:
         offset += 2
         limit = min(offset + transport_length, end)
         while offset + 6 <= limit:
+            transport_stream_id = int.from_bytes(section[offset : offset + 2], "big")
+            original_network_id = int.from_bytes(section[offset + 2 : offset + 4], "big")
             descriptor_length = ((section[offset + 4] & 0x0F) << 8) | section[offset + 5]
+            if (
+                section[0] == 0x40
+                and transport_stream_id == self._transport_stream_id
+            ):
+                self._original_network_id = original_network_id
             self._decode_lcn_descriptors(section[offset + 6 : offset + 6 + descriptor_length])
             offset += 6 + descriptor_length
 
@@ -854,24 +863,38 @@ class DVBEventScanner(DVBScanner):
         EIT sections for services outside this stream info are ignored.
         """
         super().__init__(verify_crc=verify_crc)
+        self.eit_packets_seen = 0
+        self.eit_sections_seen = 0
+        self.matched_eit_services: set[DVBTripletID] = set()
+        self.unmatched_eit_services: set[DVBTripletID] = set()
+        self.onid_mismatch_eit_services: set[DVBTripletID] = set()
+        self.event_updates = 0
         doublet_id = stream_info.doublet_id
         # Create small mapping of triplet IDs to known services in the existing stream_info for quick lookup
         self._existing_services: dict[DVBTripletID, DVBService] = {}
+        self._existing_services_by_ts_service: dict[
+            tuple[int, int], tuple[DVBTripletID, DVBService]
+        ] = {}
         for service in stream_info.services:
             triplet_id = service.triplet_id
             if triplet_id is None and doublet_id is not None:
                 triplet_id = doublet_id.triplet_id(service.service_id)
             if triplet_id is not None:
                 self._existing_services[triplet_id] = service
+                self._existing_services_by_ts_service[
+                    (triplet_id.transport_stream_id, triplet_id.service_id)
+                ] = (triplet_id, service)
 
     def _feed_packet(self, packet: bytes) -> None:
         """Ignore every transport-stream PID except the EIT PID."""
         pid = ((packet[1] & 0x1F) << 8) | packet[2]
         if pid == 0x12:
+            self.eit_packets_seen += 1
             super()._feed_packet(packet)
 
     def _decode_eit(self, section: bytes) -> None:
         """Decode EIT for a known service and update its existing event metadata."""
+        self.eit_sections_seen += 1
         if len(section) < 12:
             return
         service_id = int.from_bytes(section[3:5], "big")
@@ -881,14 +904,54 @@ class DVBEventScanner(DVBScanner):
             service_id=service_id,
         )
         existing_service = self._existing_services.get(triplet_id)
+        service_triplet_id = triplet_id
         if existing_service is None:
-            return
+            mapped_service = self._existing_services_by_ts_service.get(
+                (triplet_id.transport_stream_id, triplet_id.service_id)
+            )
+            if mapped_service is None:
+                if triplet_id not in self.unmatched_eit_services:
+                    self.unmatched_eit_services.add(triplet_id)
+                    logger.info(
+                        "Received present/following EIT for unmapped service %s",
+                        triplet_id,
+                    )
+                return
+            service_triplet_id, existing_service = mapped_service
+            if triplet_id not in self.onid_mismatch_eit_services:
+                self.onid_mismatch_eit_services.add(triplet_id)
+                logger.warning(
+                    "EIT service %s matched to service-map entry %s by TSID and service ID",
+                    triplet_id,
+                    service_triplet_id,
+                )
 
+        self.matched_eit_services.add(triplet_id)
+        previous_events = (existing_service.current_event, existing_service.next_event)
         super()._decode_eit(section)
         decoded_service = self._services.get(service_id)
         if decoded_service is not None:
             existing_service.current_event = decoded_service.current_event
             existing_service.next_event = decoded_service.next_event
+            if previous_events != (
+                existing_service.current_event,
+                existing_service.next_event,
+            ):
+                self.event_updates += 1
+                logger.info(
+                    "Updated events for service %s: now=%r next=%r",
+                    service_triplet_id,
+                    (
+                        existing_service.current_event.name
+                        if existing_service.current_event is not None
+                        else None
+                    ),
+                    (
+                        existing_service.next_event.name
+                        if existing_service.next_event is not None
+                        else None
+                    ),
+                )
 
 
 def _descriptors(data: bytes):

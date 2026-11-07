@@ -216,7 +216,8 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
     assert "token=secret" not in "\n".join(messages)
 
 
-def test_server_updates_service_events_while_streaming():
+def test_server_updates_service_events_while_streaming(caplog):
+    caplog.set_level(logging.INFO, logger="pydvb.stream_scanner")
     adapter = FakeAdapter()
     service_map = make_service_map()
     server = LocalTS_HTTPServer([adapter], service_map, port=0)
@@ -238,6 +239,10 @@ def test_server_updates_service_events_while_streaming():
             sleep(0.01)
         assert service.current_event is not None
         assert service.current_event.name == "Current programme"
+        assert any(
+            "Updated events for service 1.2.3" in record.getMessage()
+            for record in caplog.records
+        )
     finally:
         connection.close()
         server.shutdown()

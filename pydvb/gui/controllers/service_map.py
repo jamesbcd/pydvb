@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from pydvb.service_map import DVBServiceMap, map_from_tunings
 
@@ -16,13 +16,29 @@ class ChannelController(QObject):
     """Expose the current service map to the TV stations view."""
 
     channelsChanged = Signal()
+    programGuideChanged = Signal()
     stationStreamsChanged = Signal()
 
     def __init__(self, app: AppController) -> None:
         super().__init__(app)
         self._app = app
         app.channelsChanged.connect(self.channelsChanged.emit)
+        app.channelsChanged.connect(self.programGuideChanged.emit)
         app.channelsChanged.connect(self.stationStreamsChanged.emit)
+        app.serverChanged.connect(self._sync_program_guide_refresh_timer)
+        self._program_guide_refresh_timer = QTimer(self)
+        self._program_guide_refresh_timer.setInterval(5000)
+        self._program_guide_refresh_timer.timeout.connect(self.programGuideChanged.emit)
+        self._sync_program_guide_refresh_timer()
+
+    @Slot()
+    def _sync_program_guide_refresh_timer(self) -> None:
+        """Refresh guide bindings periodically only while the server is running."""
+        if self._app._server_state == "Running":
+            if not self._program_guide_refresh_timer.isActive():
+                self._program_guide_refresh_timer.start()
+        else:
+            self._program_guide_refresh_timer.stop()
 
     @Property("QVariantList", notify=channelsChanged)
     def channels(self) -> list[dict[str, object]]:
@@ -47,6 +63,32 @@ class ChannelController(QObject):
                         stream_info.network_name or "Unknown Network"
                         if stream_info is not None
                         else "Unknown Network"
+                    ),
+                }
+            )
+        return rows
+
+    @Property("QVariantList", notify=programGuideChanged)
+    def programGuide(self) -> list[dict[str, object]]:
+        """Return channel rows with present and following event metadata."""
+        service_map = self._app._profile.service_map
+        if service_map is None:
+            return []
+        rows: list[dict[str, object]] = []
+        for service in service_map.services_sorted():
+            current_event = service.current_event
+            next_event = service.next_event
+            rows.append(
+                {
+                    "lcn": service.logical_channel_number,
+                    "name": service.name or "Unnamed service",
+                    "now": current_event.name or "" if current_event is not None else "",
+                    "nowDescription": (
+                        current_event.text or "" if current_event is not None else ""
+                    ),
+                    "next": next_event.name or "" if next_event is not None else "",
+                    "nextDescription": (
+                        next_event.text or "" if next_event is not None else ""
                     ),
                 }
             )
@@ -134,4 +176,3 @@ class ChannelController(QObject):
             complete,
             lane="device",
         )
-

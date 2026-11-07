@@ -20,6 +20,9 @@ ApplicationWindow {
     property int sectionIndex: 0
     property int editingTuningIndex: -1
     property string selectedChannelId: ""
+    property string selectedProgramEventKey: ""
+    property string selectedProgramEventTitle: ""
+    property string selectedProgramEventDescription: ""
     property var logWindowObject: null
     property bool scanTablesRefreshAttempted: false
     property bool playerOnlyMode: false
@@ -298,6 +301,10 @@ ApplicationWindow {
             return playerLoader.playbackAvailable
                 ? "Play a channel from the local HTTP server"
                 : "Install pydvb[player] to enable playback"
+        case 5:
+            return window.controller.channelController.programGuide.length > 0
+                ? window.controller.channelController.programGuide.length + " channel(s) in the guide"
+                : "No channels in the guide"
         default:
             return ""
         }
@@ -315,6 +322,9 @@ ApplicationWindow {
             return window.controller.serverController.serverState === "Running"
         case 4:
             return playerLoader.playbackAvailable && window.selectedChannelId.length > 0
+        case 5:
+            return playerLoader.playbackAvailable
+                && window.controller.channelController.hasChannelMap
         default:
             return false
         }
@@ -832,6 +842,44 @@ ApplicationWindow {
                         Layout.leftMargin: 10
                         Layout.topMargin: 15
                         Layout.bottomMargin: 10
+                    }
+                    Button {
+                        id: programGuideSectionButton
+                        visible: playerLoader.playbackAvailable
+                        Layout.fillWidth: true
+                        Layout.minimumHeight: 32
+                        Layout.preferredHeight: 32
+                        Layout.maximumHeight: 32
+                        text: "Program Guide"
+                        checkable: true
+                        checked: window.sectionIndex === 5
+                        highlighted: checked
+                        onClicked: {
+                            window.sectionIndex = 5
+                            window.playerOnlyMode = false
+                        }
+                        horizontalPadding: 13
+                        Accessible.description: window.sectionStatus(5)
+                        ToolTip.visible: hovered
+                        ToolTip.text: window.sectionStatus(5)
+                        background: Rectangle {
+                            radius: 5
+                            color: programGuideSectionButton.checked
+                                ? "#d8e5da"
+                                : (programGuideSectionButton.hovered ? "#f0f3f0" : "transparent")
+                            border.color: programGuideSectionButton.checked
+                                ? "#b8cdbd" : "transparent"
+                        }
+                        contentItem: Label {
+                            text: "Program Guide"
+                            leftPadding: 23
+                            horizontalAlignment: Text.AlignLeft
+                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: 14
+                            font.weight: programGuideSectionButton.checked
+                                ? Font.DemiBold : Font.Normal
+                            color: "#26362c"
+                        }
                     }
                     ListView {
                         id: playerChannelList
@@ -1869,6 +1917,209 @@ ApplicationWindow {
                     onTriggered: {
                         if (window.playerOnlyMode && !playerSidebarHoverHandler.hovered)
                             window.playerSidebarRevealed = false
+                    }
+                }
+            }
+
+            Item {
+                visible: playerLoader.playbackAvailable
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            spacing: 3
+                            Label {
+                                text: "Program Guide"
+                                font.pixelSize: 26
+                                font.bold: true
+                                color: "#17251e"
+                            }
+                            Label {
+                                text: "Current and upcoming programmes by channel"
+                                color: "#68766d"
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: "#d9dfda" }
+
+                    TableFrame {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 0
+                        minimumContentWidth: 720
+
+                        TableHeaderRow {
+                            Label {
+                                text: "LCN"
+                                Layout.preferredWidth: 48
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "CHANNEL NAME"
+                                Layout.preferredWidth: 180
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "NOW"
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 220
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                            Label {
+                                text: "NEXT"
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 220
+                                color: "#77847b"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                        }
+                        TableBody {
+                            id: programGuideList
+                            Layout.minimumHeight: 0
+                            model: window.controller.channelController.programGuide
+
+                            delegate: TableRow {
+                                id: programGuideRow
+                                required property var modelData
+                                required property int index
+                                width: programGuideList.width
+
+                                Label {
+                                    text: programGuideRow.modelData.lcn === null
+                                        ? "-" : programGuideRow.modelData.lcn
+                                    Layout.preferredWidth: 48
+                                    color: "#526158"
+                                }
+                                Label {
+                                    text: programGuideRow.modelData.name
+                                    Layout.preferredWidth: 180
+                                    color: "#26362c"
+                                    elide: Text.ElideRight
+                                }
+                                ItemDelegate {
+                                    id: nowProgramEventDelegate
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 220
+                                    Layout.minimumWidth: 120
+                                    Layout.minimumHeight: window.tableRowMinimumHeight
+                                    leftPadding: 0
+                                    rightPadding: 8
+                                    enabled: programGuideRow.modelData.now.length > 0
+                                        || programGuideRow.modelData.nowDescription.length > 0
+                                    onClicked: {
+                                        window.selectedProgramEventKey =
+                                            String(programGuideRow.index) + ":now"
+                                        window.selectedProgramEventTitle = programGuideRow.modelData.now
+                                        window.selectedProgramEventDescription =
+                                            programGuideRow.modelData.nowDescription
+                                    }
+                                    background: Rectangle {
+                                        color: window.selectedProgramEventKey
+                                                === String(programGuideRow.index) + ":now"
+                                            ? "#e4eee6"
+                                            : (nowProgramEventDelegate.hovered
+                                                ? "#f0f3f0" : "transparent")
+                                    }
+                                    contentItem: Label {
+                                        text: programGuideRow.modelData.now
+                                        color: "#26362c"
+                                        elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                                ItemDelegate {
+                                    id: nextProgramEventDelegate
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 220
+                                    Layout.minimumWidth: 120
+                                    Layout.minimumHeight: window.tableRowMinimumHeight
+                                    leftPadding: 0
+                                    rightPadding: 8
+                                    enabled: programGuideRow.modelData.next.length > 0
+                                        || programGuideRow.modelData.nextDescription.length > 0
+                                    onClicked: {
+                                        window.selectedProgramEventKey =
+                                            String(programGuideRow.index) + ":next"
+                                        window.selectedProgramEventTitle = programGuideRow.modelData.next
+                                        window.selectedProgramEventDescription =
+                                            programGuideRow.modelData.nextDescription
+                                    }
+                                    background: Rectangle {
+                                        color: window.selectedProgramEventKey
+                                                === String(programGuideRow.index) + ":next"
+                                            ? "#e4eee6"
+                                            : (nextProgramEventDelegate.hovered
+                                                ? "#f0f3f0" : "transparent")
+                                    }
+                                    contentItem: Label {
+                                        text: programGuideRow.modelData.next
+                                        color: "#26362c"
+                                        elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: programGuideList.count === 0
+                                text: "No channels in the program guide"
+                                color: "#849087"
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 132
+                        color: "#ffffff"
+                        border.color: "#d9dfda"
+                        radius: 5
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 6
+                            Label {
+                                text: window.selectedProgramEventTitle.length > 0
+                                    ? window.selectedProgramEventTitle
+                                    : "Event Description"
+                                font.pixelSize: 14
+                                font.bold: true
+                                color: "#26362c"
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: window.selectedProgramEventTitle.length > 0
+                                        || window.selectedProgramEventDescription.length > 0
+                                    ? window.selectedProgramEventDescription
+                                    : "Select a Now or Next event to view its description."
+                                color: "#526158"
+                                wrapMode: Text.Wrap
+                                verticalAlignment: Text.AlignTop
+                            }
+                        }
+                    }
+                }
+
+                Connections {
+                    target: window.controller.channelController
+                    function onChannelsChanged() {
+                        window.selectedProgramEventKey = ""
+                        window.selectedProgramEventTitle = ""
+                        window.selectedProgramEventDescription = ""
                     }
                 }
             }

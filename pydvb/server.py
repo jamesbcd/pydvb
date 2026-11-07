@@ -336,6 +336,7 @@ class LocalTS_HTTPServer:
                 )
                 try:
                     dvb_event_scanner.start()
+                    logger.info("Started DVB event scanner for stream ID %s", session.stream_info.doublet_id)
                 except RuntimeError as error:
                     dvb_event_scan_queue = None
                     dvb_event_scanner = None
@@ -356,8 +357,8 @@ class LocalTS_HTTPServer:
             session.startup_error = error
             session.stop_event.set()
             logger.error(
-                "Multiplex stream failed at %s Hz: %s: %s",
-                session.tuning.frequency_hz,
+                "Multiplex stream failed for multiplex %s: %s: %s",
+                session.stream_info.doublet_id,
                 type(error).__name__,
                 error,
             )
@@ -393,14 +394,46 @@ class LocalTS_HTTPServer:
         stop_event: Event,
     ) -> None:
         """Consume queued multiplex chunks and update mapped service DVB events (i.e., programs)."""
+        scanner: DVBEventScanner | None = None
+        chunks_received = 0
+        bytes_received = 0
+
+        def log_progress(status: str) -> None:
+            if scanner is None:
+                return
+            logger.info(
+                "DVB EIT scan %s for multiplex %s: chunks=%d bytes=%d "
+                "PID 0x12 packets=%d present/following sections=%d "
+                "matched services=%d ONID fallbacks=%d "
+                "unmapped services=%d event updates=%d",
+                status,
+                session.stream_info.doublet_id,
+                chunks_received,
+                bytes_received,
+                scanner.eit_packets_seen,
+                scanner.eit_sections_seen,
+                len(scanner.matched_eit_services),
+                len(scanner.onid_mismatch_eit_services),
+                len(scanner.unmatched_eit_services),
+                scanner.event_updates,
+            )
+
         try:
             scanner = DVBEventScanner(session.stream_info)
+            last_progress_log = monotonic()
             while not stop_event.is_set():
                 try:
                     chunk = scan_queue.get(timeout=0.1)
                 except Empty:
-                    continue
-                scanner.feed(chunk)
+                    pass
+                else:
+                    chunks_received += 1
+                    bytes_received += len(chunk)
+                    scanner.feed(chunk)
+                now = monotonic()
+                if now - last_progress_log >= 30:
+                    log_progress("progress")
+                    last_progress_log = now
         except Exception as error:
             logger.error(
                 "Event scan failed for multiplex %s: %s: %s",
@@ -408,6 +441,8 @@ class LocalTS_HTTPServer:
                 type(error).__name__,
                 error,
             )
+        finally:
+            log_progress("stopped")
 
     @staticmethod
     def _enqueue_dvb_event_scan_chunk(scan_queue: Queue[bytes], chunk: bytes) -> None:
