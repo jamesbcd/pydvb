@@ -337,6 +337,15 @@ ApplicationWindow {
         })
     }
 
+    function showChannelInPlayer(channelId) {
+        if (!playerLoader.playbackAvailable || !channelId || channelId === "Unknown")
+            return
+
+        window.selectedChannelId = channelId
+        window.playerOnlyMode = false
+        window.sectionIndex = 4
+    }
+
     function focusedTextEditor() {
         const item = window.activeFocusItem
         return item && typeof item.copy === "function" ? item : null
@@ -876,7 +885,7 @@ ApplicationWindow {
                             window.sectionIndex = 5
                             window.playerOnlyMode = false
                         }
-                        horizontalPadding: 13
+                        horizontalPadding: 10
                         Accessible.description: window.sectionStatus(5)
                         ToolTip.visible: hovered
                         ToolTip.text: window.sectionStatus(5)
@@ -890,7 +899,7 @@ ApplicationWindow {
                         }
                         contentItem: Label {
                             text: "Program Guide"
-                            leftPadding: 23
+                            leftPadding: 0
                             horizontalAlignment: Text.AlignLeft
                             verticalAlignment: Text.AlignVCenter
                             font.pixelSize: 14
@@ -1626,6 +1635,13 @@ ApplicationWindow {
                                             id: channelDelegate
                                             required property var modelData
                                             width: channelList.width
+                                            TapHandler {
+                                                acceptedButtons: Qt.LeftButton
+                                                enabled: playerLoader.playbackAvailable
+                                                onDoubleTapped: window.showChannelInPlayer(
+                                                    channelDelegate.modelData.id
+                                                )
+                                            }
                                             Label {
                                                 text: channelDelegate.modelData.lcn === null ? "-" : channelDelegate.modelData.lcn
                                                 Layout.preferredWidth: 25
@@ -2010,12 +2026,63 @@ ApplicationWindow {
                             id: programGuideList
                             Layout.minimumHeight: 0
                             model: window.controller.channelController.programGuide
+                            activeFocusOnTab: true
+                            property string eventColumn: "now"
+
+                            function selectEvent(rowIndex, column) {
+                                const row = model[rowIndex]
+                                if (row === undefined)
+                                    return
+
+                                currentIndex = rowIndex
+                                eventColumn = column
+                                window.selectedProgramEventKey =
+                                    String(rowIndex) + ":" + column
+                                window.selectedProgramEventTitle = row[column]
+                                window.selectedProgramEventDescription =
+                                    row[column + "Description"]
+                                window.selectedProgramEventTime = row[column + "Time"]
+                            }
+
+                            Keys.onPressed: function(event) {
+                                if (count === 0)
+                                    return
+
+                                let rowIndex = currentIndex < 0 ? 0 : currentIndex
+                                let column = eventColumn
+                                switch (event.key) {
+                                case Qt.Key_Up:
+                                    rowIndex = Math.max(0, rowIndex - 1)
+                                    break
+                                case Qt.Key_Down:
+                                    rowIndex = Math.min(count - 1, rowIndex + 1)
+                                    break
+                                case Qt.Key_Left:
+                                    column = "now"
+                                    break
+                                case Qt.Key_Right:
+                                    column = "next"
+                                    break
+                                default:
+                                    return
+                                }
+                                positionViewAtIndex(rowIndex, ListView.Contain)
+                                selectEvent(rowIndex, column)
+                                event.accepted = true
+                            }
 
                             delegate: TableRow {
                                 id: programGuideRow
                                 required property var modelData
                                 required property int index
                                 width: programGuideList.width
+                                TapHandler {
+                                    acceptedButtons: Qt.LeftButton
+                                    enabled: playerLoader.playbackAvailable
+                                    onDoubleTapped: window.showChannelInPlayer(
+                                        programGuideRow.modelData.id
+                                    )
+                                }
 
                                 Label {
                                     text: programGuideRow.modelData.lcn === null
@@ -2037,17 +2104,19 @@ ApplicationWindow {
                                     Layout.minimumHeight: window.tableRowMinimumHeight
                                     leftPadding: 0
                                     rightPadding: 8
+                                    TapHandler {
+                                        acceptedButtons: Qt.LeftButton
+                                        enabled: playerLoader.playbackAvailable
+                                        onDoubleTapped: window.showChannelInPlayer(
+                                            programGuideRow.modelData.id
+                                        )
+                                    }
+                                    onClicked: {
+                                        programGuideList.selectEvent(programGuideRow.index, "now")
+                                        programGuideList.forceActiveFocus()
+                                    }
                                     enabled: programGuideRow.modelData.now.length > 0
                                         || programGuideRow.modelData.nowDescription.length > 0
-                                    onClicked: {
-                                        window.selectedProgramEventKey =
-                                            String(programGuideRow.index) + ":now"
-                                        window.selectedProgramEventTitle = programGuideRow.modelData.now
-                                        window.selectedProgramEventDescription =
-                                            programGuideRow.modelData.nowDescription
-                                        window.selectedProgramEventTime =
-                                            programGuideRow.modelData.nowTime
-                                    }
                                     background: Rectangle {
                                         color: window.selectedProgramEventKey
                                                 === String(programGuideRow.index) + ":now"
@@ -2055,11 +2124,21 @@ ApplicationWindow {
                                             : (nowProgramEventDelegate.hovered
                                                 ? "#f0f3f0" : "transparent")
                                     }
-                                    contentItem: Label {
-                                        text: programGuideRow.modelData.now
-                                        color: "#26362c"
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
+                                    contentItem: Column {
+                                        spacing: 0
+                                        Label {
+                                            text: programGuideRow.modelData.now
+                                            color: "#26362c"
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: programGuideRow.modelData.nowTime
+                                            visible: text.length > 0
+                                            color: "#68766d"
+                                            font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
                                     }
                                 }
                                 ItemDelegate {
@@ -2070,17 +2149,19 @@ ApplicationWindow {
                                     Layout.minimumHeight: window.tableRowMinimumHeight
                                     leftPadding: 0
                                     rightPadding: 8
+                                    TapHandler {
+                                        acceptedButtons: Qt.LeftButton
+                                        enabled: playerLoader.playbackAvailable
+                                        onDoubleTapped: window.showChannelInPlayer(
+                                            programGuideRow.modelData.id
+                                        )
+                                    }
+                                    onClicked: {
+                                        programGuideList.selectEvent(programGuideRow.index, "next")
+                                        programGuideList.forceActiveFocus()
+                                    }
                                     enabled: programGuideRow.modelData.next.length > 0
                                         || programGuideRow.modelData.nextDescription.length > 0
-                                    onClicked: {
-                                        window.selectedProgramEventKey =
-                                            String(programGuideRow.index) + ":next"
-                                        window.selectedProgramEventTitle = programGuideRow.modelData.next
-                                        window.selectedProgramEventDescription =
-                                            programGuideRow.modelData.nextDescription
-                                        window.selectedProgramEventTime =
-                                            programGuideRow.modelData.nextTime
-                                    }
                                     background: Rectangle {
                                         color: window.selectedProgramEventKey
                                                 === String(programGuideRow.index) + ":next"
@@ -2088,11 +2169,21 @@ ApplicationWindow {
                                             : (nextProgramEventDelegate.hovered
                                                 ? "#f0f3f0" : "transparent")
                                     }
-                                    contentItem: Label {
-                                        text: programGuideRow.modelData.next
-                                        color: "#26362c"
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
+                                    contentItem: Column {
+                                        spacing: 0
+                                        Label {
+                                            text: programGuideRow.modelData.next
+                                            color: "#26362c"
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+                                        Label {
+                                            text: programGuideRow.modelData.nextTime
+                                            visible: text.length > 0
+                                            color: "#68766d"
+                                            font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
                                     }
                                 }
                             }

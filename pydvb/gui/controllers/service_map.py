@@ -123,6 +123,11 @@ class ChannelController(QObject):
                 {
                     "lcn": service.logical_channel_number,
                     "name": service.name or "Unnamed service",
+                    "id": (
+                        service.triplet_id.dotted()
+                        if service.triplet_id is not None
+                        else "Unknown"
+                    ),
                     "now": current_event.name or "" if current_event is not None else "",
                     "nowDescription": (
                         current_event.text or "" if current_event is not None else ""

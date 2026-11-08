@@ -984,6 +984,7 @@ def test_program_guide_includes_now_and_next_event_details(qt_application):
         {
             "lcn": 1,
             "name": "News",
+            "id": "1.2.3",
             "now": "Current bulletin",
             "nowDescription": "Current programme description",
             "nowTime": "",
@@ -994,6 +995,7 @@ def test_program_guide_includes_now_and_next_event_details(qt_application):
         {
             "lcn": 2,
             "name": "Drama",
+            "id": "1.2.4",
             "now": "",
             "nowDescription": "",
             "nowTime": "",
@@ -1004,6 +1006,7 @@ def test_program_guide_includes_now_and_next_event_details(qt_application):
         {
             "lcn": 3,
             "name": "Radio",
+            "id": "1.2.5",
             "now": "",
             "nowDescription": "",
             "nowTime": "",
