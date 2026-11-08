@@ -36,9 +36,15 @@ Item {
     readonly property bool canTogglePlayback: playbackUrl.length > 0
         && player.mediaStatus !== MediaPlayer.LoadingMedia
     readonly property bool canStopPlayback: player.playbackState !== MediaPlayer.StoppedState
-    readonly property bool waitingForVideoFrame:
+    readonly property bool isAudioOnly: !!root.selectedChannel
+        && root.selectedChannel.metatype === "RADIO"
+    readonly property bool waitingForPlaybackOutput:
         player.source.toString().length > 0
-        && (!mediaSourceReady || !hasVideoFrame)
+        && (!mediaSourceReady
+            || (root.isAudioOnly
+                ? player.playbackState !== MediaPlayer.PlayingState
+                    && player.playbackState !== MediaPlayer.PausedState
+                : !hasVideoFrame))
     readonly property var selectableChannels: appController
         ? appController.channelController.channels.filter(function(channel) {
             return channel.id !== "Unknown"
@@ -148,17 +154,30 @@ Item {
             anchors.fill: parent
             fillMode: VideoOutput.PreserveAspectFit
         }
+        Image {
+            anchors.centerIn: parent
+            source: "icons/music.svg"
+            sourceSize: Qt.size(96, 96)
+            width: 96
+            height: 96
+            fillMode: Image.PreserveAspectFit
+            visible: root.isAudioOnly
+                && root.mediaSourceReady
+                && !root.waitingForPlaybackOutput
+                && root.playbackError.length === 0
+            Accessible.name: "Audio-only channel"
+        }
         Column {
             anchors.centerIn: parent
             width: parent.width - 48
             spacing: 10
             visible: player.source.toString().length === 0
-                || (root.waitingForVideoFrame && root.playbackError.length === 0)
+                || (root.waitingForPlaybackOutput && root.playbackError.length === 0)
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
                 palette.text: "#ffffff" // Used by Fusion style?
                 palette.highlight: "#ffffff" // Used by other styles?
-                running: root.waitingForVideoFrame
+                running: root.waitingForPlaybackOutput
                     && root.playbackError.length === 0
                 visible: running
             }
@@ -715,8 +734,14 @@ Item {
         case MediaPlayer.LoadedMedia:
             return "Starting " + root.selectedChannelDisplayName + "..."
         case MediaPlayer.BufferedMedia:
+            if (root.isAudioOnly)
+                return player.playbackState === MediaPlayer.PlayingState
+                    ? "Playing " + root.selectedChannelDisplayName + "."
+                    : "Starting " + root.selectedChannelDisplayName + "..."
             return "Waiting for video from " + root.selectedChannelDisplayName + "..."
         default:
+            if (root.isAudioOnly && player.playbackState === MediaPlayer.PlayingState)
+                return "Playing " + root.selectedChannelDisplayName + "."
             return player.playbackState === MediaPlayer.PlayingState
                 ? "Waiting for video from " + root.selectedChannelDisplayName + "..."
                 : "Preparing " + root.selectedChannelDisplayName + "..."

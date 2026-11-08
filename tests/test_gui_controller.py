@@ -21,7 +21,14 @@ from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
 from pydvb.gui.profile import GuiProfile, save_profile
 from pydvb.service_map import DVBServiceMap
-from pydvb.stream_scanner import DVBEvent, DVBService, DVBStreamInfo, DVBTripletID
+from pydvb.stream_scanner import (
+    DVBEvent,
+    DVBService,
+    DVBServiceMetatype,
+    DVBServiceType,
+    DVBStreamInfo,
+    DVBTripletID,
+)
 from pydvb.usb import USBDeviceID, usb1
 
 
@@ -932,6 +939,33 @@ def test_channels_include_network_name_from_service_stream(qt_application):
     controller._profile.service_map = service_map
 
     assert controller.channelController.channels[0]["networkName"] == "Test network"
+
+
+def test_channels_include_service_metatype(qt_application):
+    controller = AppController()
+    triplet_id = DVBTripletID(1, 2, 3)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=triplet_id.original_network_id,
+            transport_stream_id=triplet_id.transport_stream_id,
+            services=(
+                DVBService(
+                    service_id=triplet_id.service_id,
+                    triplet_id=triplet_id,
+                    service_type=DVBServiceType.DIGITAL_RADIO_SOUND,
+                    service_metatype=DVBServiceMetatype.RADIO,
+                ),
+            ),
+        ),
+    )
+    controller._profile.service_map = service_map
+
+    channel = controller.channelController.channels[0]
+
+    assert channel["type"] == "DIGITAL_RADIO_SOUND"
+    assert channel["metatype"] == "RADIO"
 
 
 def test_program_guide_includes_now_and_next_event_details(qt_application):

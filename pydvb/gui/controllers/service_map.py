@@ -97,6 +97,7 @@ class ChannelController(QObject):
                     "lcn": service.logical_channel_number,
                     "name": service.name or "Unnamed service",
                     "type": getattr(service.service_type, "name", "Other"),
+                    "metatype": service.service_metatype.value,
                     "id": triplet_id.dotted() if triplet_id is not None else "Unknown",
                     "networkName": (
                         stream_info.network_name or "Unknown Network"
