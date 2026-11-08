@@ -608,6 +608,16 @@ Item {
                         font.pixelSize: 15
                         wrapMode: Text.Wrap
                     }
+                    Item {
+                        width: 1
+                        height: 8
+                        visible: (root.currentEventTitle.length > 0
+                                || root.currentEventTime.length > 0
+                                || root.currentEventDescription.length > 0)
+                            && (root.nextEventTitle.length > 0
+                                || root.nextEventTime.length > 0
+                                || root.nextEventDescription.length > 0)
+                    }
                     RowLayout {
                         width: parent.width
                         visible: root.nextEventTitle.length > 0
