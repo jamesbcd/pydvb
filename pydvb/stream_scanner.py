@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum, IntEnum, auto
 import logging
 from typing import Any, Callable, NamedTuple
+import unicodedata
 
 from construct import Bit, BitStruct, BitsInteger
 
@@ -819,6 +820,8 @@ class DVBScanner:
             if descriptor_end > section_end:
                 break
             name = text = None
+            extended_event_language: bytes | None = None
+            extended_event_parts: dict[int, bytes] = {}
             for tag, value in _descriptors(section[descriptor_start:descriptor_end]):
                 if tag == 0x4D and len(value) >= 4:
                     name_length = value[3]
@@ -826,6 +829,24 @@ class DVBScanner:
                     text_offset = 4 + name_length
                     if text_offset < len(value):
                         text = _decode_text(value[text_offset + 1 : text_offset + 1 + value[text_offset]])
+                elif tag == 0x4E:
+                    extended_event = _parse_extended_event_descriptor(value)
+                    if extended_event is None:
+                        continue
+                    language, descriptor_number, _, descriptor_text = extended_event
+                    if extended_event_language is None:
+                        extended_event_language = language
+                    if language == extended_event_language:
+                        extended_event_parts[descriptor_number] = descriptor_text
+            if extended_event_parts:
+                extended_text = _decode_text(
+                    b"".join(
+                        extended_event_parts[number]
+                        for number in sorted(extended_event_parts)
+                    )
+                )
+                if extended_text:
+                    text = extended_text
             event = DVBEvent(
                 event_id,
                 start_time,
@@ -846,7 +867,12 @@ class DVBScanner:
             offset = descriptor_end
 
         if section[0] == 0x4E:
-            service.next_event = events[1] if len(events) > 1 else None
+            if section[6] == 1:
+                service.next_event = events[0] if events else None
+            elif len(events) > 1:
+                service.next_event = events[1]
+            elif section[7] == 0:
+                service.next_event = None
 
 
 class DVBEventScanner(DVBScanner):
@@ -965,16 +991,176 @@ def _descriptors(data: bytes):
         offset += 2 + length
 
 
+def _parse_extended_event_descriptor(
+    value: bytes,
+) -> tuple[bytes, int, int, bytes] | None:
+    """Return the language, sequence numbers, and text from an extended-event descriptor."""
+    if len(value) < 6:
+        return None
+
+    descriptor_number = value[0] >> 4
+    last_descriptor_number = value[0] & 0x0F
+    if descriptor_number > last_descriptor_number:
+        return None
+
+    items_end = 5 + value[4]
+    if items_end >= len(value):
+        return None
+    text_length = value[items_end]
+    text_start = items_end + 1
+    if text_start + text_length > len(value):
+        return None
+
+    return (
+        value[1:4],
+        descriptor_number,
+        last_descriptor_number,
+        value[text_start : text_start + text_length],
+    )
+
+
 def _section_end(section: bytes) -> int:
     """Return the index of the end of the section."""
     return 3 + (int.from_bytes(section[1:3], "big") & 0x0FFF) - 4
 
 
+_ISO6937_SINGLE_BYTE = (
+    "\u00a0\u00a1\u00a2\u00a3\ufffd\u00a5\ufffd\u00a7"
+    "\u00a4\u2018\u201c\u00ab\u2190\u2191\u2192\u2193"
+    "\u00b0\u00b1\u00b2\u00b3\u00d7\u00b5\u00b6\u00b7"
+    "\u00f7\u2019\u201d\u00bb\u00bc\u00bd\u00be\u00bf"
+    + "\ufffd" * 16
+    + "\u2014\u00b9\u00ae\u00a9\u2122\u266a\u00ac\u00a6"
+    + "\ufffd" * 4
+    + "\u215b\u215c\u215d\u215e"
+    + "\u2126\u00c6\u00d0\u00aa\u0126\ufffd\u0132\u013f"
+    + "\u0141\u00d8\u0152\u00ba\u00de\u0166\u014a\u0149"
+    + "\u0138\u00e6\u0111\u00f0\u0127\u0131\u0133\u0140"
+    + "\u0142\u00f8\u0153\u00df\u00fe\u0167\u014b\u00ad"
+)
+
+_ISO6937_ACCENTS = {
+    0xC1: "\u0300",
+    0xC2: "\u0301",
+    0xC3: "\u0302",
+    0xC4: "\u0303",
+    0xC5: "\u0304",
+    0xC6: "\u0306",
+    0xC7: "\u0307",
+    0xC8: "\u0308",
+    0xCA: "\u030A",
+    0xCB: "\u0327",
+    0xCD: "\u030B",
+    0xCE: "\u0328",
+    0xCF: "\u030C",
+}
+
+_ISO6937_SPACING_ACCENTS = {
+    0xC1: "\u00B4",
+    0xC5: "\u00AF",
+    0xC6: "\u02D8",
+    0xC7: "\u02D9",
+    0xC8: "\u00A8",
+    0xCA: "\u02DA",
+    0xCB: "\u00B8",
+    0xCD: "\u02DD",
+    0xCE: "\u02DB",
+    0xCF: "\u02C7",
+}
+
+_DVB_ISO8859_SELECTORS = {
+    0x01: "iso8859_5",
+    0x02: "iso8859_6",
+    0x03: "iso8859_7",
+    0x04: "iso8859_8",
+    0x05: "iso8859_9",
+    0x06: "iso8859_10",
+    0x07: "iso8859_11",
+    0x09: "iso8859_13",
+    0x0A: "iso8859_14",
+    0x0B: "iso8859_15",
+}
+
+
+def _decode_iso6937(data: bytes) -> str:
+    """Decode DVB's default ISO/IEC 6937 text encoding."""
+    characters: list[str] = []
+    offset = 0
+    while offset < len(data):
+        value = data[offset]
+        accent = _ISO6937_ACCENTS.get(value)
+        if accent is not None:
+            if offset + 1 >= len(data):
+                characters.append("\ufffd")
+                offset += 1
+                continue
+            next_value = data[offset + 1]
+            if next_value == 0x20:
+                characters.append(_ISO6937_SPACING_ACCENTS.get(value, "\ufffd"))
+            else:
+                base = _decode_iso6937_byte(next_value)
+                if base == "\ufffd":
+                    characters.append("\ufffd")
+                else:
+                    characters.append(unicodedata.normalize("NFC", base + accent))
+            offset += 2
+            continue
+        characters.append(_decode_iso6937_byte(value))
+        offset += 1
+    return "".join(characters)
+
+
+def _decode_iso6937_byte(value: int) -> str:
+    """Decode one ISO/IEC 6937 byte that is not a diacritic prefix."""
+    if value < 0xA0:
+        return chr(value)
+    if value <= 0xBF or value >= 0xD0:
+        return _ISO6937_SINGLE_BYTE[value - 0xA0]
+    return "\ufffd"
+
+
 def _decode_text(data: bytes) -> str:
-    """Decode DVB text data, handling the DVB text encoding prefix if present."""
-    if data.startswith(b"\x10\x00"):
-        data = data[2:]
-    return data.decode("utf-8", errors="replace").strip()
+    """Decode DVB text using its selector or the ISO/IEC 6937 default."""
+    if not data or data[0] == 0:
+        return ""
+
+    encoding = "iso6937"
+    selector = data[0]
+    if 0x01 <= selector <= 0x0B:
+        encoding = _DVB_ISO8859_SELECTORS.get(selector, "iso6937")
+        data = data[1:]
+    elif selector == 0x10:
+        if len(data) >= 3 and data[1] == 0 and 0 < data[2] <= 0x0F:
+            part = data[2]
+            encoding = f"iso8859_{part}" if part != 12 else "iso6937"
+            data = data[3:]
+        else:
+            data = data[1:]
+    elif selector == 0x11:
+        encoding = "utf_16_be"
+        data = data[1:]
+    elif selector == 0x12:
+        encoding = "euc_kr"
+        data = data[1:]
+    elif selector == 0x13:
+        encoding = "gb2312"
+        data = data[1:]
+    elif selector == 0x14:
+        encoding = "big5"
+        data = data[1:]
+    elif selector == 0x15:
+        encoding = "utf_8"
+        data = data[1:]
+    elif 0x0C <= selector <= 0x0F or 0x16 <= selector <= 0x1E:
+        data = data[1:]
+    elif selector == 0x1F:
+        data = data[2:] if len(data) >= 2 else data[1:]
+
+    if encoding == "iso6937":
+        text = _decode_iso6937(data)
+    else:
+        text = data.decode(encoding, errors="replace")
+    return text.strip()
 
 
 def _decode_bcd(value: int) -> int:

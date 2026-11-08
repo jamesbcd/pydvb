@@ -41,6 +41,32 @@ def descriptor(tag, value):
     return bytes((tag, len(value))) + value
 
 
+def extended_event_descriptor(number, last_number, text, language=b"eng", items=b""):
+    value = (
+        bytes(((number << 4) | last_number,))
+        + language
+        + bytes((len(items),))
+        + items
+        + bytes((len(text),))
+        + text
+    )
+    return descriptor(0x4E, value)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    (
+        (b"Caf\xc2e", "Café"),
+        (b"\x01\xb0", "А"),
+        (b"\x10\x00\x01Caf\xe9", "Café"),
+        (b"\x11\x00\xe9", "é"),
+        (b"\x15Caf\xc3\xa9", "Café"),
+    ),
+)
+def test_dvb_text_uses_default_and_selected_encodings(raw, expected):
+    assert scanner_module._decode_text(raw) == expected
+
+
 def packet(pid, payload, continuity=0):
     header = bytes((0x47, (0x40 if continuity == 0 else 0) | (pid >> 8), pid & 0xFF, 0x10 | continuity))
     return header + payload + b"\xff" * (188 - 4 - len(payload))
@@ -172,6 +198,52 @@ def test_scanner_prefers_running_event_over_other_eit_statuses():
     assert service.current_event.running_status == 4
 
 
+def test_scanner_uses_extended_event_text_over_short_event_text():
+    short_event = b"eng" + b"\x04Name" + b"\x05Short"
+    descriptors = (
+        descriptor(0x4D, short_event)
+        + extended_event_descriptor(1, 1, b"description")
+        + extended_event_descriptor(0, 1, b"Long ")
+    )
+    event = (
+        b"\x00\x01"
+        + b"\xff" * 5
+        + b"\x01\x00\x00"
+        + bytes((0x80 | (len(descriptors) >> 8), len(descriptors)))
+        + descriptors
+    )
+    body = b"\x00\x01\xc1\x00\x00\x12\x34\x00\x01\x01\x00" + event
+
+    scanner = DVBScanner()
+    scanner._decode_eit(section(0x4E, body))
+
+    result = scanner.result().services[0].current_event
+    assert result is not None
+    assert result.name == "Name"
+    assert result.text == "Long description"
+
+
+def test_scanner_uses_extended_event_text_without_short_event_descriptor():
+    items = b"\x04Type\x05Drama"
+    descriptors = extended_event_descriptor(0, 0, b"Long description", items=items)
+    event = (
+        b"\x00\x01"
+        + b"\xff" * 5
+        + b"\x01\x00\x00"
+        + bytes((0x80 | (len(descriptors) >> 8), len(descriptors)))
+        + descriptors
+    )
+    body = b"\x00\x01\xc1\x00\x00\x12\x34\x00\x01\x01\x00" + event
+
+    scanner = DVBScanner()
+    scanner._decode_eit(section(0x4E, body))
+
+    result = scanner.result().services[0].current_event
+    assert result is not None
+    assert result.name is None
+    assert result.text == "Long description"
+
+
 def test_scanner_discovers_next_event_from_present_following_eit():
     scanner = DVBScanner()
 
@@ -198,6 +270,39 @@ def test_scanner_discovers_next_event_from_present_following_eit():
         + eit_event(4, 1, b"Other next")
     )
     scanner._decode_section(0x12, section(0x4F, other_transport_body))
+
+    service = scanner.result().services[0]
+    assert service.current_event is not None
+    assert service.current_event.name == "Current"
+    assert service.next_event is not None
+    assert service.next_event.event_id == 2
+    assert service.next_event.name == "Next"
+
+
+def test_scanner_discovers_next_event_from_separate_following_eit_section():
+    scanner = DVBScanner()
+
+    def eit_section(section_number, event_id, running_status, name):
+        short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
+        event_descriptor = descriptor(0x4D, short_event)
+        event = (
+            event_id.to_bytes(2, "big")
+            + b"\xff" * 5
+            + b"\x01\x00\x00"
+            + bytes((running_status << 5, len(event_descriptor)))
+            + event_descriptor
+        )
+        body = (
+            b"\x00\x01\xc1"
+            + bytes((section_number, 1))
+            + b"\x12\x34\x00\x01\x01\x00"
+            + event
+        )
+        return section(0x4E, body)
+
+    scanner._decode_eit(eit_section(0, 1, 4, b"Current"))
+    scanner._decode_eit(eit_section(1, 2, 1, b"Next"))
+    scanner._decode_eit(eit_section(0, 1, 4, b"Current"))
 
     service = scanner.result().services[0]
     assert service.current_event is not None
