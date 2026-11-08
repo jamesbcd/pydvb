@@ -108,6 +108,29 @@ Item {
             ? root.selectedChannel.name
             : "channel " + root.selectedChannel.lcn + ": " + root.selectedChannel.name
     }
+    property bool eventInfoVisible: false
+    readonly property var selectedProgramGuideEntry: {
+        if (!root.appController || !root.selectedChannel)
+            return null
+        const programGuide = root.appController.channelController.programGuide
+        for (let index = 0; index < programGuide.length; index++) {
+            if (programGuide[index].id === root.selectedChannel.id)
+                return programGuide[index]
+        }
+        return null
+    }
+    readonly property string currentEventTitle: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.now : ""
+    readonly property string currentEventTime: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.nowTime : ""
+    readonly property string currentEventDescription: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.nowDescription : ""
+    readonly property string nextEventTitle: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.next : ""
+    readonly property string nextEventTime: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.nextTime : ""
+    readonly property string nextEventDescription: root.selectedProgramGuideEntry
+        ? root.selectedProgramGuideEntry.nextDescription : ""
 
     onSelectedChannelIdChanged: {
         root.playbackStopped = false
@@ -179,45 +202,6 @@ Item {
             z: 1
             Behavior on opacity {
                 NumberAnimation { duration: 180 }
-            }
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.margins: 18
-                width: Math.min(
-                    overlayInfo.implicitWidth + 20,
-                    Math.max(0, parent.width - 36)
-                )
-                height: overlayInfo.implicitHeight + 20
-                radius: 8
-                color: "#b8141a16"
-
-                RowLayout {
-                    id: overlayInfo
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 12
-
-                    Label {
-                        visible: !!root.selectedChannel
-                        text: root.selectedChannel
-                            ? (root.selectedChannel.lcn === null
-                                ? "-" : root.selectedChannel.lcn)
-                            : ""
-                        color: "#eaf1ec"
-                        font.pixelSize: root.overlayTextPixelSize
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.selectedChannel
-                            ? root.selectedChannel.name
-                            : "Select a channel from the sidebar"
-                        color: "#eaf1ec"
-                        font.pixelSize: root.overlayTextPixelSize
-                        elide: Text.ElideRight
-                    }
-                }
             }
 
             Rectangle {
@@ -382,6 +366,39 @@ Item {
                     }
 
                     Button {
+                        id: eventInfoButton
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
+                        padding: 0
+                        checkable: true
+                        checked: root.eventInfoVisible
+                        Accessible.name: root.eventInfoVisible
+                            ? "Hide event information"
+                            : "Show event information"
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.eventInfoVisible = checked
+                        background: Rectangle {
+                            radius: width / 2
+                            color: eventInfoButton.checked
+                                ? "#bfd2c4"
+                                : (eventInfoButton.down
+                                    ? "#dce9df"
+                                    : (eventInfoButton.hovered ? "#f5faf6" : "#eaf1ec"))
+                        }
+                        contentItem: Item {
+                            Image {
+                                source: "icons/info.svg"
+                                sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                width: root.overlayIconSize
+                                height: root.overlayIconSize
+                                fillMode: Image.PreserveAspectFit
+                                anchors.centerIn: parent
+                            }
+                        }
+                    }
+
+                    Button {
                         id: fullScreenButton
                         width: root.overlayControlSize
                         height: root.overlayControlSize
@@ -410,6 +427,215 @@ Item {
                                 anchors.centerIn: parent
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        Column {
+            id: eventOverlayColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: 18
+            anchors.rightMargin: 18
+            anchors.topMargin: 18
+            spacing: 8
+            z: 1
+
+            Item {
+                id: currentEventHeader
+                width: parent.width
+                height: Math.max(currentChannelPanel.height, currentEventPanel.height)
+                opacity: root.playerControlsVisible ? 1 : 0
+                Behavior on opacity {
+                    NumberAnimation { duration: 180 }
+                }
+                property real channelReservation: root.selectedChannel
+                    ? currentChannelPanel.width + 8 : 0
+
+                Rectangle {
+                    id: currentChannelPanel
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    width: currentChannelContent.width + 20
+                    height: currentChannelContent.implicitHeight + 20
+                    radius: 8
+                    color: "#b8141a16"
+                    visible: !!root.selectedChannel
+
+                    Column {
+                        id: currentChannelContent
+                        anchors.centerIn: parent
+                        width: Math.min(
+                            currentChannelLabel.implicitWidth,
+                            Math.max(0, currentEventHeader.width * 0.35 - 20)
+                        )
+
+                        Label {
+                            id: currentChannelLabel
+                            width: parent.width
+                            text: root.selectedChannel
+                                ? (root.selectedChannel.lcn === null
+                                    ? root.selectedChannel.name
+                                    : root.selectedChannel.lcn + "  "
+                                        + root.selectedChannel.name)
+                                : ""
+                            color: "#eaf1ec"
+                            font.pixelSize: root.overlayTextPixelSize
+                            horizontalAlignment: Text.AlignLeft
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: currentEventPanel
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    width: currentEventContent.width + 20
+                    height: currentEventContent.implicitHeight + 20
+                    radius: 8
+                    color: "#b8141a16"
+                    visible: root.currentEventTitle.length > 0
+                        || root.currentEventTime.length > 0
+
+                    Column {
+                        id: currentEventContent
+                        anchors.centerIn: parent
+                        width: Math.min(
+                            Math.max(
+                                currentEventTitleLabel.implicitWidth,
+                                currentEventTimeLabel.implicitWidth
+                            ),
+                            Math.max(
+                                0,
+                                currentEventHeader.width
+                                    - 2 * currentEventHeader.channelReservation - 20
+                            )
+                        )
+                        spacing: 2
+
+                        Label {
+                            id: currentEventTitleLabel
+                            width: parent.width
+                            visible: root.currentEventTitle.length > 0
+                            text: root.currentEventTitle
+                            color: "#eaf1ec"
+                            font.pixelSize: root.overlayTextPixelSize
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                        }
+                        Label {
+                            id: currentEventTimeLabel
+                            width: parent.width
+                            visible: root.currentEventTime.length > 0
+                            text: root.currentEventTime
+                            color: "#d9dfda"
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width, 720)
+                height: eventInfoContent.implicitHeight + 20
+                radius: 8
+                color: "#b8141a16"
+                visible: root.eventInfoVisible
+
+                Column {
+                    id: eventInfoContent
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 8
+
+                    RowLayout {
+                        width: parent.width
+                        visible: root.currentEventTitle.length > 0
+                            || root.currentEventTime.length > 0
+                            || root.currentEventDescription.length > 0
+                        spacing: 6
+
+                        Label {
+                            text: "NOW:"
+                            color: "#c5d5c9"
+                            font.pixelSize: 15
+                            font.bold: true
+                            Layout.alignment: Qt.AlignTop
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.currentEventTitle.length > 0
+                                || root.currentEventTime.length > 0
+                            text: root.currentEventTitle
+                                + (root.currentEventTime.length > 0
+                                    ? "  |  " + root.currentEventTime : "")
+                            color: "#eaf1ec"
+                            font.pixelSize: 15
+                            font.bold: true
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                    Label {
+                        width: parent.width
+                        visible: root.currentEventDescription.length > 0
+                        text: root.currentEventDescription
+                        color: "#eaf1ec"
+                        font.pixelSize: 15
+                        wrapMode: Text.Wrap
+                    }
+                    RowLayout {
+                        width: parent.width
+                        visible: root.nextEventTitle.length > 0
+                            || root.nextEventTime.length > 0
+                            || root.nextEventDescription.length > 0
+                        spacing: 6
+
+                        Label {
+                            text: "NEXT:"
+                            color: "#c5d5c9"
+                            font.pixelSize: 15
+                            font.bold: true
+                            Layout.alignment: Qt.AlignTop
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: root.nextEventTitle.length > 0
+                                || root.nextEventTime.length > 0
+                            text: root.nextEventTitle
+                                + (root.nextEventTime.length > 0
+                                    ? "  |  " + root.nextEventTime : "")
+                            color: "#eaf1ec"
+                            font.pixelSize: 15
+                            font.bold: true
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                    Label {
+                        width: parent.width
+                        visible: root.nextEventDescription.length > 0
+                        text: root.nextEventDescription
+                        color: "#eaf1ec"
+                        font.pixelSize: 15
+                        wrapMode: Text.Wrap
+                    }
+                    Label {
+                        width: parent.width
+                        visible: root.currentEventTitle.length === 0
+                            && root.currentEventTime.length === 0
+                            && root.currentEventDescription.length === 0
+                            && root.nextEventTitle.length === 0
+                            && root.nextEventTime.length === 0
+                            && root.nextEventDescription.length === 0
+                        text: "No event information available"
+                        color: "#d9dfda"
+                        font.pixelSize: 15
+                        wrapMode: Text.Wrap
                     }
                 }
             }
