@@ -125,6 +125,16 @@ def parse_server_address(value: str) -> tuple[str, int]:
     return host, port
 
 
+def parse_bool(value: str) -> bool:
+    """Parse a case-insensitive boolean command-line value."""
+    normalized = value.lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise argparse.ArgumentTypeError("value must be true or false")
+
+
 def capture_stream(
     adapter,
     output_path: Path,
@@ -440,6 +450,7 @@ def _run_device(device: DVBDevice, args) -> int:
             channel_map,
             host=host,
             port=port,
+            scan_dvb_events=args.event_decode,
         )
         bound_host, bound_port = server.address
         logger.info(
@@ -620,6 +631,13 @@ def main() -> int:
         type=parse_server_address,
         metavar="HOST:PORT",
         default=DEFAULT_SERVER_ADDRESS,
+    )
+    serve_parser.add_argument(
+        "--event-decode",
+        type=parse_bool,
+        default=True,
+        metavar="true|false",
+        help="Decode current and next DVB events from the stream (default: true)",
     )
 
     args = main_parser.parse_args()

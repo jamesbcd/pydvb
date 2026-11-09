@@ -798,8 +798,80 @@ def test_parse_server_address_rejects_invalid_values():
         __main__.parse_server_address("localhost:not-a-port")
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("true", True), ("TRUE", True), ("false", False), ("FALSE", False)],
+)
+def test_parse_bool(value, expected):
+    assert __main__.parse_bool(value) is expected
+
+
+def test_parse_bool_rejects_other_values():
+    with pytest.raises(__main__.argparse.ArgumentTypeError):
+        __main__.parse_bool("yes")
+
+
 def test_serve_default_address_is_loopback():
     assert __main__.DEFAULT_SERVER_ADDRESS == ("127.0.0.1", 8080)
+
+
+@pytest.mark.parametrize(
+    ("option", "expected"),
+    [(None, True), ("true", True), ("false", False)],
+)
+def test_serve_event_decode_option(monkeypatch, option, expected):
+    device = FakeDevice()
+    parsed_args = []
+    install_fake_manager(monkeypatch, device)
+    monkeypatch.setattr(
+        __main__,
+        "_run_device",
+        lambda _device, args: (parsed_args.append(args) or 0),
+    )
+    argv = ["pydvb", "serve", "--tuning", "177.5/8"]
+    if option is not None:
+        argv.extend(("--event-decode", option))
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert __main__.main() == 0
+    assert parsed_args[0].event_decode is expected
+
+
+@pytest.mark.parametrize("event_decode", [True, False])
+def test_serve_passes_event_decode_to_server(monkeypatch, event_decode):
+    server_options = {}
+
+    class FakeServer:
+        address = ("127.0.0.1", 8080)
+
+        def __init__(self, _adapters, _channel_map, **options):
+            server_options.update(options)
+
+        def start(self):
+            pass
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(__main__, "LocalTS_HTTPServer", FakeServer)
+    monkeypatch.setattr(__main__.serialize, "load", lambda _path: object())
+    args = SimpleNamespace(
+        command="serve",
+        adapter_index=0,
+        load_services="services.json",
+        save_services=None,
+        record=None,
+        serve=__main__.DEFAULT_SERVER_ADDRESS,
+        event_decode=event_decode,
+        tuning=None,
+        use_table=None,
+    )
+
+    assert __main__._run_device(FakeDevice(), args) == 0
+    assert server_options["scan_dvb_events"] is event_decode
 
 
 class FakeStreamAdapter:

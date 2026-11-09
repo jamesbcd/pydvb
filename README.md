@@ -88,6 +88,8 @@ Configure > Show program guide info to disable event scanning and guide refresh
 polling, and hide the guide UI. Event scanning uses a bounded, non-blocking
 queue; if it falls behind, stale scan chunks are dropped without delaying
 client stream delivery.
+The CLI server decodes events by default; pass `--event-decode false` to disable
+decoding, or `--event-decode true` to enable it explicitly.
 To allow other devices on your network to connect, bind to all interfaces:
 
 ```sh
