@@ -223,7 +223,7 @@ Item {
             id: controlsHideTimer
             interval: 2000
             onTriggered: {
-                if (volumeProximityHandler.hovered
+                if (volumeSliderProximityHandler.hovered
                         || volumeButton.hovered
                         || volumeSlider.hovered
                         || volumeSlider.pressed)
@@ -414,7 +414,7 @@ Item {
                             id: volumeSliderHideTimer
                             interval: 1000
                             onTriggered: {
-                                if (!volumeProximityHandler.hovered
+                                if (!volumeSliderProximityHandler.hovered
                                         && !volumeButton.hovered
                                         && !volumeSlider.hovered
                                         && !volumeSlider.pressed)
@@ -442,7 +442,7 @@ Item {
                                 if (hovered) {
                                     volumeControl.sliderVisible = true
                                     volumeSliderHideTimer.stop()
-                                } else {
+                                } else if (!volumeSliderProximityHandler.hovered) {
                                     volumeSliderHideTimer.restart()
                                 }
                             }
@@ -537,22 +537,24 @@ Item {
             }
 
             Item {
-                id: volumeProximityArea
+                id: volumeSliderProximityArea
                 x: controlsBackground.x + controlsRow.x + volumeControl.x - 36
                 y: controlsBackground.y + controlsRow.y + volumeControl.y - 164
                 width: 128
-                height: 220
+                height: 164
                 z: 2
 
                 HoverHandler {
-                    id: volumeProximityHandler
+                    id: volumeSliderProximityHandler
                     onHoveredChanged: {
                         if (hovered) {
-                            volumeControl.sliderVisible = true
-                            volumeSliderHideTimer.stop()
-                            controlsHideTimer.restart()
+                            if (volumeControl.sliderVisible) {
+                                volumeSliderHideTimer.stop()
+                                controlsHideTimer.restart()
+                            }
                         } else {
-                            volumeSliderHideTimer.restart()
+                            if (volumeControl.sliderVisible)
+                                volumeSliderHideTimer.restart()
                         }
                     }
                 }
@@ -573,7 +575,7 @@ Item {
                 value: root.playerMuted ? 0 : root.playerVolume
                 visible: volumeControl.sliderVisible
                 Accessible.name: "Volume"
-                ToolTip.visible: hovered
+                ToolTip.visible: hovered || pressed
                 ToolTip.text: Math.round(value * 100) + "%"
                 onMoved: {
                     root.playerVolume = value
