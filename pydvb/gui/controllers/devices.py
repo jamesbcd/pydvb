@@ -196,6 +196,7 @@ class DeviceController(QObject):
             app._initialization_errors.pop(id(device), None)
             app.devicesChanged.emit()
             app._set_status(f"Initialized {device.model_name or 'DVB device'}")
+            app._maybe_auto_start_server()
 
         def finish_initialization() -> None:
             app._initializing_devices.discard(device_id)

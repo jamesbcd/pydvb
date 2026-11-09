@@ -130,6 +130,20 @@ class ServerController(QObject):
             app._settings.server_port = value
             app.serverChanged.emit()
 
+    @Property(bool, notify=serverChanged)
+    def autoStartServer(self) -> bool:
+        return self._app._settings.auto_start_server
+
+    @autoStartServer.setter
+    def autoStartServer(self, value: bool) -> None:
+        app = self._app
+        if app._settings.auto_start_server == value:
+            return
+        app._settings.auto_start_server = value
+        app.serverChanged.emit()
+        if value:
+            app._maybe_auto_start_server()
+
     @Slot()
     def startServer(self) -> None:
         """Start the server after device-lane work finishes, rechecking prerequisites."""

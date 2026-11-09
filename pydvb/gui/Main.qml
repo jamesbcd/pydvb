@@ -679,6 +679,12 @@ ApplicationWindow {
             }
             MenuSeparator {}
             MenuItem {
+                text: "Auto-start server when available"
+                checkable: true
+                checked: window.controller.serverController.autoStartServer
+                onTriggered: window.controller.serverController.autoStartServer = checked
+            }
+            MenuItem {
                 action: toggleServerAction
             }
             MenuSeparator {}

@@ -219,6 +219,7 @@ class ChannelController(QObject):
             app.channelsChanged.emit()
             app.stateChanged.emit()
             app._set_status(f"Scan complete: {len(service_map.services)} channel(s) found")
+            app._maybe_auto_start_server()
 
         app._run_task(
             scan,

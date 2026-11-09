@@ -610,6 +610,142 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
     assert not controller.userDeviceBusy
 
 
+def test_auto_start_server_after_device_initialization(qt_application, monkeypatch):
+    from pydvb.gui.controllers import server as server_module
+
+    started_servers = []
+
+    class FakeServer:
+        def __init__(self, _adapters, _service_map, host, port, scan_dvb_events):
+            self.address = (host, port)
+            started_servers.append(self)
+
+        def start(self):
+            pass
+
+        def serve_forever(self):
+            pass
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(server_module, "LocalTS_HTTPServer", FakeServer)
+    monkeypatch.setattr(server_module, "Thread", FakeThread)
+
+    triplet_id = DVBTripletID(1, 2, 3)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=1,
+            transport_stream_id=2,
+            services=(DVBService(service_id=3, triplet_id=triplet_id),),
+        ),
+    )
+
+    class FakeDevice:
+        device_id = USBDeviceID(0x0413, 0x6029)
+        model_name = "Receiver"
+
+        def __init__(self):
+            self.adapters = []
+
+        def init_hardware(self):
+            self.adapters = [type("Adapter", (), {"adapter_index": 0})()]
+
+    controller = AppController(
+        settings=GuiSettings(
+            auto_discover_and_initialize_devices=False,
+            auto_start_server=True,
+            service_map=service_map,
+        )
+    )
+    controller._discovery_timer.stop()
+    controller._status_timer.stop()
+    controller._devices = [FakeDevice()]
+    controller._select_first_device()
+    controller.serverChanged.connect(
+        lambda: qt_application.quit()
+        if controller.serverController.serverState == "Running"
+        else None
+    )
+
+    controller.devicesController.initializeDevice(0)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert len(started_servers) == 1
+    assert controller.serverController.serverState == "Running"
+
+
+def test_auto_start_server_when_loaded_map_has_initialized_adapter(
+    monkeypatch,
+):
+    triplet_id = DVBTripletID(1, 2, 3)
+    service_map = DVBServiceMap()
+    service_map.add_stream_info(
+        DVBTuning(frequency_hz=650_000_000),
+        DVBStreamInfo(
+            original_network_id=1,
+            transport_stream_id=2,
+            services=(DVBService(service_id=3, triplet_id=triplet_id),),
+        ),
+    )
+    controller = AppController(
+        settings=GuiSettings(
+            auto_discover_and_initialize_devices=False,
+            auto_start_server=True,
+        )
+    )
+    controller._discovery_timer.stop()
+    controller._devices = [
+        type(
+            "Device",
+            (),
+            {
+                "device_id": USBDeviceID(0x0413, 0x6029),
+                "adapters": [object()],
+            },
+        )()
+    ]
+    start_requests = []
+    monkeypatch.setattr(
+        controller._server_controller,
+        "startServer",
+        lambda: start_requests.append(True),
+    )
+
+    controller._apply_settings(
+        GuiSettings(
+            auto_discover_and_initialize_devices=False,
+            auto_start_server=True,
+            service_map=service_map,
+        )
+    )
+
+    assert start_requests == [True]
+
+
+def test_auto_start_server_setting_is_exposed_by_server_controller(qt_application):
+    controller = AppController(
+        settings=GuiSettings(auto_discover_and_initialize_devices=False)
+    )
+    controller._discovery_timer.stop()
+
+    assert controller.serverController.autoStartServer is False
+
+    controller.serverController.autoStartServer = True
+
+    assert controller.serverController.autoStartServer is True
+    assert controller._settings.auto_start_server is True
+
+
 def test_settings_load_runs_during_device_operation(qt_application, tmp_path):
     device_operation_started = Event()
     finish_device_operation = Event()

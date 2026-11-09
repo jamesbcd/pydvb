@@ -128,9 +128,11 @@ choose a table, or add and edit individual DVB-T frequencies. Scan to populate
 **Channels**, then start the HTTP server from **Server**. The server defaults
 to `127.0.0.1:8080`; use the displayed playlist URL with VLC or another MPEG-TS
 client. Binding to a non-loopback address makes streams reachable on the
-network and is not authenticated. Use **Logs** to open a live view of Python
-logging output while the application is running; close or hide the window to
-keep logging in the background.
+network and is not authenticated. Enable **Configure > Auto-start server when
+available** to start streaming once a device adapter is initialized and a
+channel map with services is available. Use **Logs** to open a live view of
+Python logging output while the application is running; close or hide the
+window to keep logging in the background.
 
 To enable in-app video playback, install the optional player dependencies:
 

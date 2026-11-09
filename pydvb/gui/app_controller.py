@@ -356,6 +356,7 @@ class AppController(QObject):
                         self._initialization_errors[id(device)] = str(error)
                     self.devicesChanged.emit()
                     set_discovery_status(initialization_result.failures)
+                    self._maybe_auto_start_server()
 
                 self._run_task(
                     initialize,
@@ -478,6 +479,20 @@ class AppController(QObject):
         self.devicesChanged.emit()
         self.serverChanged.emit()
         self.stateChanged.emit()
+        self._maybe_auto_start_server()
+
+    def _maybe_auto_start_server(self) -> None:
+        """Start the server when enabled and both a channel map and adapter are ready."""
+        if (
+            not self._settings.auto_start_server
+            or self._server is not None
+            or self._server_state != "Stopped"
+            or self._settings.service_map is None
+            or not self._settings.service_map.services
+            or not any(device.adapters for device in self._devices)
+        ):
+            return
+        self._server_controller.startServer()
 
     @Slot()
     def shutdown(self) -> None:
