@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .driver_api.device import DVBDevice
+from .drivers import discover_device_types
 from .usb import LibUSBError, USBDeviceID, USBDeviceInfo, enumerate_usb_devices, usb1
 
 
@@ -40,9 +41,14 @@ class DeviceConnectionResult:
 class DVBDeviceManager:
     """Register DVB drivers and connect to all matching USB devices."""
 
-    def __init__(self, device_types: Iterable[type[DVBDevice]]) -> None:
-        """Create a manager for the supplied DVB device driver classes."""
-        self._device_types = tuple(device_types)
+    def __init__(
+        self,
+        device_types: Iterable[type[DVBDevice]] | None = None,
+    ) -> None:
+        """Create a manager using built-in drivers or the supplied driver classes."""
+        self._device_types = (
+            discover_device_types() if device_types is None else tuple(device_types)
+        )
         self._drivers_by_id = self._build_driver_index()
         self._context: Any | None = None
         self._devices: list[DVBDevice] = []

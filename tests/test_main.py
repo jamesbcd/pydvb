@@ -54,7 +54,7 @@ def install_fake_manager(monkeypatch, device):
     calls = []
 
     class FakeDeviceManager:
-        def __init__(self, _device_types):
+        def __init__(self):
             pass
 
         def connect_all(self, ids=None):

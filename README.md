@@ -8,6 +8,11 @@ This framework has been developed using Github Copilot to translate the Linux de
 code to Python. Although a single device is currently supported, it should be relatively
 easy to use AI to add support for other DVB-T devices, using the abstractions provided here.
 
+`DVBDeviceManager()` automatically discovers concrete `DVBDevice` classes exported by
+subpackages of `pydvb.drivers`. Each driver package should include its device class in
+`__all__`; passing `device_types` explicitly remains available for custom configurations
+and tests.
+
 
 ## Requirements
 

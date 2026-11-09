@@ -15,7 +15,6 @@ from pydvb import usb, serialize
 from pydvb.device_manager import DVBDeviceManager
 from pydvb.driver_api.device import DVBDevice
 from pydvb.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
-from pydvb.drivers.af9015.device import AF9015Device
 from pydvb.scan_tables import known_table_names, parse_table
 from pydvb.server import LocalTS_HTTPServer
 from pydvb.service_map import DVBServiceMap, map_from_tunings
@@ -677,7 +676,7 @@ def main() -> int:
 
     usb.RECORD_STATS = args.usb_stats
 
-    with DVBDeviceManager([AF9015Device]) as manager:
+    with DVBDeviceManager() as manager:
         result = manager.connect_all()
 
         if len(result.connected) < 1:

@@ -24,7 +24,6 @@ from PySide6.QtCore import (
 from pydvb.device_manager import DeviceConnectionResult, DeviceRemovalFailure, DVBDeviceManager
 from pydvb.driver_api.device import DVBDevice
 from pydvb.driver_api.frontend import DVBFrontendStatus
-from pydvb.drivers.af9015.device import AF9015Device
 from pydvb.server import LocalTS_HTTPServer
 from pydvb.usb import LIBUSB_ERROR_NO_DEVICE, LibUSBError
 
@@ -111,7 +110,7 @@ class AppController(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._device_types = tuple((AF9015Device,) if device_types is None else device_types)
+        self._device_types = None if device_types is None else tuple(device_types)
         self._profile = profile or GuiProfile()
         self._manager: DVBDeviceManager | None = None
         self._devices: list[DVBDevice] = []

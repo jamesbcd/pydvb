@@ -5,6 +5,8 @@ import pytest
 from pydvb.device_manager import DVBDeviceManager
 from pydvb import device_manager as manager_module
 from pydvb.driver_api.device import DVBDevice
+from pydvb.drivers import discover_device_types
+from pydvb.drivers.af9015 import AF9015Device
 from pydvb.usb import USBDeviceID
 
 
@@ -65,6 +67,14 @@ class FakeContext:
 
     def close(self):
         self.closed = True
+
+
+def test_manager_discovers_builtin_driver_packages_by_default():
+    assert discover_device_types() == (AF9015Device,)
+
+    manager = DVBDeviceManager()
+
+    assert manager.supported_ids() == frozenset(AF9015Device.SUPPORTED_USB_MODELS)
 
 
 def test_manager_connects_supported_devices_and_reports_failures(monkeypatch):
