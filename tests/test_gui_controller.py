@@ -571,7 +571,7 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
 
     monkeypatch.setattr(server_module, "LocalTS_HTTPServer", FakeServer)
     monkeypatch.setattr(server_module, "Thread", FakeThread)
-    settings = GuiSettings(show_program_guide_info=False)
+    settings = GuiSettings(program_guide_enabled=False)
     settings.service_map = SimpleNamespace(services={"service": object()})
     controller = AppController(settings=settings)
     controller._discovery_timer.stop()
@@ -655,7 +655,7 @@ def test_default_settings_are_loaded_before_discovery(qt_application, tmp_path):
             scan_table="persisted-table",
             auto_discover_and_initialize_devices=False,
             show_unsupported_devices=True,
-            show_program_guide_info=False,
+            program_guide_enabled=False,
         ),
         settings_path,
     )
@@ -666,7 +666,7 @@ def test_default_settings_are_loaded_before_discovery(qt_application, tmp_path):
     assert controller._settings.scan_table == "persisted-table"
     assert controller.devicesController.autoDiscoverAndInitializeDevices is False
     assert controller.devicesController.showUnsupportedDevices is True
-    assert controller.channelController.showProgramGuideInfo is False
+    assert controller.channelController.programGuideEnabled is False
     assert not controller._discovery_timer.isActive()
 
 
@@ -679,7 +679,7 @@ def test_reset_settings_restores_defaults(qt_application):
             server_port=8090,
             auto_discover_and_initialize_devices=False,
             show_unsupported_devices=True,
-            show_program_guide_info=False,
+            program_guide_enabled=False,
             service_map=DVBServiceMap(),
         )
     )
@@ -701,7 +701,7 @@ def test_reset_settings_restores_defaults(qt_application):
     assert controller._settings == GuiSettings()
     assert controller.devicesController.autoDiscoverAndInitializeDevices is True
     assert controller.devicesController.showUnsupportedDevices is False
-    assert controller.channelController.showProgramGuideInfo is True
+    assert controller.channelController.programGuideEnabled is True
     assert controller._discovery_timer.isActive()
 
 
@@ -768,7 +768,7 @@ def test_settings_are_saved_on_shutdown(qt_application, tmp_path):
     controller._discovery_timer.stop()
     controller.devicesController.autoDiscoverAndInitializeDevices = False
     controller.devicesController.showUnsupportedDevices = True
-    controller.channelController.showProgramGuideInfo = False
+    controller.channelController.programGuideEnabled = False
 
     controller.shutdownFinished.connect(qt_application.quit)
     QTimer.singleShot(3000, qt_application.quit)
@@ -778,7 +778,7 @@ def test_settings_are_saved_on_shutdown(qt_application, tmp_path):
     loaded = load_settings(settings_path)
     assert loaded.auto_discover_and_initialize_devices is False
     assert loaded.show_unsupported_devices is True
-    assert loaded.show_program_guide_info is False
+    assert loaded.program_guide_enabled is False
 
 
 def test_settings_load_during_scan_discards_stale_scan_results(
@@ -1263,16 +1263,16 @@ def test_program_guide_setting_hides_data_and_stops_polling(qt_application):
     controller._settings.service_map = DVBServiceMap()
     refresh_timer = controller.channelController._program_guide_refresh_timer
 
-    assert controller.channelController.showProgramGuideInfo is True
+    assert controller.channelController.programGuideEnabled is True
     controller._server_state = "Running"
     controller.serverChanged.emit()
     assert refresh_timer.isActive()
 
-    controller.channelController.showProgramGuideInfo = False
+    controller.channelController.programGuideEnabled = False
 
     assert not refresh_timer.isActive()
     assert controller.channelController.programGuide == []
-    controller.channelController.showProgramGuideInfo = True
+    controller.channelController.programGuideEnabled = True
     assert refresh_timer.isActive()
 
 

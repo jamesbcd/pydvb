@@ -174,7 +174,7 @@ class ServerController(QObject):
                     service_map,
                     host=app._settings.server_host,
                     port=app._settings.server_port,
-                    scan_dvb_events=app._settings.show_program_guide_info,
+                    scan_dvb_events=app._settings.program_guide_enabled,
                 )
                 server.start()
                 thread = Thread(

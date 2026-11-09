@@ -118,6 +118,14 @@ Item {
             : "channel " + root.selectedChannel.lcn + ": " + root.selectedChannel.name
     }
     property bool eventInfoVisible: false
+    readonly property bool isProgramGuideEnabled: !!root.appController
+        && root.appController.channelController.programGuideEnabled
+
+    onIsProgramGuideEnabledChanged: {
+        if (!root.isProgramGuideEnabled)
+            root.eventInfoVisible = false
+    }
+
     readonly property var selectedProgramGuideEntry: {
         if (!root.appController || !root.selectedChannel)
             return null
@@ -464,6 +472,7 @@ Item {
                         id: eventInfoButton
                         width: root.overlayControlSize
                         height: root.overlayControlSize
+                        visible: root.isProgramGuideEnabled
                         padding: 0
                         checkable: true
                         checked: root.eventInfoVisible
@@ -705,7 +714,7 @@ Item {
                 height: eventInfoContent.implicitHeight + 20
                 radius: 8
                 color: "#b8141a16"
-                visible: root.eventInfoVisible
+                visible: root.eventInfoVisible && root.isProgramGuideEnabled
 
                 Column {
                     id: eventInfoContent

@@ -501,6 +501,34 @@ ApplicationWindow {
         }
     }
 
+    Action {
+        id: playAction
+        text: "Play"
+        enabled: playerLoader.item && playerLoader.item.canTogglePlayback
+        onTriggered: playerLoader.item.playSelectedChannel()
+    }
+
+    Action {
+        id: stopPlaybackAction
+        text: "Stop"
+        enabled: playerLoader.item && playerLoader.item.canStopPlayback
+        onTriggered: playerLoader.item.stopPlayback()
+    }
+
+    Action {
+        id: previousChannelAction
+        text: "Previous Channel"
+        enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
+        onTriggered: playerLoader.item.selectAdjacentChannel(-1)
+    }
+
+    Action {
+        id: nextChannelAction
+        text: "Next Channel"
+        enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
+        onTriggered: playerLoader.item.selectAdjacentChannel(1)
+    }
+
     Shortcut {
         sequence: "Escape"
         enabled: window.visibility === Window.FullScreen
@@ -564,10 +592,10 @@ ApplicationWindow {
                 onTriggered: window.controller.devicesController.showUnsupportedDevices = checked
             }
             MenuItem {
-                text: "Show program guide info"
+                text: "Enable program guide features"
                 checkable: true
-                checked: window.controller.channelController.showProgramGuideInfo
-                onTriggered: window.controller.channelController.showProgramGuideInfo = checked
+                checked: window.controller.channelController.programGuideEnabled
+                onTriggered: window.controller.channelController.programGuideEnabled = checked
             }
             MenuSeparator {}
             MenuItem {
@@ -580,6 +608,32 @@ ApplicationWindow {
             MenuSeparator {}
             MenuItem {
                 action: toggleServerAction
+            }
+        }
+        Menu {
+            title: "&Watch"
+            MenuItem {
+                action: playAction
+            }
+            MenuItem {
+                action: stopPlaybackAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                action: previousChannelAction
+            }
+            MenuItem {
+                action: nextChannelAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: playerLoader.item && playerLoader.item.eventInfoVisible
+                    ? "Hide program info"
+                    : "Show program info"
+                enabled: playerLoader.item !== null
+                    && window.controller.channelController.programGuideEnabled
+                onTriggered: playerLoader.item.eventInfoVisible =
+                    !playerLoader.item.eventInfoVisible
             }
         }
         Menu {
@@ -603,8 +657,8 @@ ApplicationWindow {
 
     Connections {
         target: window.controller.channelController
-        function onShowProgramGuideInfoChanged() {
-            if (!window.controller.channelController.showProgramGuideInfo
+        function onProgramGuideEnabledChanged() {
+            if (!window.controller.channelController.programGuideEnabled
                     && window.sectionIndex === 5) {
                 window.sectionIndex = 2
             }
@@ -883,7 +937,7 @@ ApplicationWindow {
                     Button {
                         id: programGuideSectionButton
                         visible: playerLoader.playbackAvailable
-                            && window.controller.channelController.showProgramGuideInfo
+                            && window.controller.channelController.programGuideEnabled
                         Layout.fillWidth: true
                         Layout.minimumHeight: 32
                         Layout.preferredHeight: 32
@@ -985,7 +1039,7 @@ ApplicationWindow {
                 ? 4
                 : (window.sectionIndex === 5
                     && (!playerLoader.playbackAvailable
-                        || !window.controller.channelController.showProgramGuideInfo)
+                        || !window.controller.channelController.programGuideEnabled)
                     ? 2 : window.sectionIndex)
 
             Item {

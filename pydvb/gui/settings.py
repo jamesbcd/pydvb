@@ -27,7 +27,7 @@ class GuiSettings:
     selected_adapter: int = 0
     auto_discover_and_initialize_devices: bool = True
     show_unsupported_devices: bool = False
-    show_program_guide_info: bool = True
+    program_guide_enabled: bool = True
     service_map: DVBServiceMap | None = None
 
     def __post_init__(self) -> None:
@@ -48,8 +48,8 @@ class GuiSettings:
             raise ValueError("auto_discover_and_initialize_devices must be a bool")
         if type(self.show_unsupported_devices) is not bool:
             raise ValueError("show_unsupported_devices must be a bool")
-        if type(self.show_program_guide_info) is not bool:
-            raise ValueError("show_program_guide_info must be a bool")
+        if type(self.program_guide_enabled) is not bool:
+            raise ValueError("program_guide_enabled must be a bool")
         if not isinstance(self.tunings, tuple) or any(
             not isinstance(tuning, DVBTuning) for tuning in self.tunings
         ):

@@ -27,7 +27,7 @@ class ChannelController(QObject):
 
     channelsChanged = Signal()
     programGuideChanged = Signal()
-    showProgramGuideInfoChanged = Signal()
+    programGuideEnabledChanged = Signal()
     stationStreamsChanged = Signal()
 
     def __init__(self, app: AppController) -> None:
@@ -45,7 +45,7 @@ class ChannelController(QObject):
     def _sync_program_guide_refresh_timer(self) -> None:
         """Refresh guide bindings only while enabled and the server is running."""
         if (
-            self.showProgramGuideInfo
+            self.programGuideEnabled
             and self._app._server_state == "Running"
         ):
             if not self._program_guide_refresh_timer.isActive():
@@ -56,27 +56,27 @@ class ChannelController(QObject):
     def _channels_changed(self) -> None:
         """Notify channel bindings and refresh guide bindings only when enabled."""
         self.channelsChanged.emit()
-        self.showProgramGuideInfoChanged.emit()
-        if self.showProgramGuideInfo:
+        self.programGuideEnabledChanged.emit()
+        if self.programGuideEnabled:
             self.programGuideChanged.emit()
 
-    @Property(bool, notify=showProgramGuideInfoChanged)
-    def showProgramGuideInfo(self) -> bool:
+    @Property(bool, notify=programGuideEnabledChanged)
+    def programGuideEnabled(self) -> bool:
         """Return whether program-guide display and event scanning are enabled."""
-        return self._app._settings.show_program_guide_info
+        return self._app._settings.program_guide_enabled
 
-    @showProgramGuideInfo.setter
-    def showProgramGuideInfo(self, value: bool) -> None:
+    @programGuideEnabled.setter
+    def programGuideEnabled(self, value: bool) -> None:
         if type(value) is not bool:
-            raise ValueError("showProgramGuideInfo must be a bool")
+            raise ValueError("programGuideEnabled must be a bool")
         app = self._app
-        if app._settings.show_program_guide_info == value:
+        if app._settings.program_guide_enabled == value:
             return
-        app._settings.show_program_guide_info = value
+        app._settings.program_guide_enabled = value
         if app._server is not None:
             app._server.scan_dvb_events = value
         self._sync_program_guide_refresh_timer()
-        self.showProgramGuideInfoChanged.emit()
+        self.programGuideEnabledChanged.emit()
         self.programGuideChanged.emit()
 
     @Property("QVariantList", notify=channelsChanged)
@@ -111,7 +111,7 @@ class ChannelController(QObject):
     @Property("QVariantList", notify=programGuideChanged)
     def programGuide(self) -> list[dict[str, object]]:
         """Return channel rows with present and following event metadata."""
-        if not self.showProgramGuideInfo:
+        if not self.programGuideEnabled:
             return []
         service_map = self._app._settings.service_map
         if service_map is None:
