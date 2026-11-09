@@ -31,6 +31,7 @@ ApplicationWindow {
     property int previousWindowWidth: width
     property int previousWindowHeight: height
     property int previousWindowVisibility: Window.Windowed
+    property bool isFullScreen: false
     property real deviceNameColumnWidth: 226
     property real deviceStateColumnWidth: 120
     property real adapterNameColumnWidth: 210
@@ -236,26 +237,34 @@ ApplicationWindow {
         }
     }
 
-    function enterPlayerFullScreen() {
-        if (visibility !== Window.FullScreen) {
+    function enterFullScreen() {
+        if (!isFullScreen) {
             previousWindowWidth = width
             previousWindowHeight = height
             previousWindowVisibility = visibility
         }
-        playerOnlyMode = true
+        isFullScreen = true
         visibility = Window.FullScreen
     }
 
+    function enterPlayerFullScreen() {
+        playerOnlyMode = true
+        enterFullScreen()
+    }
+
     function exitFullScreen() {
-        if (visibility !== Window.FullScreen)
+        if (!isFullScreen)
             return
 
+        isFullScreen = false
         visibility = Window.Windowed
         width = previousWindowWidth
         height = previousWindowHeight
         if (previousWindowVisibility !== Window.Windowed)
             visibility = previousWindowVisibility
     }
+
+    onVisibilityChanged: isFullScreen = visibility === Window.FullScreen
 
     onPlayerOnlyModeChanged: {
         if (!playerOnlyMode) {
@@ -464,6 +473,73 @@ ApplicationWindow {
     }
 
     Action {
+        id: togglePlayerOnlyModeAction
+        text: window.playerOnlyMode ? "Restore Window Layout" : "Show Player Only"
+        onTriggered: window.playerOnlyMode = !window.playerOnlyMode
+    }
+
+    Action {
+        id: devicesSectionAction
+        text: "Devices"
+        shortcut: Qt.platform.os === "osx" ? "Meta+1" : "Ctrl+1"
+        onTriggered: {
+            window.sectionIndex = 0
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
+        id: tuningSectionAction
+        text: "Tuning"
+        shortcut: Qt.platform.os === "osx" ? "Meta+2" : "Ctrl+2"
+        onTriggered: {
+            window.sectionIndex = 1
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
+        id: channelsSectionAction
+        text: "Channels"
+        shortcut: Qt.platform.os === "osx" ? "Meta+3" : "Ctrl+3"
+        onTriggered: {
+            window.sectionIndex = 2
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
+        id: serverSectionAction
+        text: "Server"
+        shortcut: Qt.platform.os === "osx" ? "Meta+4" : "Ctrl+4"
+        onTriggered: {
+            window.sectionIndex = 3
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
+        id: playerSectionAction
+        text: "Player"
+        shortcut: Qt.platform.os === "osx" ? "Meta+5" : "Ctrl+5"
+        onTriggered: {
+            window.sectionIndex = 4
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
+        id: programGuideSectionAction
+        text: "Program Guide"
+        shortcut: Qt.platform.os === "osx" ? "Meta+G" : "Ctrl+G"
+        enabled: window.controller.channelController.programGuideEnabled
+        onTriggered: {
+            window.sectionIndex = 5
+            window.playerOnlyMode = false
+        }
+    }
+
+    Action {
         id: toggleLogWindowAction
         text: window.logWindowObject && window.logWindowObject.visible
             ? "Hide logs"
@@ -489,7 +565,7 @@ ApplicationWindow {
     Action {
         id: toggleServerAction
         text: window.controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
-        shortcut: Qt.platform.os === "osx" ? "Meta+Alt+R" : "Ctrl+Alt+R"
+        shortcut: Qt.platform.os === "osx" ? "Alt+S" : "Alt+S"
         enabled: (window.controller.serverController.serverState === "Stopped"
                   || window.controller.serverController.serverState === "Running")
                  && !window.controller.userDeviceBusy
@@ -502,22 +578,23 @@ ApplicationWindow {
     }
 
     Action {
-        id: playAction
-        text: "Play"
-        enabled: playerLoader.item && playerLoader.item.canTogglePlayback
-        onTriggered: playerLoader.item.playSelectedChannel()
-    }
-
-    Action {
-        id: stopPlaybackAction
-        text: "Stop"
-        enabled: playerLoader.item && playerLoader.item.canStopPlayback
-        onTriggered: playerLoader.item.stopPlayback()
+        id: playbackAction
+        text: playerLoader.item && playerLoader.item.canStopPlayback ? "Stop" : "Play"
+        shortcut: Qt.platform.os === "osx" ? "Meta+P" : "Ctrl+P"
+        enabled: playerLoader.item
+            && (playerLoader.item.canStopPlayback || playerLoader.item.canTogglePlayback)
+        onTriggered: {
+            if (playerLoader.item.canStopPlayback)
+                playerLoader.item.stopPlayback()
+            else
+                playerLoader.item.playSelectedChannel()
+        }
     }
 
     Action {
         id: previousChannelAction
         text: "Previous Channel"
+        shortcut: Qt.platform.os === "osx" ? "Meta+Left" : "Ctrl+Left"
         enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
         onTriggered: playerLoader.item.selectAdjacentChannel(-1)
     }
@@ -525,13 +602,14 @@ ApplicationWindow {
     Action {
         id: nextChannelAction
         text: "Next Channel"
+        shortcut: Qt.platform.os === "osx" ? "Meta+Right" : "Ctrl+Right"
         enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
         onTriggered: playerLoader.item.selectAdjacentChannel(1)
     }
 
     Shortcut {
         sequence: "Escape"
-        enabled: window.visibility === Window.FullScreen
+        enabled: window.isFullScreen
         onActivated: window.exitFullScreen()
     }
 
@@ -591,12 +669,6 @@ ApplicationWindow {
                 checked: window.controller.devicesController.showUnsupportedDevices
                 onTriggered: window.controller.devicesController.showUnsupportedDevices = checked
             }
-            MenuItem {
-                text: "Enable program guide features"
-                checkable: true
-                checked: window.controller.channelController.programGuideEnabled
-                onTriggered: window.controller.channelController.programGuideEnabled = checked
-            }
             MenuSeparator {}
             MenuItem {
                 action: openScanTableAction
@@ -609,14 +681,18 @@ ApplicationWindow {
             MenuItem {
                 action: toggleServerAction
             }
+            MenuSeparator {}
+            MenuItem {
+                text: "Enable program guide features"
+                checkable: true
+                checked: window.controller.channelController.programGuideEnabled
+                onTriggered: window.controller.channelController.programGuideEnabled = checked
+            }
         }
         Menu {
             title: "&Watch"
             MenuItem {
-                action: playAction
-            }
-            MenuItem {
-                action: stopPlaybackAction
+                action: playbackAction
             }
             MenuSeparator {}
             MenuItem {
@@ -638,6 +714,30 @@ ApplicationWindow {
         }
         Menu {
             title: "&Window"
+            MenuItem {
+                action: togglePlayerOnlyModeAction
+            }
+            MenuSeparator {}
+            MenuItem {
+                action: devicesSectionAction
+            }
+            MenuItem {
+                action: tuningSectionAction
+            }
+            MenuItem {
+                action: channelsSectionAction
+            }
+            MenuItem {
+                action: serverSectionAction
+            }
+            MenuItem {
+                action: playerSectionAction
+            }
+            MenuItem {
+                action: programGuideSectionAction
+                visible: window.controller.channelController.programGuideEnabled
+            }
+            MenuSeparator {}
             MenuItem {
                 action: toggleLogWindowAction
             }
@@ -1940,7 +2040,7 @@ ApplicationWindow {
                     id: playerLoader
                     property bool playbackAvailable: window.playerAvailable
                     property bool playerOnlyMode: window.playerOnlyMode
-                    property bool fullScreenMode: window.visibility === Window.FullScreen
+                property bool fullScreenMode: window.isFullScreen
                     anchors.fill: parent
                     active: playbackAvailable
                     source: active ? "Player.qml" : ""
@@ -1986,7 +2086,7 @@ ApplicationWindow {
                         window.playerOnlyMode = !window.playerOnlyMode
                     }
                     function onFullScreenRequested() {
-                        if (window.visibility === Window.FullScreen)
+                        if (window.isFullScreen)
                             window.exitFullScreen()
                         else
                             window.enterPlayerFullScreen()
