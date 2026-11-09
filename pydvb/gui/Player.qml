@@ -17,6 +17,9 @@ Item {
     property bool playerOnlyMode: false
     property bool fullScreenMode: false
     property bool playbackStopped: false
+    property real playerVolume: 1.0
+    property real volumeBeforeMute: 1.0
+    property bool playerMuted: false
     readonly property int overlayControlSize: 56
     readonly property int overlayIconSize: 24
     readonly property int overlayTextPixelSize: 18
@@ -211,7 +214,15 @@ Item {
         Timer {
             id: controlsHideTimer
             interval: 2000
-            onTriggered: root.playerControlsVisible = false
+            onTriggered: {
+                if (volumeProximityHandler.hovered
+                        || volumeButton.hovered
+                        || volumeSlider.hovered
+                        || volumeSlider.pressed)
+                    root.revealPlayerControls()
+                else
+                    root.playerControlsVisible = false
+            }
         }
 
         Item {
@@ -224,6 +235,7 @@ Item {
             }
 
             Rectangle {
+                id: controlsBackground
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: 24
@@ -384,6 +396,70 @@ Item {
                         }
                     }
 
+                    Item {
+                        id: volumeControl
+                        width: root.overlayControlSize
+                        height: root.overlayControlSize
+                        property bool sliderVisible: false
+
+                        Timer {
+                            id: volumeSliderHideTimer
+                            interval: 1000
+                            onTriggered: {
+                                if (!volumeProximityHandler.hovered
+                                        && !volumeButton.hovered
+                                        && !volumeSlider.hovered
+                                        && !volumeSlider.pressed)
+                                    volumeControl.sliderVisible = false
+                            }
+                        }
+
+                        Button {
+                            id: volumeButton
+                            anchors.fill: parent
+                            padding: 0
+                            Accessible.name: root.playerMuted ? "Unmute" : "Mute"
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: {
+                                if (root.playerMuted) {
+                                    root.playerVolume = root.volumeBeforeMute
+                                    root.playerMuted = false
+                                } else {
+                                    root.volumeBeforeMute = root.playerVolume
+                                    root.playerMuted = true
+                                }
+                            }
+                            onHoveredChanged: {
+                                if (hovered) {
+                                    volumeControl.sliderVisible = true
+                                    volumeSliderHideTimer.stop()
+                                } else {
+                                    volumeSliderHideTimer.restart()
+                                }
+                            }
+                            background: Rectangle {
+                                radius: width / 2
+                                color: volumeButton.down
+                                    ? "#dce9df"
+                                    : (volumeButton.hovered ? "#f5faf6" : "#eaf1ec")
+                            }
+                            contentItem: Item {
+                                Image {
+                                    source: root.playerMuted
+                                        ? "icons/volume-muted.svg"
+                                        : "icons/volume.svg"
+                                    sourceSize: Qt.size(root.overlayIconSize, root.overlayIconSize)
+                                    width: root.overlayIconSize
+                                    height: root.overlayIconSize
+                                    fillMode: Image.PreserveAspectFit
+                                    anchors.centerIn: parent
+                                }
+                            }
+
+                        }
+                    }
+
                     Button {
                         id: eventInfoButton
                         width: root.overlayControlSize
@@ -446,6 +522,70 @@ Item {
                                 anchors.centerIn: parent
                             }
                         }
+                    }
+
+                }
+            }
+
+            Item {
+                id: volumeProximityArea
+                x: controlsBackground.x + controlsRow.x + volumeControl.x - 36
+                y: controlsBackground.y + controlsRow.y + volumeControl.y - 164
+                width: 128
+                height: 220
+                z: 2
+
+                HoverHandler {
+                    id: volumeProximityHandler
+                    onHoveredChanged: {
+                        if (hovered) {
+                            volumeControl.sliderVisible = true
+                            volumeSliderHideTimer.stop()
+                            controlsHideTimer.restart()
+                        } else {
+                            volumeSliderHideTimer.restart()
+                        }
+                    }
+                }
+            }
+
+            Slider {
+                id: volumeSlider
+                x: controlsBackground.x + controlsRow.x + volumeControl.x
+                    + (volumeControl.width - width) / 2
+                y: controlsBackground.y + controlsRow.y + volumeControl.y - height
+                width: root.overlayControlSize
+                height: 120
+                z: 3
+                orientation: Qt.Vertical
+                from: 0.0
+                to: 1.0
+                stepSize: 0.05
+                value: root.playerMuted ? 0 : root.playerVolume
+                visible: volumeControl.sliderVisible
+                Accessible.name: "Volume"
+                ToolTip.visible: hovered
+                ToolTip.text: Math.round(value * 100) + "%"
+                onMoved: {
+                    root.playerVolume = value
+                    if (root.playerMuted)
+                        root.playerMuted = false
+                }
+                onPressedChanged: {
+                    if (pressed) {
+                        volumeSliderHideTimer.stop()
+                        controlsHideTimer.stop()
+                    } else {
+                        root.revealPlayerControls()
+                        volumeSliderHideTimer.restart()
+                    }
+                }
+                onHoveredChanged: {
+                    if (hovered) {
+                        volumeControl.sliderVisible = true
+                        volumeSliderHideTimer.stop()
+                    } else {
+                        volumeSliderHideTimer.restart()
                     }
                 }
             }
@@ -688,7 +828,10 @@ Item {
     MediaPlayer {
         id: player
         source: root.playbackStopped ? "" : root.playbackUrl
-        audioOutput: AudioOutput {}
+        audioOutput: AudioOutput {
+            volume: root.playerVolume
+            muted: root.playerMuted
+        }
         videoOutput: videoOutputItem
 
         onSourceChanged: {
