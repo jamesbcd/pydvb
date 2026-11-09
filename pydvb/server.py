@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from collections import deque
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import logging
+from math import isfinite
 from queue import Empty, Full, Queue
 import select
 from socketserver import BaseServer
@@ -17,7 +19,13 @@ from urllib.parse import urlsplit
 from pydvb.driver_api.adapter import DVBAdapter
 from pydvb.driver_api.tuner import DVBTuning
 from .service_map import DVBServiceMap
-from .stream_scanner import DVBEventScanner, DVBDoubletID, DVBStreamInfo, DVBTripletID
+from .stream_scanner import (
+    DVBEvent,
+    DVBEventScanner,
+    DVBDoubletID,
+    DVBStreamInfo,
+    DVBTripletID,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +33,7 @@ logger = logging.getLogger(__name__)
 ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
 EVENT_SCAN_QUEUE_SIZE = 8
+EVENT_SCAN_DURATION_HISTORY_SIZE = 10
 
 
 @dataclass(eq=False)
@@ -80,6 +89,7 @@ class LocalTS_HTTPServer:
         # When False, the server will wait for an adapter to become available, potentially timing out if
         # none are free.
         evict_oldest_on_exhaustion: bool = False,
+        event_scan_pause_seconds: float = 300.0,
     ) -> None:
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
@@ -87,6 +97,13 @@ class LocalTS_HTTPServer:
             raise ValueError("client_queue_size must be positive")
         if type(scan_dvb_events) is not bool:
             raise ValueError("scan_dvb_events must be a bool")
+        if (
+            isinstance(event_scan_pause_seconds, bool)
+            or not isinstance(event_scan_pause_seconds, (int, float))
+            or not isfinite(event_scan_pause_seconds)
+            or event_scan_pause_seconds < 0
+        ):
+            raise ValueError("event_scan_pause_seconds must be a finite non-negative number")
         self.service_map = service_map
         self._available_adapters = list(adapters)
         self._sessions: dict[DVBDoubletID, _MultiplexSession] = {}
@@ -95,6 +112,7 @@ class LocalTS_HTTPServer:
         self.client_queue_size = client_queue_size
         self.buffer_log = buffer_log
         self.scan_dvb_events = scan_dvb_events
+        self.event_scan_pause_seconds = event_scan_pause_seconds
         self.evict_oldest_on_exhaustion = evict_oldest_on_exhaustion
         self._stop_event = Event()
         self.httpd = _HTTPServer((host, port), _StreamRequestHandler, self)
@@ -415,47 +433,64 @@ class LocalTS_HTTPServer:
         scan_queue: Queue[bytes],
         stop_event: Event,
     ) -> None:
-        """Consume queued multiplex chunks and update mapped service DVB events (i.e., programs)."""
-        scanner: DVBEventScanner | None = None
-        chunks_received = 0
-        bytes_received = 0
-
-        def log_progress(status: str) -> None:
-            if scanner is None:
-                return
-            logger.info(
-                "DVB EIT scan %s for multiplex %s: chunks=%d bytes=%d "
-                "PID 0x12 packets=%d present/following sections=%d "
-                "matched services=%d ONID fallbacks=%d "
-                "unmapped services=%d event updates=%d",
-                status,
-                session.stream_info.doublet_id,
-                chunks_received,
-                bytes_received,
-                scanner.eit_packets_seen,
-                scanner.eit_sections_seen,
-                len(scanner.matched_eit_services),
-                len(scanner.onid_mismatch_eit_services),
-                len(scanner.unmatched_eit_services),
-                scanner.event_updates,
-            )
-
+        """Scan queued chunks in bursts, pausing between complete multiplex scans."""
+        scan_durations: deque[float] = deque(maxlen=EVENT_SCAN_DURATION_HISTORY_SIZE)
         try:
-            scanner = DVBEventScanner(session.stream_info)
-            last_progress_log = monotonic()
             while not stop_event.is_set():
-                try:
-                    chunk = scan_queue.get(timeout=0.1)
-                except Empty:
-                    pass
-                else:
-                    chunks_received += 1
-                    bytes_received += len(chunk)
-                    scanner.feed(chunk)
-                now = monotonic()
-                if now - last_progress_log >= 30:
-                    log_progress("progress")
-                    last_progress_log = now
+                scanner = DVBEventScanner(
+                    session.stream_info,
+                    on_event_ready=self._update_service_events,
+                )
+                chunks_received = 0
+                bytes_received = 0
+                started_at = monotonic()
+                last_progress_log = started_at
+
+                while not stop_event.is_set() and not scanner.events_complete:
+                    try:
+                        chunk = scan_queue.get(timeout=0.1)
+                    except Empty:
+                        chunk = None
+                    if chunk is not None:
+                        chunks_received += 1
+                        bytes_received += len(chunk)
+                        scanner.feed(chunk)
+                    now = monotonic()
+                    if now - last_progress_log >= 30:
+                        self._log_event_scan_progress(
+                            "progress",
+                            session,
+                            scanner,
+                            chunks_received,
+                            bytes_received,
+                        )
+                        last_progress_log = now
+
+                if stop_event.is_set():
+                    break
+
+                duration = monotonic() - started_at
+                scan_durations.append(duration)
+                typical_duration = sum(scan_durations) / len(scan_durations)
+                self._log_event_scan_progress(
+                    "completed",
+                    session,
+                    scanner,
+                    chunks_received,
+                    bytes_received,
+                )
+                logger.info(
+                    "DVB EIT scan duration for multiplex %s: %.3f seconds "
+                    "(recent average %.3f seconds over %d completed bursts)",
+                    session.stream_info.doublet_id,
+                    duration,
+                    typical_duration,
+                    len(scan_durations),
+                )
+
+                if stop_event.wait(self.event_scan_pause_seconds):
+                    break
+                self._discard_dvb_event_scan_chunks(scan_queue)
         except Exception as error:
             logger.error(
                 "Event scan failed for multiplex %s: %s: %s",
@@ -464,7 +499,59 @@ class LocalTS_HTTPServer:
                 error,
             )
         finally:
-            log_progress("stopped")
+            logger.info(
+                "DVB EIT scan stopped for multiplex %s",
+                session.stream_info.doublet_id,
+            )
+
+    @staticmethod
+    def _log_event_scan_progress(
+        status: str,
+        session: _MultiplexSession,
+        scanner: DVBEventScanner,
+        chunks_received: int,
+        bytes_received: int,
+    ) -> None:
+        """Log event scanner counters for one burst."""
+        logger.info(
+            "DVB EIT scan %s for multiplex %s: chunks=%d bytes=%d "
+            "PID 0x12 packets=%d present/following sections=%d "
+            "matched services=%d ONID fallbacks=%d "
+            "unmapped services=%d event updates=%d",
+            status,
+            session.stream_info.doublet_id,
+            chunks_received,
+            bytes_received,
+            scanner.eit_packets_seen,
+            scanner.eit_sections_seen,
+            len(scanner.matched_eit_services),
+            len(scanner.onid_mismatch_eit_services),
+            len(scanner.unmatched_eit_services),
+            scanner.event_updates,
+        )
+
+    def _update_service_events(
+        self,
+        triplet_id: DVBTripletID,
+        current_event: DVBEvent | None,
+        next_event: DVBEvent | None,
+    ) -> None:
+        """Apply one scanner event snapshot to the corresponding mapped service."""
+        service = self.service_map.services.get(triplet_id)
+        if service is None:
+            logger.warning("Cannot apply DVB events for unmapped service %s", triplet_id)
+            return
+        service.current_event = current_event
+        service.next_event = next_event
+
+    @staticmethod
+    def _discard_dvb_event_scan_chunks(scan_queue: Queue[bytes]) -> None:
+        """Discard chunks accumulated while a completed event scan was paused."""
+        for _ in range(scan_queue.qsize()):
+            try:
+                scan_queue.get_nowait()
+            except Empty:
+                return
 
     @staticmethod
     def _enqueue_dvb_event_scan_chunk(scan_queue: Queue[bytes], chunk: bytes) -> None:

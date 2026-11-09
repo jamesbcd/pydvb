@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from enum import Enum, IntEnum, auto
 import logging
 from typing import Any, Callable, NamedTuple
+from threading import Lock
 import unicodedata
 
 from construct import Bit, BitStruct, BitsInteger
@@ -876,15 +877,18 @@ class DVBScanner:
 
 
 class DVBEventScanner(DVBScanner):
-    """Scan present/following events and update services in an existing stream info."""
+    """Scan present/following events for services in an existing stream info."""
 
     def __init__(
         self,
         stream_info: DVBStreamInfo,
         *,
+        on_event_ready: Callable[
+            [DVBTripletID, DVBEvent | None, DVBEvent | None], None
+        ] | None = None,
         verify_crc: bool = True,
     ) -> None:
-        """Create a scanner that updates only services in ``stream_info``.
+        """Create a scanner that reports events only for services in ``stream_info``.
 
         EIT sections for services outside this stream info are ignored.
         """
@@ -895,21 +899,45 @@ class DVBEventScanner(DVBScanner):
         self.unmatched_eit_services: set[DVBTripletID] = set()
         self.onid_mismatch_eit_services: set[DVBTripletID] = set()
         self.event_updates = 0
+        self._on_event_ready = on_event_ready
+        self._event_lock = Lock()
+        self._event_results: dict[
+            DVBTripletID, tuple[DVBEvent | None, DVBEvent | None]
+        ] = {}
+        self._current_sections: set[DVBTripletID] = set()
+        self._following_sections: set[DVBTripletID] = set()
         doublet_id = stream_info.doublet_id
-        # Create small mapping of triplet IDs to known services in the existing stream_info for quick lookup
-        self._existing_services: dict[DVBTripletID, DVBService] = {}
+        # Map broadcast IDs to the IDs in stream_info, including ONID fallback matches.
+        self._existing_services: dict[DVBTripletID, DVBTripletID] = {}
         self._existing_services_by_ts_service: dict[
-            tuple[int, int], tuple[DVBTripletID, DVBService]
+            tuple[int, int], tuple[DVBTripletID, DVBTripletID]
         ] = {}
         for service in stream_info.services:
             triplet_id = service.triplet_id
             if triplet_id is None and doublet_id is not None:
                 triplet_id = doublet_id.triplet_id(service.service_id)
             if triplet_id is not None:
-                self._existing_services[triplet_id] = service
+                self._event_results[triplet_id] = (None, None)
+                self._existing_services[triplet_id] = triplet_id
                 self._existing_services_by_ts_service[
                     (triplet_id.transport_stream_id, triplet_id.service_id)
-                ] = (triplet_id, service)
+                ] = (triplet_id, triplet_id)
+
+    @property
+    def events(self) -> dict[DVBTripletID, tuple[DVBEvent | None, DVBEvent | None]]:
+        """Return a snapshot of current and next events keyed by service triplet."""
+        with self._event_lock:
+            return dict(self._event_results)
+
+    @property
+    def events_complete(self) -> bool:
+        """Return whether present/following event information is ready for all services."""
+        with self._event_lock:
+            return self._ready_services.issuperset(self._event_results)
+
+    @property
+    def _ready_services(self) -> set[DVBTripletID]:
+        return self._current_sections & self._following_sections
 
     def _feed_packet(self, packet: bytes) -> None:
         """Ignore every transport-stream PID except the EIT PID."""
@@ -919,7 +947,7 @@ class DVBEventScanner(DVBScanner):
             super()._feed_packet(packet)
 
     def _decode_eit(self, section: bytes) -> None:
-        """Decode EIT for a known service and update its existing event metadata."""
+        """Decode EIT for a known service and update this scanner's event snapshot."""
         self.eit_sections_seen += 1
         if len(section) < 12:
             return
@@ -929,9 +957,8 @@ class DVBEventScanner(DVBScanner):
             transport_stream_id=int.from_bytes(section[8:10], "big"),
             service_id=service_id,
         )
-        existing_service = self._existing_services.get(triplet_id)
-        service_triplet_id = triplet_id
-        if existing_service is None:
+        service_triplet_id = self._existing_services.get(triplet_id)
+        if service_triplet_id is None:
             mapped_service = self._existing_services_by_ts_service.get(
                 (triplet_id.transport_stream_id, triplet_id.service_id)
             )
@@ -943,7 +970,7 @@ class DVBEventScanner(DVBScanner):
                         triplet_id,
                     )
                 return
-            service_triplet_id, existing_service = mapped_service
+            service_triplet_id, _ = mapped_service
             if triplet_id not in self.onid_mismatch_eit_services:
                 self.onid_mismatch_eit_services.add(triplet_id)
                 logger.warning(
@@ -953,31 +980,63 @@ class DVBEventScanner(DVBScanner):
                 )
 
         self.matched_eit_services.add(triplet_id)
-        previous_events = (existing_service.current_event, existing_service.next_event)
+        decoded_service = self._services.get(service_id)
+        previous_current_event = (
+            decoded_service.current_event if decoded_service is not None else None
+        )
         super()._decode_eit(section)
         decoded_service = self._services.get(service_id)
-        if decoded_service is not None:
-            existing_service.current_event = decoded_service.current_event
-            existing_service.next_event = decoded_service.next_event
-            if previous_events != (
-                existing_service.current_event,
-                existing_service.next_event,
-            ):
+        if decoded_service is None:
+            return
+        if section[0] == 0x4E and section[6] == 1:
+            decoded_service.current_event = previous_current_event
+
+        current_event = self._event_for_triplet(
+            decoded_service.current_event, service_triplet_id
+        )
+        next_event = self._event_for_triplet(
+            decoded_service.next_event, service_triplet_id
+        )
+        callback_events: tuple[DVBEvent | None, DVBEvent | None] | None = None
+        with self._event_lock:
+            previous_events = self._event_results[service_triplet_id]
+            current_events = (current_event, next_event)
+            changed = previous_events != current_events
+            self._event_results[service_triplet_id] = current_events
+            if changed:
                 self.event_updates += 1
-                logger.info(
-                    "Updated events for service %s: now=%r next=%r",
-                    service_triplet_id,
-                    (
-                        existing_service.current_event.name
-                        if existing_service.current_event is not None
-                        else None
-                    ),
-                    (
-                        existing_service.next_event.name
-                        if existing_service.next_event is not None
-                        else None
-                    ),
-                )
+
+            was_ready = service_triplet_id in self._ready_services
+            if len(section) >= 26 and section[0] == 0x4E:
+                if section[6] == 0:
+                    self._current_sections.add(service_triplet_id)
+                    if section[7] == 0 or next_event is not None:
+                        self._following_sections.add(service_triplet_id)
+                elif section[6] == 1:
+                    self._following_sections.add(service_triplet_id)
+            is_ready = service_triplet_id in self._ready_services
+            if is_ready and (not was_ready or changed):
+                callback_events = current_events
+
+        if changed:
+            logger.info(
+                "Updated events for service %s: now=%r next=%r",
+                service_triplet_id,
+                current_event.name if current_event is not None else None,
+                next_event.name if next_event is not None else None,
+            )
+        if callback_events is not None and self._on_event_ready is not None:
+            self._on_event_ready(service_triplet_id, *callback_events)
+
+    @staticmethod
+    def _event_for_triplet(
+        event: DVBEvent | None,
+        triplet_id: DVBTripletID,
+    ) -> DVBEvent | None:
+        """Return an event associated with the mapped service triplet."""
+        if event is None:
+            return None
+        return replace(event, triplet_id=triplet_id)
 
 
 def _descriptors(data: bytes):

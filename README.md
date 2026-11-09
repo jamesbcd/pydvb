@@ -82,12 +82,16 @@ different multiplex wait for an adapter or return HTTP 503 after the wait
 timeout. Forced eviction of an active multiplex is available only when the
 server is explicitly configured with `evict_oldest_on_exhaustion=True`; this
 disconnects all clients using that multiplex.
-While a multiplex is active, its present/following DVB events are scanned on a
-separate worker and update the mapped services. In the desktop app, uncheck
-Configure > Show program guide info to disable event scanning and guide refresh
-polling, and hide the guide UI. Event scanning uses a bounded, non-blocking
-queue; if it falls behind, stale scan chunks are dropped without delaying
-client stream delivery.
+While a multiplex is active, its present/following DVB events are scanned in
+bursts on a separate worker and update the mapped services. A burst completes
+after event information is ready for every service, then scanning pauses for
+five minutes before starting a fresh burst. The server logs each completed
+burst duration and a rolling average; applications embedding the server can
+change the pause with `event_scan_pause_seconds`. Event scanning uses a bounded,
+non-blocking queue; if it falls behind, stale scan chunks are dropped without
+delaying client stream delivery. In the desktop app, uncheck Configure > Show
+program guide info to disable event scanning and guide refresh polling, and hide
+the guide UI.
 The CLI server decodes events by default; pass `--event-decode false` to disable
 decoding, or `--event-decode true` to enable it explicitly.
 To allow other devices on your network to connect, bind to all interfaces:

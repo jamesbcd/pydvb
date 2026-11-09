@@ -313,7 +313,14 @@ def test_scanner_discovers_next_event_from_separate_following_eit_section():
 
 
 def test_event_scanner_only_decodes_selected_present_following_services():
-    def eit_packet(service_id, event_id, name, original_network_id=1):
+    def eit_packet(
+        service_id,
+        event_id,
+        name,
+        original_network_id=1,
+        section_number=0,
+        last_section_number=0,
+    ):
         short_event = b"eng" + bytes((len(name),)) + name + b"\x00"
         event_descriptor = descriptor(0x4D, short_event)
         event = (
@@ -326,7 +333,8 @@ def test_event_scanner_only_decodes_selected_present_following_services():
         )
         body = (
             service_id.to_bytes(2, "big")
-            + b"\xc1\x00\x00\x12\x34"
+            + bytes((0xC1, section_number, last_section_number))
+            + b"\x12\x34"
             + original_network_id.to_bytes(2, "big")
             + b"\x00\x4e"
             + event
@@ -340,29 +348,57 @@ def test_event_scanner_only_decodes_selected_present_following_services():
         service_id=3,
         triplet_id=mismatched_onid_id,
     )
+    callbacks = []
     scanner = DVBEventScanner(
-        DVBStreamInfo(services=(service, mismatched_onid_service))
+        DVBStreamInfo(services=(service, mismatched_onid_service)),
+        on_event_ready=lambda *events: callbacks.append(events),
     )
     scanner.feed(table_packet(0, section(0, b"\x12\x34\xc1\x00\x00\x00\x02\xe1\x00")))
     scanner.feed(eit_packet(2, 20, b"Ignored"))
-    scanner.feed(eit_packet(1, 10, b"Selected"))
+    scanner.feed(
+        eit_packet(
+            1,
+            10,
+            b"Selected",
+            last_section_number=1,
+        )
+    )
     scanner.feed(eit_packet(3, 30, b"ONID fallback", original_network_id=4116))
 
-    assert service.current_event is not None
-    assert service.current_event.triplet_id == triplet_id
-    assert service.current_event.name == "Selected"
+    assert service.current_event is None
     assert service.next_event is None
-    assert mismatched_onid_service.current_event is not None
-    assert mismatched_onid_service.current_event.name == "ONID fallback"
-    assert scanner.eit_packets_seen == 3
-    assert scanner.eit_sections_seen == 3
+    assert mismatched_onid_service.current_event is None
+    selected_current = scanner.events[triplet_id][0]
+    assert selected_current is not None
+    assert selected_current.triplet_id == triplet_id
+    assert selected_current.name == "Selected"
+    assert scanner.events[triplet_id][1] is None
+    fallback_current = scanner.events[mismatched_onid_id][0]
+    assert fallback_current is not None
+    assert fallback_current.name == "ONID fallback"
+    assert not scanner.events_complete
+    assert callbacks == [(mismatched_onid_id, fallback_current, None)]
+
+    scanner.feed(eit_packet(1, 11, b"Next", section_number=1, last_section_number=1))
+    assert scanner.events_complete
+    next_event = scanner.events[triplet_id][1]
+    assert next_event is not None
+    assert next_event.name == "Next"
+    assert callbacks[-1][0] == triplet_id
+    assert callbacks[-1][2] == next_event
+
+    event_snapshot = scanner.events
+    event_snapshot.clear()
+    assert triplet_id in scanner.events
+    assert scanner.eit_packets_seen == 4
+    assert scanner.eit_sections_seen == 4
     assert scanner.matched_eit_services == {
         triplet_id,
         DVBTripletID(4116, 0x1234, 3),
     }
     assert scanner.unmatched_eit_services == {DVBTripletID(1, 0x1234, 2)}
     assert scanner.onid_mismatch_eit_services == {DVBTripletID(4116, 0x1234, 3)}
-    assert scanner.event_updates == 2
+    assert scanner.event_updates == 3
 
 
 def test_scanner_scan_reports_service_count_increases():

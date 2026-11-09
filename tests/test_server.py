@@ -218,9 +218,15 @@ def test_server_streams_requested_service_and_releases_adapter(caplog):
 
 def test_server_updates_service_events_while_streaming(caplog):
     caplog.set_level(logging.INFO, logger="pydvb.stream_scanner")
+    caplog.set_level(logging.INFO, logger="pydvb.server")
     adapter = FakeAdapter()
     service_map = make_service_map()
-    server = LocalTS_HTTPServer([adapter], service_map, port=0)
+    server = LocalTS_HTTPServer(
+        [adapter],
+        service_map,
+        port=0,
+        event_scan_pause_seconds=0.05,
+    )
     serving = Thread(target=server.serve_forever)
     serving.start()
     connection = http.client.HTTPConnection(*server.address, timeout=2)
@@ -239,6 +245,26 @@ def test_server_updates_service_events_while_streaming(caplog):
             sleep(0.01)
         assert service.current_event is not None
         assert service.current_event.name == "Current programme"
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline and not any(
+            "DVB EIT scan duration for multiplex" in record.getMessage()
+            for record in caplog.records
+        ):
+            sleep(0.01)
+        assert any(
+            "DVB EIT scan duration for multiplex" in record.getMessage()
+            for record in caplog.records
+        )
+
+        sleep(0.1)
+        next_packet = make_eit_packet(3, b"Later programme")
+        adapter.chunks.put(next_packet)
+        assert response.read(188) == next_packet
+        deadline = monotonic() + 2
+        while monotonic() < deadline and service.current_event.name != "Later programme":
+            sleep(0.01)
+        assert service.current_event.name == "Later programme"
         assert any(
             "Updated events for service 1.2.3" in record.getMessage()
             for record in caplog.records
