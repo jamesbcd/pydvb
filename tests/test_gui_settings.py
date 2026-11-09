@@ -95,4 +95,4 @@ def test_older_settings_files_use_defaults_for_new_toggles(tmp_path):
     assert loaded.auto_discover_and_initialize_devices is True
     assert loaded.show_unsupported_devices is False
     assert loaded.program_guide_enabled is True
-    assert loaded.auto_start_server is False
+    assert loaded.auto_start_server is True

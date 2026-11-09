@@ -662,7 +662,6 @@ def test_auto_start_server_after_device_initialization(qt_application, monkeypat
     controller = AppController(
         settings=GuiSettings(
             auto_discover_and_initialize_devices=False,
-            auto_start_server=True,
             service_map=service_map,
         )
     )
@@ -738,12 +737,12 @@ def test_auto_start_server_setting_is_exposed_by_server_controller(qt_applicatio
     )
     controller._discovery_timer.stop()
 
-    assert controller.serverController.autoStartServer is False
-
-    controller.serverController.autoStartServer = True
-
     assert controller.serverController.autoStartServer is True
-    assert controller._settings.auto_start_server is True
+
+    controller.serverController.autoStartServer = False
+
+    assert controller.serverController.autoStartServer is False
+    assert controller._settings.auto_start_server is False
 
 
 def test_settings_load_runs_during_device_operation(qt_application, tmp_path):
