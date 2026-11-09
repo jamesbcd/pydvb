@@ -34,7 +34,8 @@ ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
 EVENT_SCAN_QUEUE_SIZE = 8
 EVENT_SCAN_DURATION_HISTORY_SIZE = 10
-EVENT_SCAN_MAX_DURATION_SECONDS = 30.0
+EVENT_SCAN_MAX_DURATION_SECONDS = 10.0
+EVENT_SCAN_PAUSE_SECONDS = 150.0
 
 
 @dataclass(eq=False)
@@ -90,7 +91,7 @@ class LocalTS_HTTPServer:
         # When False, the server will wait for an adapter to become available, potentially timing out if
         # none are free.
         evict_oldest_on_exhaustion: bool = False,
-        event_scan_pause_seconds: float = 300.0,
+        event_scan_pause_seconds: float = EVENT_SCAN_PAUSE_SECONDS,
         event_scan_max_duration_seconds: float = EVENT_SCAN_MAX_DURATION_SECONDS,
     ) -> None:
         if not 0 <= port <= 65535:
