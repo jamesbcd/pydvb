@@ -264,7 +264,9 @@ ApplicationWindow {
             visibility = previousWindowVisibility
     }
 
-    onVisibilityChanged: isFullScreen = visibility === Window.FullScreen
+    onVisibilityChanged: function(visibility) {
+        isFullScreen = visibility === Window.FullScreen
+    }
 
     onPlayerOnlyModeChanged: {
         if (!playerOnlyMode) {
