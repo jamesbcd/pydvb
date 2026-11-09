@@ -34,6 +34,7 @@ ADAPTER_LEASE_RETRY_TIMEOUT = 2.0
 ADAPTER_LEASE_RETRY_INTERVAL = 0.1
 EVENT_SCAN_QUEUE_SIZE = 8
 EVENT_SCAN_DURATION_HISTORY_SIZE = 10
+EVENT_SCAN_MAX_DURATION_SECONDS = 30.0
 
 
 @dataclass(eq=False)
@@ -90,6 +91,7 @@ class LocalTS_HTTPServer:
         # none are free.
         evict_oldest_on_exhaustion: bool = False,
         event_scan_pause_seconds: float = 300.0,
+        event_scan_max_duration_seconds: float = EVENT_SCAN_MAX_DURATION_SECONDS,
     ) -> None:
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
@@ -104,6 +106,15 @@ class LocalTS_HTTPServer:
             or event_scan_pause_seconds < 0
         ):
             raise ValueError("event_scan_pause_seconds must be a finite non-negative number")
+        if (
+            isinstance(event_scan_max_duration_seconds, bool)
+            or not isinstance(event_scan_max_duration_seconds, (int, float))
+            or not isfinite(event_scan_max_duration_seconds)
+            or event_scan_max_duration_seconds <= 0
+        ):
+            raise ValueError(
+                "event_scan_max_duration_seconds must be a finite positive number"
+            )
         self.service_map = service_map
         self._available_adapters = list(adapters)
         self._sessions: dict[DVBDoubletID, _MultiplexSession] = {}
@@ -113,6 +124,7 @@ class LocalTS_HTTPServer:
         self.buffer_log = buffer_log
         self.scan_dvb_events = scan_dvb_events
         self.event_scan_pause_seconds = event_scan_pause_seconds
+        self.event_scan_max_duration_seconds = event_scan_max_duration_seconds
         self.evict_oldest_on_exhaustion = evict_oldest_on_exhaustion
         self._stop_event = Event()
         self.httpd = _HTTPServer((host, port), _StreamRequestHandler, self)
@@ -447,8 +459,14 @@ class LocalTS_HTTPServer:
                 last_progress_log = started_at
 
                 while not stop_event.is_set() and not scanner.events_complete:
+                    remaining = (
+                        self.event_scan_max_duration_seconds
+                        - (monotonic() - started_at)
+                    )
+                    if remaining <= 0:
+                        break
                     try:
-                        chunk = scan_queue.get(timeout=0.1)
+                        chunk = scan_queue.get(timeout=min(0.1, remaining))
                     except Empty:
                         chunk = None
                     if chunk is not None:
@@ -470,23 +488,49 @@ class LocalTS_HTTPServer:
                     break
 
                 duration = monotonic() - started_at
-                scan_durations.append(duration)
-                typical_duration = sum(scan_durations) / len(scan_durations)
-                self._log_event_scan_progress(
-                    "completed",
-                    session,
-                    scanner,
-                    chunks_received,
-                    bytes_received,
+                completed = (
+                    scanner.events_complete
+                    and duration <= self.event_scan_max_duration_seconds
                 )
-                logger.info(
-                    "DVB EIT scan duration for multiplex %s: %.3f seconds "
-                    "(recent average %.3f seconds over %d completed bursts)",
-                    session.stream_info.doublet_id,
-                    duration,
-                    typical_duration,
-                    len(scan_durations),
-                )
+                if completed:
+                    scan_durations.append(duration)
+                    typical_duration = sum(scan_durations) / len(scan_durations)
+                    self._log_event_scan_progress(
+                        "completed",
+                        session,
+                        scanner,
+                        chunks_received,
+                        bytes_received,
+                    )
+                    logger.info(
+                        "DVB EIT scan duration for multiplex %s: %.3f seconds "
+                        "(recent average %.3f seconds over %d completed bursts)",
+                        session.stream_info.doublet_id,
+                        duration,
+                        typical_duration,
+                        len(scan_durations),
+                    )
+                else:
+                    self._log_event_scan_progress(
+                        "incomplete",
+                        session,
+                        scanner,
+                        chunks_received,
+                        bytes_received,
+                    )
+                    pending_services = ", ".join(
+                        str(triplet_id)
+                        for triplet_id in sorted(scanner.pending_services)
+                    )
+                    logger.warning(
+                        "DVB EIT scan timed out for multiplex %s after %.3f seconds: "
+                        "%d/%d services ready; pending services: %s",
+                        session.stream_info.doublet_id,
+                        duration,
+                        len(scanner.events) - len(scanner.pending_services),
+                        len(scanner.events),
+                        pending_services or "none",
+                    )
 
                 if stop_event.wait(self.event_scan_pause_seconds):
                     break
@@ -513,10 +557,12 @@ class LocalTS_HTTPServer:
         bytes_received: int,
     ) -> None:
         """Log event scanner counters for one burst."""
+        total_services = len(scanner.events)
+        ready_services = total_services - len(scanner.pending_services)
         logger.info(
             "DVB EIT scan %s for multiplex %s: chunks=%d bytes=%d "
             "PID 0x12 packets=%d present/following sections=%d "
-            "matched services=%d ONID fallbacks=%d "
+            "matched services=%d ready services=%d/%d ONID fallbacks=%d "
             "unmapped services=%d event updates=%d",
             status,
             session.stream_info.doublet_id,
@@ -525,6 +571,8 @@ class LocalTS_HTTPServer:
             scanner.eit_packets_seen,
             scanner.eit_sections_seen,
             len(scanner.matched_eit_services),
+            ready_services,
+            total_services,
             len(scanner.onid_mismatch_eit_services),
             len(scanner.unmatched_eit_services),
             scanner.event_updates,

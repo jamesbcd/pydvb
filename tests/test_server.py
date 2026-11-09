@@ -306,6 +306,54 @@ def test_server_does_not_scan_events_when_disabled():
         serving.join(timeout=2)
 
 
+def test_server_pauses_after_incomplete_event_scan_timeout(caplog):
+    caplog.set_level(logging.INFO, logger="pydvb.server")
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map(),
+        port=0,
+        event_scan_pause_seconds=0.4,
+        event_scan_max_duration_seconds=0.2,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    connection = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        connection.request("GET", "/service/1.2.3")
+        response = connection.getresponse()
+        assert response.status == 200
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline and not any(
+            "DVB EIT scan timed out for multiplex 1.2" in record.getMessage()
+            for record in caplog.records
+        ):
+            sleep(0.01)
+
+        timeout_records = [
+            record
+            for record in caplog.records
+            if "DVB EIT scan timed out for multiplex 1.2" in record.getMessage()
+        ]
+        assert len(timeout_records) == 1
+        assert "0/1 services ready" in timeout_records[0].getMessage()
+        assert "pending services: 1.2.3" in timeout_records[0].getMessage()
+        sleep(0.1)
+        assert len(
+            [
+                record
+                for record in caplog.records
+                if "DVB EIT scan timed out for multiplex 1.2" in record.getMessage()
+            ]
+        ) == 1
+    finally:
+        connection.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
 def test_server_suppresses_demuxer_error_when_stopping_stream(caplog):
     caplog.set_level(logging.DEBUG, logger="pydvb.server")
     adapter = ShutdownRaceAdapter()

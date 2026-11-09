@@ -936,6 +936,12 @@ class DVBEventScanner(DVBScanner):
             return self._ready_services.issuperset(self._event_results)
 
     @property
+    def pending_services(self) -> frozenset[DVBTripletID]:
+        """Return services that have not yet received complete present/following EIT data."""
+        with self._event_lock:
+            return frozenset(self._event_results.keys() - self._ready_services)
+
+    @property
     def _ready_services(self) -> set[DVBTripletID]:
         return self._current_sections & self._following_sections
 

@@ -377,6 +377,7 @@ def test_event_scanner_only_decodes_selected_present_following_services():
     assert fallback_current is not None
     assert fallback_current.name == "ONID fallback"
     assert not scanner.events_complete
+    assert scanner.pending_services == frozenset((triplet_id,))
     assert callbacks == [(mismatched_onid_id, fallback_current, None)]
 
     scanner.feed(eit_packet(1, 11, b"Next", section_number=1, last_section_number=1))
