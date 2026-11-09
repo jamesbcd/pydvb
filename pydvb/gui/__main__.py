@@ -7,7 +7,7 @@ import sys
 from importlib.util import find_spec
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QStandardPaths, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -21,6 +21,14 @@ def _configure_media_environment() -> None:
     os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
 
 
+def _default_settings_path() -> Path:
+    """Return the application-specific path for automatically persisted settings."""
+    config_directory = QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.AppConfigLocation
+    )
+    return Path(config_directory) / "gui-settings.pydvb"
+
+
 def main() -> int:
     """Start the QML application and return its exit status."""
     QQuickStyle.setStyle("Fusion") # if sys.platform == "darwin" else "Fusion")
@@ -30,7 +38,7 @@ def main() -> int:
     application.setOrganizationName("pydvb")
 
     engine = QQmlApplicationEngine()
-    controller = AppController()
+    controller = AppController(settings_path=_default_settings_path())
     application.setQuitOnLastWindowClosed(False)
     engine.setInitialProperties(
         {

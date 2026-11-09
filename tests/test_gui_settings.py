@@ -16,6 +16,8 @@ def test_gui_settings_round_trip(tmp_path):
         server_host="127.0.0.1",
         server_port=8090,
         selected_device="0413:6029",
+        auto_discover_and_initialize_devices=False,
+        show_unsupported_devices=True,
         show_program_guide_info=False,
         service_map=DVBServiceMap(),
     )
@@ -24,7 +26,7 @@ def test_gui_settings_round_trip(tmp_path):
     save_settings(settings, path)
 
     serialized = json.loads(path.read_text())
-    assert serialized["__type__"] == "GuiProfile"
+    assert serialized["__type__"] == "GuiSettings"
     loaded = load_settings(path)
 
     assert loaded.schema_version == settings.schema_version
@@ -34,6 +36,8 @@ def test_gui_settings_round_trip(tmp_path):
     assert loaded.server_port == settings.server_port
     assert loaded.selected_device == settings.selected_device
     assert loaded.selected_adapter == settings.selected_adapter
+    assert loaded.auto_discover_and_initialize_devices is False
+    assert loaded.show_unsupported_devices is True
     assert loaded.show_program_guide_info is False
     assert isinstance(loaded.service_map, DVBServiceMap)
     assert loaded.service_map.services == settings.service_map.services
@@ -46,6 +50,8 @@ def test_gui_settings_round_trip(tmp_path):
         ("server_host", "", "server_host must not be empty"),
         ("server_port", 65536, "server_port must be between"),
         ("selected_adapter", -1, "selected_adapter must be non-negative"),
+        ("auto_discover_and_initialize_devices", 1, "must be a bool"),
+        ("show_unsupported_devices", 1, "must be a bool"),
         ("show_program_guide_info", 1, "show_program_guide_info must be a bool"),
         ("tunings", [DVBTuning(frequency_hz=177_500_000)], "tunings must be a tuple"),
         (
@@ -68,3 +74,17 @@ def test_load_settings_rejects_another_serializable_type(tmp_path):
 
     with pytest.raises(TypeError, match="does not contain GUI settings"):
         load_settings(path)
+
+
+def test_older_settings_files_use_defaults_for_new_toggles(tmp_path):
+    path = tmp_path / "settings.pydvb"
+    save_settings(GuiSettings(), path)
+    serialized = json.loads(path.read_text())
+    serialized["__data__"].pop("auto_discover_and_initialize_devices")
+    serialized["__data__"].pop("show_unsupported_devices")
+    path.write_text(json.dumps(serialized))
+
+    loaded = load_settings(path)
+
+    assert loaded.auto_discover_and_initialize_devices is True
+    assert loaded.show_unsupported_devices is False

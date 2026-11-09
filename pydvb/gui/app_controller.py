@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from threading import Thread
-from typing import Callable, Literal, Sequence
+from typing import Callable, Literal, Sequence, cast
 
 from PySide6.QtCore import (
     QObject,
@@ -108,16 +109,37 @@ class AppController(QObject):
         device_types: Sequence[type[DVBDevice]] | None = None,
         settings: GuiSettings | None = None,
         parent: QObject | None = None,
+        settings_path: str | PathLike[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self._device_types = None if device_types is None else tuple(device_types)
-        self._settings = settings or GuiSettings()
+        self._settings_path = Path(settings_path) if settings_path is not None else None
+        settings_load_error: Exception | None = None
+        if settings is not None:
+            self._settings = settings
+        elif self._settings_path is None:
+            self._settings = GuiSettings()
+        else:
+            try:
+                self._settings = load_settings(self._settings_path)
+            except FileNotFoundError:
+                self._settings = GuiSettings()
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                self._settings = GuiSettings()
+                settings_load_error = error
+                logging.getLogger(__name__).warning(
+                    "Could not load GUI settings from %s; using defaults: %s",
+                    self._settings_path,
+                    error,
+                )
         self._manager: DVBDeviceManager | None = None
         self._devices: list[DVBDevice] = []
         self._selected_device_index: int | None = None
         self._discovery_rows: list[dict[str, object]] = []
-        self._show_unsupported_devices = False
-        self._auto_discover_and_initialize_devices = True
+        self._show_unsupported_devices = self._settings.show_unsupported_devices
+        self._auto_discover_and_initialize_devices = (
+            self._settings.auto_discover_and_initialize_devices
+        )
         self._initialization_errors: dict[int, str] = {}
         self._initializing_devices: set[int] = set()
         self._signal_by_adapter: dict[tuple[int, int], str] = {}
@@ -128,7 +150,12 @@ class AppController(QObject):
         self._device_lane_busy = False
         self._device_task_user_initiated = False
         self._general_lane_busy = False
-        self._status_message = "Ready"
+        self._status_message = (
+            f"Could not load settings from {self._settings_path}; using defaults: "
+            f"{settings_load_error}"
+            if settings_load_error is not None
+            else "Ready"
+        )
         self._server_state = "Stopped"
         self._server: LocalTS_HTTPServer | None = None
         self._server_thread: Thread | None = None
@@ -172,7 +199,8 @@ class AppController(QObject):
         self._discovery_timer = QTimer(self)
         self._discovery_timer.setInterval(2000)
         self._discovery_timer.timeout.connect(self._devices_controller._auto_discover)
-        self._discovery_timer.start()
+        if self._auto_discover_and_initialize_devices:
+            self._discovery_timer.start()
 
     @Property(QObject, constant=True)
     def devicesController(self) -> DeviceController:
@@ -381,12 +409,20 @@ class AppController(QObject):
             if self._server is not None:
                 self._set_status("Stop the server before loading settings")
                 return
-            loaded = settings  # validated by load_settings
-            self._settings = loaded  # type: ignore[assignment]
+            loaded = cast(GuiSettings, settings)
+            self._settings = loaded
+            self._show_unsupported_devices = loaded.show_unsupported_devices
+            self._auto_discover_and_initialize_devices = (
+                loaded.auto_discover_and_initialize_devices
+            )
+            if self._auto_discover_and_initialize_devices:
+                self._discovery_timer.start()
+            else:
+                self._discovery_timer.stop()
             self._selected_device_index = None
             self._select_first_device()
             self.tuningsChanged.emit()
-            self.channelsChanged.emit()
+            self._channel_controller._channels_changed()
             self.devicesChanged.emit()
             self.serverChanged.emit()
             self.stateChanged.emit()
@@ -420,9 +456,20 @@ class AppController(QObject):
         server = self._server
         server_thread = self._server_thread
         manager = self._manager
+        settings_path = self._settings_path
+        settings = replace(self._settings)
 
         def operation() -> list[str]:
             errors: list[str] = []
+            if settings_path is not None:
+                try:
+                    save_settings(settings, settings_path)
+                except Exception as error:
+                    logging.getLogger(__name__).exception(
+                        "Could not save GUI settings to %s",
+                        settings_path,
+                    )
+                    errors.append(f"settings save: {error}")
             if server is not None:
                 try:
                     server.shutdown()

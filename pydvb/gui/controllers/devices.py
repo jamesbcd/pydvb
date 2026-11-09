@@ -82,6 +82,7 @@ class DeviceController(QObject):
         app = self._app
         if app._show_unsupported_devices != value:
             app._show_unsupported_devices = value
+            app._settings.show_unsupported_devices = value
             app.devicesChanged.emit()
 
     @Property(bool, notify=stateChanged)
@@ -94,6 +95,7 @@ class DeviceController(QObject):
         if app._auto_discover_and_initialize_devices == value:
             return
         app._auto_discover_and_initialize_devices = value
+        app._settings.auto_discover_and_initialize_devices = value
         if value:
             app._discovery_timer.start()
         else:

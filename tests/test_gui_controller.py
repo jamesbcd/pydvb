@@ -19,7 +19,7 @@ from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
-from pydvb.gui.settings import GuiSettings, save_settings
+from pydvb.gui.settings import GuiSettings, load_settings, save_settings
 from pydvb.service_map import DVBServiceMap
 from pydvb.stream_scanner import (
     DVBEvent,
@@ -646,6 +646,48 @@ def test_settings_load_runs_during_device_operation(qt_application, tmp_path):
 
     assert loaded_during_device_operation == [True]
     assert controller._settings.scan_table == "loaded-settings"
+
+
+def test_default_settings_are_loaded_before_discovery(qt_application, tmp_path):
+    settings_path = tmp_path / "gui-settings.pydvb"
+    save_settings(
+        GuiSettings(
+            scan_table="persisted-table",
+            auto_discover_and_initialize_devices=False,
+            show_unsupported_devices=True,
+            show_program_guide_info=False,
+        ),
+        settings_path,
+    )
+
+    controller = AppController(settings_path=settings_path)
+    controller._status_timer.stop()
+
+    assert controller._settings.scan_table == "persisted-table"
+    assert controller.devicesController.autoDiscoverAndInitializeDevices is False
+    assert controller.devicesController.showUnsupportedDevices is True
+    assert controller.channelController.showProgramGuideInfo is False
+    assert not controller._discovery_timer.isActive()
+
+
+def test_settings_are_saved_on_shutdown(qt_application, tmp_path):
+    settings_path = tmp_path / "gui-settings.pydvb"
+    controller = AppController(settings_path=settings_path)
+    controller._status_timer.stop()
+    controller._discovery_timer.stop()
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
+    controller.devicesController.showUnsupportedDevices = True
+    controller.channelController.showProgramGuideInfo = False
+
+    controller.shutdownFinished.connect(qt_application.quit)
+    QTimer.singleShot(3000, qt_application.quit)
+    controller.shutdown()
+    qt_application.exec()
+
+    loaded = load_settings(settings_path)
+    assert loaded.auto_discover_and_initialize_devices is False
+    assert loaded.show_unsupported_devices is True
+    assert loaded.show_program_guide_info is False
 
 
 def test_settings_load_during_scan_discards_stale_scan_results(
