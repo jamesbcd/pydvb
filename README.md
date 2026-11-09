@@ -145,9 +145,10 @@ FFmpeg multimedia backend for playback and leaves decoder selection, including
 hardware acceleration, to Qt. Without the extra, the rest of the GUI remains
 available and the Player page shows the install command.
 
-Use **Open** and **Save** to load or save a JSON profile containing tuning and
-server preferences plus the scanned service map. Profiles do not preserve
-connected devices, active streams, or clients.
+Use **Open Settings** and **Save Settings** to load or save a `.pydvb` settings
+file. The file remains JSON and contains tuning and server preferences plus the
+scanned service map. Existing `.json` files can still be opened. Settings do
+not preserve connected devices, active streams, or clients.
 
 ## Commands
 

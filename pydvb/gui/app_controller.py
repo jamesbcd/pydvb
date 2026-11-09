@@ -27,7 +27,7 @@ from pydvb.driver_api.frontend import DVBFrontendStatus
 from pydvb.server import LocalTS_HTTPServer
 from pydvb.usb import LIBUSB_ERROR_NO_DEVICE, LibUSBError
 
-from .profile import GuiProfile, load_profile, save_profile
+from .settings import GuiSettings, load_settings, save_settings
 from .controllers import (
     ChannelController,
     DeviceController,
@@ -106,12 +106,12 @@ class AppController(QObject):
     def __init__(
         self,
         device_types: Sequence[type[DVBDevice]] | None = None,
-        profile: GuiProfile | None = None,
+        settings: GuiSettings | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._device_types = None if device_types is None else tuple(device_types)
-        self._profile = profile or GuiProfile()
+        self._settings = settings or GuiSettings()
         self._manager: DVBDeviceManager | None = None
         self._devices: list[DVBDevice] = []
         self._selected_device_index: int | None = None
@@ -347,42 +347,42 @@ class AppController(QObject):
         )
 
     @Slot(str)
-    def saveProfile(self, path: str) -> None:
-        """Save the current hardware-independent application profile."""
+    def saveSettings(self, path: str) -> None:
+        """Save the current hardware-independent application settings."""
         local_path = self._local_path(path)
         if not local_path:
             return
         def complete(_result: object) -> None:
-            self._set_status(f"Saved profile to {local_path}")
+            self._set_status(f"Saved settings to {local_path}")
 
-        profile = replace(self._profile)
+        settings = replace(self._settings)
         self._run_task(
-            lambda: save_profile(profile, local_path),
+            lambda: save_settings(settings, local_path),
             complete,
             lane="general",
         )
 
     @Slot(str)
-    def loadProfile(self, path: str) -> None:
-        """Load profile values without changing connected hardware state."""
+    def loadSettings(self, path: str) -> None:
+        """Load settings without changing connected hardware state."""
         local_path = self._local_path(path)
         if not local_path:
             return
         if self._server is not None:
-            self._set_status("Stop the server before loading a profile")
+            self._set_status("Stop the server before loading settings")
             return
         if self._shutting_down:
-            self._set_status("Cannot load a profile while shutting down")
+            self._set_status("Cannot load settings while shutting down")
             return
 
-        def complete(profile: object) -> None:
+        def complete(settings: object) -> None:
             if self._shutting_down:
                 return
             if self._server is not None:
-                self._set_status("Stop the server before loading a profile")
+                self._set_status("Stop the server before loading settings")
                 return
-            loaded = profile  # validated by load_profile
-            self._profile = loaded  # type: ignore[assignment]
+            loaded = settings  # validated by load_settings
+            self._settings = loaded  # type: ignore[assignment]
             self._selected_device_index = None
             self._select_first_device()
             self.tuningsChanged.emit()
@@ -390,10 +390,10 @@ class AppController(QObject):
             self.devicesChanged.emit()
             self.serverChanged.emit()
             self.stateChanged.emit()
-            self._set_status(f"Loaded profile from {local_path}")
+            self._set_status(f"Loaded settings from {local_path}")
 
         self._run_task(
-            lambda: load_profile(local_path),
+            lambda: load_settings(local_path),
             complete,
             lane="general",
         )
@@ -711,7 +711,7 @@ class AppController(QObject):
             and 0 <= self._selected_device_index < len(self._devices)
         ):
             return self._devices[self._selected_device_index]
-        selected_id = self._profile.selected_device
+        selected_id = self._settings.selected_device
         self._selected_device_index = next(
             (
                 index
@@ -723,22 +723,22 @@ class AppController(QObject):
         return self._devices[self._selected_device_index]
 
     def _selected_adapter(self, device: DVBDevice):
-        """Return the profile-selected adapter, falling back to adapter zero."""
-        index = self._profile.selected_adapter
+        """Return the settings-selected adapter, falling back to adapter zero."""
+        index = self._settings.selected_adapter
         if not 0 <= index < len(device.adapters):
             index = 0
-            self._profile.selected_adapter = index
+            self._settings.selected_adapter = index
         return device.adapters[index]
 
     def _select_first_device(self) -> None:
         """Preserve the current selection or select the first connected device."""
         selected = self._selected_device()
         if selected is not None:
-            self._profile.selected_device = self._device_id(selected)
+            self._settings.selected_device = self._device_id(selected)
 
     @staticmethod
     def _device_id(device: DVBDevice) -> str:
-        """Format a device's USB identifier for profile persistence."""
+        """Format a device's USB identifier for settings persistence."""
         if device.device_id is None:
             return "Unknown USB ID"
         return AppController._usb_id(device.device_id)

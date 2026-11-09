@@ -389,17 +389,17 @@ ApplicationWindow {
     }
 
     Action {
-        id: openProfileAction
-        text: "&Open..."
+        id: openSettingsAction
+        text: "&Open Settings..."
         shortcut: StandardKey.Open
-        onTriggered: openProfileDialog.open()
+        onTriggered: openSettingsDialog.open()
     }
 
     Action {
-        id: saveProfileAction
-        text: "&Save..."
+        id: saveSettingsAction
+        text: "&Save Settings..."
         shortcut: StandardKey.Save
-        onTriggered: saveProfileDialog.open()
+        onTriggered: saveSettingsDialog.open()
     }
 
     Action {
@@ -505,11 +505,11 @@ ApplicationWindow {
         Menu {
             title: "&File"
             MenuItem {
-                action: openProfileAction
+                action: openSettingsAction
             }
             MenuSeparator {}
             MenuItem {
-                action: saveProfileAction
+                action: saveSettingsAction
             }
             MenuItem {
                 action: quitAction
@@ -2251,19 +2251,20 @@ ApplicationWindow {
     }
 
     FileDialog {
-        id: openProfileDialog
-        title: "Open PyDVB profile"
+        id: openSettingsDialog
+        title: "Open PyDVB Settings"
         fileMode: FileDialog.OpenFile
-        nameFilters: ["PyDVB profile (*.json)", "All files (*)"]
-        onAccepted: window.controller.loadProfile(selectedFile.toString())
+        nameFilters: ["PyDVB settings (*.pydvb *.json)", "All files (*)"]
+        onAccepted: window.controller.loadSettings(selectedFile.toString())
     }
 
     FileDialog {
-        id: saveProfileDialog
-        title: "Save PyDVB profile"
+        id: saveSettingsDialog
+        title: "Save PyDVB Settings"
         fileMode: FileDialog.SaveFile
-        nameFilters: ["PyDVB profile (*.json)", "All files (*)"]
-        onAccepted: window.controller.saveProfile(selectedFile.toString())
+        nameFilters: ["PyDVB settings (*.pydvb)", "All files (*)"]
+        defaultSuffix: "pydvb"
+        onAccepted: window.controller.saveSettings(selectedFile.toString())
     }
 
     FileDialog {

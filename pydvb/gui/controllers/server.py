@@ -70,7 +70,7 @@ class ServerController(QObject):
         if server is None:
             return []
         client_statuses = getattr(server, "client_statuses", ())
-        service_map = self._app._profile.service_map
+        service_map = self._app._settings.service_map
         services_by_id = (
             {
                 triplet_id.dotted(): service
@@ -109,25 +109,25 @@ class ServerController(QObject):
 
     @Property(str, notify=serverChanged)
     def serverHost(self) -> str:
-        return self._app._profile.server_host
+        return self._app._settings.server_host
 
     @serverHost.setter
     def serverHost(self, value: str) -> None:
         value = value.strip()
         if value:
             app = self._app
-            app._profile.server_host = value
+            app._settings.server_host = value
             app.serverChanged.emit()
 
     @Property(int, notify=serverChanged)
     def serverPort(self) -> int:
-        return self._app._profile.server_port
+        return self._app._settings.server_port
 
     @serverPort.setter
     def serverPort(self, value: int) -> None:
         if 0 <= value <= 65535:
             app = self._app
-            app._profile.server_port = value
+            app._settings.server_port = value
             app.serverChanged.emit()
 
     @Slot()
@@ -140,7 +140,7 @@ class ServerController(QObject):
         if app._server_state != "Stopped":
             app._set_status(f"Server is {app._server_state.lower()}")
             return
-        if app._profile.service_map is None or not app._profile.service_map.services:
+        if app._settings.service_map is None or not app._settings.service_map.services:
             app._set_status("Scan or load a service map before starting the server")
             return
         adapters = [adapter for device in app._devices for adapter in device.adapters]
@@ -156,7 +156,7 @@ class ServerController(QObject):
                 app._server_state = "Stopped"
                 app.serverChanged.emit()
                 return
-            service_map = app._profile.service_map
+            service_map = app._settings.service_map
             adapters = [adapter for device in app._devices for adapter in device.adapters]
             if service_map is None or not service_map.services:
                 app._server_state = "Stopped"
@@ -172,9 +172,9 @@ class ServerController(QObject):
                 server = LocalTS_HTTPServer(
                     adapters,
                     service_map,
-                    host=app._profile.server_host,
-                    port=app._profile.server_port,
-                    scan_dvb_events=app._profile.show_program_guide_info,
+                    host=app._settings.server_host,
+                    port=app._settings.server_port,
+                    scan_dvb_events=app._settings.show_program_guide_info,
                 )
                 server.start()
                 thread = Thread(

@@ -10,15 +10,15 @@ from pydvb.serialize import load, save, serializable
 from pydvb.service_map import DVBServiceMap
 
 
-PROFILE_SCHEMA_VERSION = 1
+SETTINGS_SCHEMA_VERSION = 1
 
 
 @serializable
 @dataclass
-class GuiProfile:
+class GuiSettings:
     """Store GUI preferences, tuning inputs, and an optional scanned service map."""
 
-    schema_version: int = PROFILE_SCHEMA_VERSION
+    schema_version: int = SETTINGS_SCHEMA_VERSION
     scan_table: str | None = None
     tunings: tuple[DVBTuning, ...] = ()
     server_host: str = "127.0.0.1"
@@ -29,9 +29,9 @@ class GuiProfile:
     service_map: DVBServiceMap | None = None
 
     def __post_init__(self) -> None:
-        """Reject incompatible profile versions and invalid server/device settings."""
-        if type(self.schema_version) is not int or self.schema_version != PROFILE_SCHEMA_VERSION:
-            raise ValueError(f"unsupported GUI profile version: {self.schema_version}")
+        """Reject incompatible settings versions and invalid server/device settings."""
+        if type(self.schema_version) is not int or self.schema_version != SETTINGS_SCHEMA_VERSION:
+            raise ValueError(f"unsupported GUI settings version: {self.schema_version}")
         if self.scan_table is not None and not isinstance(self.scan_table, str):
             raise ValueError("scan_table must be a string or None")
         if self.selected_device is not None and not isinstance(self.selected_device, str):
@@ -60,16 +60,16 @@ class GuiProfile:
             raise ValueError("service_map must be a DVBServiceMap")
 
 
-def save_profile(profile: GuiProfile, path: str | PathLike[str]) -> None:
-    """Serialize one GUI profile to a JSON file."""
-    if not isinstance(profile, GuiProfile):
-        raise TypeError("profile must be a GuiProfile")
-    save(profile, path)
+def save_settings(settings: GuiSettings, path: str | PathLike[str]) -> None:
+    """Serialize GUI settings to a JSON file."""
+    if not isinstance(settings, GuiSettings):
+        raise TypeError("settings must be a GuiSettings")
+    save(settings, path)
 
 
-def load_profile(path: str | PathLike[str]) -> GuiProfile:
-    """Load and validate a GUI profile from a JSON file."""
-    profile = load(path)
-    if not isinstance(profile, GuiProfile):
-        raise TypeError("file does not contain a GUI profile")
-    return profile
+def load_settings(path: str | PathLike[str]) -> GuiSettings:
+    """Load and validate GUI settings from a JSON file."""
+    settings = load(path)
+    if not isinstance(settings, GuiSettings):
+        raise TypeError("file does not contain GUI settings")
+    return settings

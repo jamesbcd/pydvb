@@ -115,7 +115,7 @@ class DeviceController(QObject):
                     (id(device), index),
                     "Not polled",
                 ),
-                "selected": index == app._profile.selected_adapter,
+                "selected": index == app._settings.selected_adapter,
             }
             for index, adapter in enumerate(device.adapters)
         ]
@@ -152,7 +152,7 @@ class DeviceController(QObject):
         app = self._app
         if 0 <= index < len(app._devices):
             app._selected_device_index = index
-            app._profile.selected_device = app._device_id(app._devices[index])
+            app._settings.selected_device = app._device_id(app._devices[index])
             app.devicesChanged.emit()
             app.stateChanged.emit()
 
@@ -162,7 +162,7 @@ class DeviceController(QObject):
         app = self._app
         device = app._selected_device()
         if device is not None and 0 <= index < len(device.adapters):
-            app._profile.selected_adapter = index
+            app._settings.selected_adapter = index
             app.devicesChanged.emit()
             app.stateChanged.emit()
 

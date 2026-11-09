@@ -63,16 +63,16 @@ class ChannelController(QObject):
     @Property(bool, notify=showProgramGuideInfoChanged)
     def showProgramGuideInfo(self) -> bool:
         """Return whether program-guide display and event scanning are enabled."""
-        return self._app._profile.show_program_guide_info
+        return self._app._settings.show_program_guide_info
 
     @showProgramGuideInfo.setter
     def showProgramGuideInfo(self, value: bool) -> None:
         if type(value) is not bool:
             raise ValueError("showProgramGuideInfo must be a bool")
         app = self._app
-        if app._profile.show_program_guide_info == value:
+        if app._settings.show_program_guide_info == value:
             return
-        app._profile.show_program_guide_info = value
+        app._settings.show_program_guide_info = value
         if app._server is not None:
             app._server.scan_dvb_events = value
         self._sync_program_guide_refresh_timer()
@@ -81,7 +81,7 @@ class ChannelController(QObject):
 
     @Property("QVariantList", notify=channelsChanged)
     def channels(self) -> list[dict[str, object]]:
-        service_map = self._app._profile.service_map
+        service_map = self._app._settings.service_map
         if service_map is None:
             return []
         rows: list[dict[str, object]] = []
@@ -113,7 +113,7 @@ class ChannelController(QObject):
         """Return channel rows with present and following event metadata."""
         if not self.showProgramGuideInfo:
             return []
-        service_map = self._app._profile.service_map
+        service_map = self._app._settings.service_map
         if service_map is None:
             return []
         rows: list[dict[str, object]] = []
@@ -146,11 +146,11 @@ class ChannelController(QObject):
     @Property(bool, notify=channelsChanged)
     def hasChannelMap(self) -> bool:
         """Report whether a channel map is loaded, even if it has no services."""
-        return self._app._profile.service_map is not None
+        return self._app._settings.service_map is not None
 
     @Property("QVariantList", notify=stationStreamsChanged)
     def stationStreams(self) -> list[dict[str, object]]:
-        service_map = self._app._profile.service_map
+        service_map = self._app._settings.service_map
         if service_map is None:
             return []
         rows: list[dict[str, object]] = []
@@ -180,13 +180,13 @@ class ChannelController(QObject):
         if device is None or not device.adapters:
             app._set_status("Initialize a device before scanning")
             return
-        if not app._profile.tunings:
+        if not app._settings.tunings:
             app._set_status("Load a scan table or add a tuning first")
             return
-        profile = app._profile
+        settings = app._settings
         adapter = app._selected_adapter(device)
-        adapter_index = profile.selected_adapter
-        tunings = profile.tunings
+        adapter_index = settings.selected_adapter
+        tunings = settings.tunings
         app._set_status(f"Scanning {len(tunings)} tuning(s)...")
 
         def on_service_count(count: int) -> None:
@@ -208,14 +208,14 @@ class ChannelController(QObject):
             if not isinstance(service_map, DVBServiceMap):
                 raise TypeError("Scan worker thread returned an unexpected result")
             if (
-                app._profile is not profile
+                app._settings is not settings
                 or app._selected_device() is not device
-                or app._profile.selected_adapter != adapter_index
-                or app._profile.tunings != tunings
+                or app._settings.selected_adapter != adapter_index
+                or app._settings.tunings != tunings
             ):
-                app._set_status("Scan results discarded because the profile or device changed")
+                app._set_status("Scan results discarded because the settings or device changed")
                 return
-            app._profile.service_map = service_map
+            app._settings.service_map = service_map
             app.channelsChanged.emit()
             app.stateChanged.emit()
             app._set_status(f"Scan complete: {len(service_map.services)} channel(s) found")

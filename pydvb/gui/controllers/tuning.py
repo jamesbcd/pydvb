@@ -34,7 +34,7 @@ class TuningController(QObject):
                 "frequency": tuning.frequency_hz / 1_000_000,
                 "bandwidth": tuning.bandwidth_hz // 1_000_000,
             }
-            for index, tuning in enumerate(self._app._profile.tunings)
+            for index, tuning in enumerate(self._app._settings.tunings)
         ]
 
     @Property("QVariantList", notify=knownTablesChanged)
@@ -71,8 +71,8 @@ class TuningController(QObject):
                     f"({result.skipped_blocks} skipped, {result.failed_blocks} failed)"
                 )
                 return
-            app._profile.scan_table = name
-            app._profile.tunings = parsed
+            app._settings.scan_table = name
+            app._settings.tunings = parsed
             app.tuningsChanged.emit()
             app.stateChanged.emit()
             app._set_status(
@@ -96,7 +96,7 @@ class TuningController(QObject):
         tuning = self._parse_tuning(frequency_mhz, bandwidth_mhz)
         if tuning is None:
             return
-        self._app._profile.tunings += (tuning,)
+        self._app._settings.tunings += (tuning,)
         self._app.tuningsChanged.emit()
         self._app.stateChanged.emit()
 
@@ -104,14 +104,14 @@ class TuningController(QObject):
     def updateTuning(self, index: int, frequency_mhz: str, bandwidth_mhz: str) -> None:
         """Replace one tuning with manually edited frequency and bandwidth values."""
         app = self._app
-        if not 0 <= index < len(app._profile.tunings):
+        if not 0 <= index < len(app._settings.tunings):
             return
         tuning = self._parse_tuning(frequency_mhz, bandwidth_mhz)
         if tuning is None:
             return
-        tunings = list(app._profile.tunings)
+        tunings = list(app._settings.tunings)
         tunings[index] = tuning
-        app._profile.tunings = tuple(tunings)
+        app._settings.tunings = tuple(tunings)
         app.tuningsChanged.emit()
         app.stateChanged.emit()
 
@@ -119,9 +119,9 @@ class TuningController(QObject):
     def removeTuning(self, index: int) -> None:
         """Remove one tuning by its displayed list index."""
         app = self._app
-        if 0 <= index < len(app._profile.tunings):
-            app._profile.tunings = (
-                app._profile.tunings[:index] + app._profile.tunings[index + 1 :]
+        if 0 <= index < len(app._settings.tunings):
+            app._settings.tunings = (
+                app._settings.tunings[:index] + app._settings.tunings[index + 1 :]
             )
             app.tuningsChanged.emit()
             app.stateChanged.emit()

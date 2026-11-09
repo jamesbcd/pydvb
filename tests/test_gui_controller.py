@@ -19,7 +19,7 @@ from pydvb.driver_api.tuner import DVBTuning
 from pydvb.device_manager import DeviceConnectionResult
 from pydvb.gui.app_controller import AppController
 from pydvb.gui.logging_handler import QtLogHandler, capture_gui_logs
-from pydvb.gui.profile import GuiProfile, save_profile
+from pydvb.gui.settings import GuiSettings, save_settings
 from pydvb.service_map import DVBServiceMap
 from pydvb.stream_scanner import (
     DVBEvent,
@@ -571,9 +571,9 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
 
     monkeypatch.setattr(server_module, "LocalTS_HTTPServer", FakeServer)
     monkeypatch.setattr(server_module, "Thread", FakeThread)
-    profile = GuiProfile(show_program_guide_info=False)
-    profile.service_map = SimpleNamespace(services={"service": object()})
-    controller = AppController(profile=profile)
+    settings = GuiSettings(show_program_guide_info=False)
+    settings.service_map = SimpleNamespace(services={"service": object()})
+    controller = AppController(settings=settings)
     controller._discovery_timer.stop()
     controller._status_timer.stop()
     controller._devices = [SimpleNamespace(adapters=[object()])]
@@ -610,13 +610,13 @@ def test_start_server_waits_behind_automatic_device_work(qt_application, monkeyp
     assert not controller.userDeviceBusy
 
 
-def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
+def test_settings_load_runs_during_device_operation(qt_application, tmp_path):
     device_operation_started = Event()
     finish_device_operation = Event()
-    profile = GuiProfile(scan_table="loaded-profile")
-    profile_path = tmp_path / "profile.json"
-    save_profile(profile, profile_path)
-    controller = AppController(profile=GuiProfile(scan_table="current-profile"))
+    settings = GuiSettings(scan_table="loaded-settings")
+    settings_path = tmp_path / "settings.pydvb"
+    save_settings(settings, settings_path)
+    controller = AppController(settings=GuiSettings(scan_table="current-settings"))
     controller.devicesController.autoDiscoverAndInitializeDevices = False
     controller._run_task(
         lambda: (
@@ -628,12 +628,12 @@ def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
     )
     assert device_operation_started.wait(timeout=1)
 
-    controller.loadProfile(str(profile_path))
+    controller.loadSettings(str(settings_path))
 
     loaded_during_device_operation = []
 
     def finish_when_loaded():
-        if controller._profile.scan_table == "loaded-profile":
+        if controller._settings.scan_table == "loaded-settings":
             loaded_during_device_operation.append(controller.userDeviceBusy)
             finish_device_operation.set()
             qt_application.quit()
@@ -645,10 +645,10 @@ def test_profile_load_runs_during_device_operation(qt_application, tmp_path):
     qt_application.exec()
 
     assert loaded_during_device_operation == [True]
-    assert controller._profile.scan_table == "loaded-profile"
+    assert controller._settings.scan_table == "loaded-settings"
 
 
-def test_profile_load_during_scan_discards_stale_scan_results(
+def test_settings_load_during_scan_discards_stale_scan_results(
     qt_application,
     monkeypatch,
     tmp_path,
@@ -659,13 +659,13 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     finish_scan = Event()
     scan_map = DVBServiceMap()
     loaded_map = DVBServiceMap()
-    profile = GuiProfile(
-        scan_table="loaded-profile",
+    settings = GuiSettings(
+        scan_table="loaded-settings",
         tunings=(DVBTuning(frequency_hz=177_500_000),),
         service_map=loaded_map,
     )
-    profile_path = tmp_path / "profile.json"
-    save_profile(profile, profile_path)
+    settings_path = tmp_path / "settings.pydvb"
+    save_settings(settings, settings_path)
 
     def scan(_tunings, _adapter, **kwargs):
         scan_started.set()
@@ -691,15 +691,15 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     controller.channelController.scan()
     assert scan_started.wait(timeout=1)
 
-    controller.loadProfile(str(profile_path))
+    controller.loadSettings(str(settings_path))
 
-    loaded_profile_map = []
+    loaded_settings_map = []
 
     def finish_when_loaded():
-        if controller._profile.scan_table == "loaded-profile" and not loaded_profile_map:
-            loaded_profile_map.append(controller._profile.service_map)
+        if controller._settings.scan_table == "loaded-settings" and not loaded_settings_map:
+            loaded_settings_map.append(controller._settings.service_map)
             finish_scan.set()
-        if not controller.userDeviceBusy and loaded_profile_map:
+        if not controller.userDeviceBusy and loaded_settings_map:
             qt_application.quit()
             return
         QTimer.singleShot(10, finish_when_loaded)
@@ -708,8 +708,8 @@ def test_profile_load_during_scan_discards_stale_scan_results(
     QTimer.singleShot(3000, qt_application.quit)
     qt_application.exec()
 
-    assert loaded_profile_map == [controller._profile.service_map]
-    assert controller._profile.service_map is not scan_map
+    assert loaded_settings_map == [controller._settings.service_map]
+    assert controller._settings.service_map is not scan_map
     assert "discarded" in controller.statusMessage.lower()
 
 
@@ -895,8 +895,8 @@ def test_device_summary_counts_connected_devices_and_active_adapters(qt_applicat
 
 
 def test_manual_tunings_can_be_added_edited_and_removed(qt_application):
-    profile = GuiProfile(tunings=(DVBTuning(frequency_hz=650_000_000),))
-    controller = AppController(profile=profile)
+    settings = GuiSettings(tunings=(DVBTuning(frequency_hz=650_000_000),))
+    controller = AppController(settings=settings)
 
     controller.tuningController.updateTuning(0, "666.5", "7")
     assert controller.tuningController.tunings[0] == {
@@ -917,7 +917,7 @@ def test_channel_map_status_is_independent_of_channel_count(qt_application):
     assert controller.channelController.hasChannelMap is False
     assert controller.channelController.channels == []
 
-    controller._profile.service_map = DVBServiceMap()
+    controller._settings.service_map = DVBServiceMap()
 
     assert controller.channelController.hasChannelMap is True
     assert controller.channelController.channels == []
@@ -936,7 +936,7 @@ def test_channels_include_network_name_from_service_stream(qt_application):
             services=(DVBService(service_id=triplet_id.service_id, triplet_id=triplet_id),),
         ),
     )
-    controller._profile.service_map = service_map
+    controller._settings.service_map = service_map
 
     assert controller.channelController.channels[0]["networkName"] == "Test network"
 
@@ -960,7 +960,7 @@ def test_channels_include_service_metatype(qt_application):
             ),
         ),
     )
-    controller._profile.service_map = service_map
+    controller._settings.service_map = service_map
 
     channel = controller.channelController.channels[0]
 
@@ -1012,7 +1012,7 @@ def test_program_guide_includes_now_and_next_event_details(qt_application):
             ),
         ),
     )
-    controller._profile.service_map = service_map
+    controller._settings.service_map = service_map
 
     assert controller.channelController.programGuide == [
         {
@@ -1080,7 +1080,7 @@ def test_program_guide_formats_event_times_in_local_timezone(
                 ),
             ),
         )
-        controller._profile.service_map = service_map
+        controller._settings.service_map = service_map
 
         row = controller.channelController.programGuide[0]
 
@@ -1107,7 +1107,7 @@ def test_program_guide_refreshes_on_map_change_and_while_server_runs(qt_applicat
     refresh_timer = controller.channelController._program_guide_refresh_timer
 
     assert not refresh_timer.isActive()
-    controller._profile.service_map = DVBServiceMap()
+    controller._settings.service_map = DVBServiceMap()
     controller.channelsChanged.emit()
 
     assert guide_changes == [True]
@@ -1127,7 +1127,7 @@ def test_program_guide_refreshes_on_map_change_and_while_server_runs(qt_applicat
 
 def test_program_guide_setting_hides_data_and_stops_polling(qt_application):
     controller = AppController()
-    controller._profile.service_map = DVBServiceMap()
+    controller._settings.service_map = DVBServiceMap()
     refresh_timer = controller.channelController._program_guide_refresh_timer
 
     assert controller.channelController.showProgramGuideInfo is True
@@ -1164,7 +1164,7 @@ def test_server_clients_include_service_lcn(qt_application):
             ),
         ),
     )
-    controller._profile.service_map = service_map
+    controller._settings.service_map = service_map
     controller._server = SimpleNamespace(
         client_statuses=(
             SimpleNamespace(
