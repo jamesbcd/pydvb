@@ -28,7 +28,7 @@ class GuiSettings:
     auto_discover_and_initialize_devices: bool = True
     show_unsupported_devices: bool = False
     program_guide_enabled: bool = True
-    auto_start_server: bool = False
+    auto_start_server: bool = True
     service_map: DVBServiceMap | None = None
 
     def __post_init__(self) -> None:
