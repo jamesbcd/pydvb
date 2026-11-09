@@ -517,9 +517,6 @@ ApplicationWindow {
             MenuItem {
                 action: saveSettingsAction
             }
-            MenuItem {
-                action: resetSettingsAction
-            }
             MenuSeparator {}
             MenuItem {
                 action: quitAction
@@ -550,6 +547,10 @@ ApplicationWindow {
         }
         Menu {
             title: "&Configure"
+            MenuItem {
+                action: resetSettingsAction
+            }
+            MenuSeparator {}
             MenuItem {
                 text: "Auto-discover and initialize devices"
                 checkable: true
@@ -2289,7 +2290,6 @@ ApplicationWindow {
     MessageDialog {
         id: resetSettingsDialog
         title: "Reset PyDVB Settings"
-        text: "Reset settings to their default values?"
         informativeText: "Would you like to save your existing settings before resetting?"
         buttons: MessageDialog.Yes | MessageDialog.No | MessageDialog.Cancel
         onButtonClicked: function(button, role) {
