@@ -670,6 +670,97 @@ def test_default_settings_are_loaded_before_discovery(qt_application, tmp_path):
     assert not controller._discovery_timer.isActive()
 
 
+def test_reset_settings_restores_defaults(qt_application):
+    controller = AppController(
+        settings=GuiSettings(
+            scan_table="custom-table",
+            tunings=(DVBTuning(frequency_hz=177_500_000),),
+            server_host="192.0.2.1",
+            server_port=8090,
+            auto_discover_and_initialize_devices=False,
+            show_unsupported_devices=True,
+            show_program_guide_info=False,
+            service_map=DVBServiceMap(),
+        )
+    )
+    controller._status_timer.stop()
+    assert not controller._discovery_timer.isActive()
+
+    controller.resetSettings()
+
+    def finish_when_reset():
+        if controller.statusMessage == "Reset settings to defaults":
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_reset)
+
+    QTimer.singleShot(10, finish_when_reset)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller._settings == GuiSettings()
+    assert controller.devicesController.autoDiscoverAndInitializeDevices is True
+    assert controller.devicesController.showUnsupportedDevices is False
+    assert controller.channelController.showProgramGuideInfo is True
+    assert controller._discovery_timer.isActive()
+
+
+def test_save_settings_and_reset_only_resets_after_successful_save(
+    qt_application, tmp_path
+):
+    settings_path = tmp_path / "settings-before-reset.pydvb"
+    initial_settings = GuiSettings(
+        scan_table="custom-table",
+        server_port=8090,
+        show_unsupported_devices=True,
+    )
+    controller = AppController(settings=initial_settings)
+    controller._status_timer.stop()
+    controller._discovery_timer.stop()
+
+    controller.saveSettingsAndReset(str(settings_path))
+
+    def finish_when_reset():
+        if controller.statusMessage.endswith("and reset to defaults"):
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_reset)
+
+    QTimer.singleShot(10, finish_when_reset)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert load_settings(settings_path) == initial_settings
+    assert controller._settings == GuiSettings()
+
+
+def test_save_settings_and_reset_keeps_settings_if_save_fails(
+    qt_application, tmp_path, monkeypatch
+):
+    initial_settings = GuiSettings(scan_table="custom-table")
+    controller = AppController(settings=initial_settings)
+    controller._status_timer.stop()
+    controller._discovery_timer.stop()
+
+    def fail_save(*_args):
+        raise OSError("disk is unavailable")
+
+    monkeypatch.setattr("pydvb.gui.app_controller.save_settings", fail_save)
+    controller.saveSettingsAndReset(str(tmp_path / "settings.pydvb"))
+
+    def finish_when_save_fails():
+        if controller.statusMessage.startswith("Operation failed: OSError"):
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_save_fails)
+
+    QTimer.singleShot(10, finish_when_save_fails)
+    QTimer.singleShot(2000, qt_application.quit)
+    qt_application.exec()
+
+    assert controller._settings == initial_settings
+
+
 def test_settings_are_saved_on_shutdown(qt_application, tmp_path):
     settings_path = tmp_path / "gui-settings.pydvb"
     controller = AppController(settings_path=settings_path)

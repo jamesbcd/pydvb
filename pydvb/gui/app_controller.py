@@ -391,6 +391,47 @@ class AppController(QObject):
         )
 
     @Slot(str)
+    def saveSettingsAndReset(self, path: str) -> None:
+        """Save the current settings, then reset them after a successful save."""
+        local_path = self._local_path(path)
+        if not local_path:
+            return
+        if self._server is not None:
+            self._set_status("Stop the server before resetting settings")
+            return
+
+        settings = replace(self._settings)
+
+        def complete(_result: object) -> None:
+            if self._server is not None:
+                self._set_status("Stop the server before resetting settings")
+                return
+            self._apply_settings(GuiSettings())
+            self._set_status(f"Saved settings to {local_path} and reset to defaults")
+
+        self._run_task(
+            lambda: save_settings(settings, local_path),
+            complete,
+            lane="general",
+        )
+
+    @Slot()
+    def resetSettings(self) -> None:
+        """Restore default settings without changing connected hardware state."""
+        if self._server is not None:
+            self._set_status("Stop the server before resetting settings")
+            return
+
+        def complete(settings: object) -> None:
+            if self._server is not None:
+                self._set_status("Stop the server before resetting settings")
+                return
+            self._apply_settings(cast(GuiSettings, settings))
+            self._set_status("Reset settings to defaults")
+
+        self._run_task(lambda: GuiSettings(), complete, lane="general")
+
+    @Slot(str)
     def loadSettings(self, path: str) -> None:
         """Load settings without changing connected hardware state."""
         local_path = self._local_path(path)
@@ -410,22 +451,7 @@ class AppController(QObject):
                 self._set_status("Stop the server before loading settings")
                 return
             loaded = cast(GuiSettings, settings)
-            self._settings = loaded
-            self._show_unsupported_devices = loaded.show_unsupported_devices
-            self._auto_discover_and_initialize_devices = (
-                loaded.auto_discover_and_initialize_devices
-            )
-            if self._auto_discover_and_initialize_devices:
-                self._discovery_timer.start()
-            else:
-                self._discovery_timer.stop()
-            self._selected_device_index = None
-            self._select_first_device()
-            self.tuningsChanged.emit()
-            self._channel_controller._channels_changed()
-            self.devicesChanged.emit()
-            self.serverChanged.emit()
-            self.stateChanged.emit()
+            self._apply_settings(loaded)
             self._set_status(f"Loaded settings from {local_path}")
 
         self._run_task(
@@ -433,6 +459,25 @@ class AppController(QObject):
             complete,
             lane="general",
         )
+
+    def _apply_settings(self, settings: GuiSettings) -> None:
+        """Apply persisted settings and notify every affected controller."""
+        self._settings = settings
+        self._show_unsupported_devices = settings.show_unsupported_devices
+        self._auto_discover_and_initialize_devices = (
+            settings.auto_discover_and_initialize_devices
+        )
+        if self._auto_discover_and_initialize_devices:
+            self._discovery_timer.start()
+        else:
+            self._discovery_timer.stop()
+        self._selected_device_index = None
+        self._select_first_device()
+        self.tuningsChanged.emit()
+        self._channel_controller._channels_changed()
+        self.devicesChanged.emit()
+        self.serverChanged.emit()
+        self.stateChanged.emit()
 
     @Slot()
     def shutdown(self) -> None:

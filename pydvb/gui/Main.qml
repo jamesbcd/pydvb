@@ -403,6 +403,12 @@ ApplicationWindow {
     }
 
     Action {
+        id: resetSettingsAction
+        text: "&Reset Settings..."
+        onTriggered: resetSettingsDialog.open()
+    }
+
+    Action {
         id: quitAction
         text: "&Quit"
         shortcut: StandardKey.Quit
@@ -511,6 +517,10 @@ ApplicationWindow {
             MenuItem {
                 action: saveSettingsAction
             }
+            MenuItem {
+                action: resetSettingsAction
+            }
+            MenuSeparator {}
             MenuItem {
                 action: quitAction
             }
@@ -2260,11 +2270,36 @@ ApplicationWindow {
 
     FileDialog {
         id: saveSettingsDialog
-        title: "Save PyDVB Settings"
+        property bool resetAfterSave: false
+        title: resetAfterSave ? "Save Settings Before Reset" : "Save PyDVB Settings"
         fileMode: FileDialog.SaveFile
         nameFilters: ["PyDVB settings (*.pydvb)", "All files (*)"]
         defaultSuffix: "pydvb"
-        onAccepted: window.controller.saveSettings(selectedFile.toString())
+        onAccepted: {
+            const shouldReset = resetAfterSave
+            resetAfterSave = false
+            if (shouldReset)
+                window.controller.saveSettingsAndReset(selectedFile.toString())
+            else
+                window.controller.saveSettings(selectedFile.toString())
+        }
+        onRejected: resetAfterSave = false
+    }
+
+    MessageDialog {
+        id: resetSettingsDialog
+        title: "Reset PyDVB Settings"
+        text: "Reset settings to their default values?"
+        informativeText: "Would you like to save your existing settings before resetting?"
+        buttons: MessageDialog.Yes | MessageDialog.No | MessageDialog.Cancel
+        onButtonClicked: function(button, role) {
+            if (button === MessageDialog.Yes) {
+                saveSettingsDialog.resetAfterSave = true
+                saveSettingsDialog.open()
+            } else if (button === MessageDialog.No) {
+                window.controller.resetSettings()
+            }
+        }
     }
 
     FileDialog {
