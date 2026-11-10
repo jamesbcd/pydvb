@@ -483,7 +483,7 @@ ApplicationWindow {
     Action {
         id: devicesSectionAction
         text: "Devices"
-        shortcut: Qt.platform.os === "osx" ? "Meta+1" : "Ctrl+1"
+        shortcut: "Ctrl+1"
         onTriggered: {
             window.sectionIndex = 0
             window.playerOnlyMode = false
@@ -493,7 +493,7 @@ ApplicationWindow {
     Action {
         id: tuningSectionAction
         text: "Tuning"
-        shortcut: Qt.platform.os === "osx" ? "Meta+2" : "Ctrl+2"
+        shortcut: "Ctrl+2"
         onTriggered: {
             window.sectionIndex = 1
             window.playerOnlyMode = false
@@ -503,7 +503,7 @@ ApplicationWindow {
     Action {
         id: channelsSectionAction
         text: "Channels"
-        shortcut: Qt.platform.os === "osx" ? "Meta+3" : "Ctrl+3"
+        shortcut: "Ctrl+3"
         onTriggered: {
             window.sectionIndex = 2
             window.playerOnlyMode = false
@@ -513,7 +513,7 @@ ApplicationWindow {
     Action {
         id: serverSectionAction
         text: "Server"
-        shortcut: Qt.platform.os === "osx" ? "Meta+4" : "Ctrl+4"
+        shortcut: "Ctrl+4"
         onTriggered: {
             window.sectionIndex = 3
             window.playerOnlyMode = false
@@ -523,7 +523,7 @@ ApplicationWindow {
     Action {
         id: playerSectionAction
         text: "Player"
-        shortcut: Qt.platform.os === "osx" ? "Meta+5" : "Ctrl+5"
+        shortcut: "Ctrl+5"
         onTriggered: {
             window.sectionIndex = 4
             window.playerOnlyMode = false
@@ -533,7 +533,7 @@ ApplicationWindow {
     Action {
         id: programGuideSectionAction
         text: "Program Guide"
-        shortcut: Qt.platform.os === "osx" ? "Meta+G" : "Ctrl+G"
+        shortcut: "Ctrl+G"
         enabled: window.controller.channelController.programGuideEnabled
         onTriggered: {
             window.sectionIndex = 5
@@ -546,7 +546,7 @@ ApplicationWindow {
         text: window.logWindowObject && window.logWindowObject.visible
             ? "Hide logs"
             : "Show logs"
-        shortcut: Qt.platform.os === "osx" ? "Meta+Shift+L" : "Ctrl+Shift+L"
+        shortcut: "Ctrl+Shift+L"
         onTriggered: window.toggleLogWindow()
     }
 
@@ -567,7 +567,7 @@ ApplicationWindow {
     Action {
         id: toggleServerAction
         text: window.controller.serverController.serverState === "Running" ? "Stop Server" : "Start Server"
-        shortcut: Qt.platform.os === "osx" ? "Alt+S" : "Alt+S"
+        shortcut: "Alt+S"
         enabled: (window.controller.serverController.serverState === "Stopped"
                   || window.controller.serverController.serverState === "Running")
                  && !window.controller.userDeviceBusy
@@ -582,7 +582,7 @@ ApplicationWindow {
     Action {
         id: playbackAction
         text: playerLoader.item && playerLoader.item.canStopPlayback ? "Stop" : "Play"
-        shortcut: Qt.platform.os === "osx" ? "Meta+P" : "Ctrl+P"
+        shortcut: "Ctrl+P"
         enabled: playerLoader.item
             && (playerLoader.item.canStopPlayback || playerLoader.item.canTogglePlayback)
         onTriggered: {
@@ -596,7 +596,7 @@ ApplicationWindow {
     Action {
         id: previousChannelAction
         text: "Previous Channel"
-        shortcut: Qt.platform.os === "osx" ? "Meta+Left" : "Ctrl+Left"
+        shortcut: "Ctrl+Left"
         enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
         onTriggered: playerLoader.item.selectAdjacentChannel(-1)
     }
@@ -604,7 +604,7 @@ ApplicationWindow {
     Action {
         id: nextChannelAction
         text: "Next Channel"
-        shortcut: Qt.platform.os === "osx" ? "Meta+Right" : "Ctrl+Right"
+        shortcut: "Ctrl+Right"
         enabled: playerLoader.item && playerLoader.item.selectableChannels.length > 0
         onTriggered: playerLoader.item.selectAdjacentChannel(1)
     }
