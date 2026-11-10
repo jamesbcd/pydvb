@@ -15,6 +15,15 @@ firmware_dir = project_root / "pydvb" / "drivers" / "af9015" / "firmware"
 qt_hiddenimports = ["PySide6.QtSvg"]
 if find_spec("PySide6.QtMultimedia") is not None:
     qt_hiddenimports.append("PySide6.QtMultimedia")
+qt_qml_modules = [
+    "QtQuick",
+    "QtQuick.Controls",
+    "QtQuick.Controls.Fusion",
+    "QtQuick.Dialogs",
+    "QtQuick.Layouts",
+]
+if find_spec("PySide6.QtMultimedia") is not None:
+    qt_qml_modules.append("QtMultimedia")
 
 
 def create_macos_app_icon(svg_path: Path) -> Path:
@@ -78,10 +87,64 @@ a = Analysis(
         *qt_hiddenimports,
         *collect_submodules("pydvb.drivers"),
     ],
-    hookspath=[],
-    hooksconfig={},
+    hookspath=[str(project_root / "pyinstaller_hooks")],
+    hooksconfig={
+        "PySide6.QtQml": {
+            "qml_modules": qt_qml_modules,
+            "qml_styles": ["Fusion"],
+        },
+    },
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "PySide6.Qt3DAnimation",
+        "PySide6.Qt3DCore",
+        "PySide6.Qt3DExtras",
+        "PySide6.Qt3DInput",
+        "PySide6.Qt3DLogic",
+        "PySide6.Qt3DRender",
+        "PySide6.Qt3DScene2D",
+        "PySide6.Qt3DScene3D",
+        "PySide6.QtBluetooth",
+        "PySide6.QtCharts",
+        "PySide6.QtDataVisualization",
+        "PySide6.QtGraphs",
+        "PySide6.QtHelp",
+        "PySide6.QtHttpServer",
+        "PySide6.QtLocation",
+        "PySide6.QtMultimediaWidgets",
+        "PySide6.QtNetworkAuth",
+        "PySide6.QtNfc",
+        "PySide6.QtOpenGLWidgets",
+        "PySide6.QtPdf",
+        "PySide6.QtPdfWidgets",
+        "PySide6.QtPositioning",
+        "PySide6.QtPrintSupport",
+        "PySide6.QtQuick3D",
+        "PySide6.QtQuick3DAssetUtils",
+        "PySide6.QtQuick3DHelpers",
+        "PySide6.QtQuick3DParticles",
+        "PySide6.QtQuick3DRuntimeRender",
+        "PySide6.QtQuick3DUtils",
+        "PySide6.QtQuickWidgets",
+        "PySide6.QtRemoteObjects",
+        "PySide6.QtScxml",
+        "PySide6.QtSensors",
+        "PySide6.QtSerialBus",
+        "PySide6.QtSerialPort",
+        "PySide6.QtSpatialAudio",
+        "PySide6.QtSql",
+        "PySide6.QtStateMachine",
+        "PySide6.QtTest",
+        "PySide6.QtTextToSpeech",
+        "PySide6.QtVirtualKeyboard",
+        "PySide6.QtWebChannel",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineQuick",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebSockets",
+        "PySide6.QtWidgets",
+        "PySide6.QtXml",
+    ],
     noarchive=False,
     optimize=0,
 )
