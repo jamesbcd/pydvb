@@ -1,17 +1,20 @@
 # PyInstaller spec for the pydvb-gui windowed application.
 
 import subprocess
+from importlib.util import find_spec
 from pathlib import Path
 
 from PyInstaller.compat import is_darwin
 from PyInstaller.config import CONF
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH)
 gui_dir = project_root / "pydvb" / "gui"
 firmware_dir = project_root / "pydvb" / "drivers" / "af9015" / "firmware"
-qt_datas, qt_binaries, qt_hiddenimports = collect_all("PySide6")
+qt_hiddenimports = ["PySide6.QtSvg"]
+if find_spec("PySide6.QtMultimedia") is not None:
+    qt_hiddenimports.append("PySide6.QtMultimedia")
 
 
 def create_macos_app_icon(svg_path: Path) -> Path:
@@ -62,9 +65,7 @@ def create_macos_app_icon(svg_path: Path) -> Path:
 a = Analysis(
     [str(gui_dir / "__main__.py")],
     pathex=[str(project_root)],
-    binaries=qt_binaries,
     datas=[
-        *qt_datas,
         (str(gui_dir / "Main.qml"), "pydvb/gui"),
         (str(gui_dir / "Player.qml"), "pydvb/gui"),
         (str(gui_dir / "icons"), "pydvb/gui/icons"),
