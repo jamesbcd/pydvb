@@ -148,6 +148,32 @@ FFmpeg multimedia backend for playback and leaves decoder selection, including
 hardware acceleration, to Qt. Without the extra, the rest of the GUI remains
 available and the Player page shows the install command.
 
+## Standalone applications
+
+PyInstaller spec files build standalone, one-folder applications. Build them on
+the target operating system; PyInstaller does not cross-compile.
+
+Build the command-line app:
+
+```sh
+python3 -m pip install -e '.[app]'
+python3 -m PyInstaller --clean pydvb.spec
+```
+
+Build the windowed GUI app:
+
+```sh
+python3 -m pip install -e '.[gui,app]'
+python3 -m PyInstaller --clean pydvb-gui.spec
+```
+
+On macOS, the GUI build produces `dist/pydvb-gui.app`; on other platforms it
+produces a windowed executable in `dist/pydvb-gui/`. To include the optional
+in-app video player, build the GUI with `.[player,app]` instead. Both
+applications include the AF9015 firmware; USB permissions and hardware
+requirements are otherwise unchanged. The macOS app bundle is not signed for
+distribution; sign and notarize it as part of your release process.
+
 The GUI restores settings from its per-user configuration directory on launch
 and saves them on orderly exit. Settings include tuning and server preferences,
 the scanned service map, and the Configure menu toggles. Use **Open Settings**
