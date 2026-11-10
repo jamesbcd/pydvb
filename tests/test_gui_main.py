@@ -1,7 +1,33 @@
 import os
 import sys
+from pathlib import Path
 
-from pydvb.gui.__main__ import _configure_media_environment
+from pydvb.gui.__main__ import _configure_media_environment, _main_qml_path
+
+
+def test_main_qml_path_uses_source_file_when_not_frozen(monkeypatch):
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+
+    assert _main_qml_path() == Path(__file__).parents[1] / "pydvb" / "gui" / "Main.qml"
+
+
+def test_main_qml_path_uses_pyinstaller_bundle_root_on_macos(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+
+    assert _main_qml_path() == (
+        tmp_path.parent / "Resources" / "pydvb" / "gui" / "Main.qml"
+    )
+
+
+def test_main_qml_path_uses_pyinstaller_bundle_root_on_other_platforms(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+
+    assert _main_qml_path() == tmp_path / "pydvb" / "gui" / "Main.qml"
 
 
 def test_configure_media_environment_leaves_macos_decoder_selection_to_qt(
