@@ -9,6 +9,9 @@ from threading import RLock
 from time import monotonic
 from typing import Any
 
+from .demux import DVBDemuxer
+from .frontend import DVBFrontend
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +25,8 @@ class DVBAdapter:
     bookkeeping.
     """
 
-    frontend: Any
-    demuxer: Any
+    frontend: DVBFrontend
+    demuxer: DVBDemuxer
     _control_lock: RLock = field(default_factory=RLock, init=False, repr=False)
     _sw_pid_filter_lock: RLock = field(default_factory=RLock, init=False, repr=False)
     _sw_pid_filter_pids: frozenset[int] = field(default_factory=frozenset, init=False, repr=False)

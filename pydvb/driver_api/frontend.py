@@ -34,6 +34,9 @@ class DVBFrontend(ControlLockMixin, ABC):
     with one lock shared by all of that device's frontend and tuner objects.
     """
 
+    adapter_index: int
+    tuner: object | None
+
     def __init__(self, control_lock: RLock | None = None) -> None:
         """Create a frontend for standalone use or device composition.
 
