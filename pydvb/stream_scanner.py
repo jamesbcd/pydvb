@@ -1,4 +1,12 @@
-"""Decode DVB service information from an MPEG transport stream."""
+"""Decode DVB service and programme information from MPEG transport streams.
+
+The module contains value objects for DVB metadata, incremental scanners for
+transport-stream packets and present/following events, and private helpers for
+decoding DVB sections, descriptors, text, timestamps, and CRCs. Scanning is
+independent of the source: :class:`DVBScanner` accepts arbitrary byte chunks
+or a started adapter, while :class:`DVBEventScanner` filters event updates to
+services in an existing stream description.
+"""
 
 from __future__ import annotations
 
@@ -57,7 +65,12 @@ SECTION_HEADER: Any = BitStruct(
 )
 
 class ScanPolicy(Enum):
-    """Define the amount of metadata required for a scan to be complete."""
+    """Select the metadata threshold that marks a scan as complete.
+
+    ``MIN_METADATA`` waits for PAT service-to-PMT references and SDT service
+    metadata. ``ALL_SERVICE_METADATA`` additionally waits for every advertised
+    PMT and an LCN for every discovered service.
+    """
 
     MIN_METADATA = auto() # Require only the minimum metadata to consider the scan complete
     ALL_SERVICE_METADATA = auto() # Require all service PIDs and logical channel numbers
@@ -65,7 +78,18 @@ class ScanPolicy(Enum):
 @serializable
 @dataclass
 class DVBEvent:
-    """Metadata for a single DVB event (programme)."""
+    """Metadata for one DVB event (programme).
+
+    Attributes:
+        event_id: Event identifier from the EIT.
+        start_time: UTC start time, or ``None`` when the broadcast time is
+            unspecified or invalid.
+        duration: Event duration, or ``None`` when it is unspecified or invalid.
+        name: Short event name, if advertised.
+        text: Event description, if advertised.
+        running_status: DVB running-status value from the EIT.
+        triplet_id: ONID, TSID, and service ID identifying the event's service.
+    """
     event_id: int
     start_time: datetime | None = None
     duration: timedelta | None = None
@@ -80,9 +104,13 @@ class DVBEvent:
 class DVBDescriptor:
     """Raw descriptor attached to a DVB service or elementary stream.
     
-    A descriptor is a structured piece of metadata attached to a DVB service or
-    elementary stream. It contains a tag identifying the type of descriptor and
-    the associated data.
+    A descriptor is structured metadata attached to a DVB service or elementary
+    stream. Its tag identifies the descriptor type; its data contains the
+    descriptor payload without the tag and length bytes.
+
+    Attributes:
+        tag: Descriptor type code.
+        data: Raw descriptor payload bytes.
     """
     tag: int
     data: bytes
@@ -93,14 +121,21 @@ class DVBDescriptor:
 class DVBElementaryStream:
     """Elementary stream entry advertised by a service's Program Map Table (PMT).
     
-    An elementary stream represents a single media stream (audio, video, or data)
-    within a DVB service. It is identified by a PID and may have associated descriptors.
+    An elementary stream represents one media stream (audio, video, or data)
+    within a DVB service. It is identified by a PID and may have descriptors.
+
+    Attributes:
+        pid: Packet identifier carrying this elementary stream.
+        stream_type: PMT stream-type code.
+        descriptors: Descriptors advertised for this stream. Serialization
+            intentionally omits these raw descriptor payloads.
     """
     pid: int
     stream_type: int
     descriptors: tuple[DVBDescriptor, ...] = ()
 
     def _serialize(self, ctx: Context) -> dict:
+        """Serialize this stream while excluding raw descriptors."""
         output = standard_serializer(self, ctx)
         # No need to serialize the descriptors.
         output["descriptors"] = []
@@ -109,7 +144,7 @@ class DVBElementaryStream:
 
 @serializable
 class DVBServiceType(IntEnum):
-    """Service type values from the DVB service descriptor."""
+    """Service-type codes defined by the DVB service descriptor."""
     # See p100 of https://www.etsi.org/deliver/etsi_en/300400_300499/300468/01.19.00_20/en_300468v011900a.pdf
     RESERVED_0x00 = 0x00
     DIGITAL_TELEVISION = 0x01
@@ -154,13 +189,14 @@ class DVBServiceType(IntEnum):
 
 @serializable
 class DVBServiceMetatype(str, Enum):
-    """Broad media category for a DVB service."""
+    """Broad media category inferred from a DVB service-type code."""
 
     TV = "TV"
     RADIO = "RADIO"
     OTHER = "OTHER"
 
 
+# Map each DVB service type to its broad media category.
 _DVB_SERVICE_METATYPES = {
     DVBServiceType.RESERVED_0x00: DVBServiceMetatype.OTHER,
     DVBServiceType.DIGITAL_TELEVISION: DVBServiceMetatype.TV,
@@ -200,34 +236,44 @@ _DVB_SERVICE_METATYPES = {
 
 @serializable
 class DVBDoubletID(NamedTuple):
-    '''Represents a DVB doublet that globally and uniquely identifies a DVB stream.'''
+    """Identify a transport stream by its original-network and stream IDs. This should
+    globally and uniquely identify a transport stream within the DVB network.
+
+    Attributes:
+        original_network_id: DVB original network identifier (ONID).
+        transport_stream_id: DVB transport stream identifier (TSID).
+
+    The integer representation packs ONID in the upper 16 bits and TSID in
+    the lower 16 bits. The dotted representation is ``ONID.TSID``.
+    """
     original_network_id: int
     transport_stream_id: int
 
     @classmethod
     def from_int(cls, value: int) -> "DVBDoubletID":
-        """Create a DVBDoubletID from a single integer."""
+        """Unpack ONID and TSID from a 32-bit-style integer."""
         onid = (value >> 16) & 0xFFFF
         tsid = value & 0xFFFF
         return cls(original_network_id=onid, transport_stream_id=tsid)
 
     @classmethod
     def from_dotted(cls, value: str) -> "DVBDoubletID":
-        """Create a DVBDoubletID from a dotted string in the format ONID.TSID"""
+        """Parse an ``ONID.TSID`` string into a doublet."""
         onid, tsid = map(int, value.split("."))
         return cls(original_network_id=onid, transport_stream_id=tsid)
 
-    # Compact aliases for convenience
     @property
     def onid(self) -> int:
+        """Return ``original_network_id`` using its standard abbreviation."""
         return self.original_network_id
 
     @property
     def tsid(self) -> int:
+        """Return ``transport_stream_id`` using its standard abbreviation."""
         return self.transport_stream_id
 
     def triplet_id(self, service_id: int) -> DVBTripletID:
-        """Return a DVBTripletID for this doublet and the given service ID."""
+        """Add a service ID to form a globally identifying DVB triplet."""
         return DVBTripletID(
             original_network_id=self.original_network_id,
             transport_stream_id=self.transport_stream_id,
@@ -235,41 +281,55 @@ class DVBDoubletID(NamedTuple):
         )
 
     def __int__(self) -> int:
-        '''Converts the DVBDoubletID to a single integer.'''
+        """Pack ONID and TSID into one integer, with ONID in the high bits."""
         return (self.original_network_id << 16) | self.transport_stream_id
 
     def __index__(self) -> int:
-        '''Allows bin(), hex(), oct() and other functions that require a number to work with this object.'''
+        """Allow integer-formatting functions such as ``hex()`` to use this ID."""
         return int(self)
 
     def dotted(self) -> str:
-        '''Return the DVB doublet as a dotted string in the format ONID.TSID'''
+        """Return the ID in ``ONID.TSID`` form."""
         return f"{self.original_network_id}.{self.transport_stream_id}"
 
     def __str__(self) -> str:
+        """Return the dotted representation."""
         return self.dotted()
 
     def __format__(self, format_spec: str) -> str:
+        """Format the dotted representation with the requested string format."""
         return format(self.dotted(), format_spec)
 
     def _serialize(self, ctx: Context) -> str:
+        """Serialize the ID using its dotted representation."""
         return self.dotted()
 
     @classmethod
     def _deserialize(cls, data: object, ctx: Context) -> "DVBDoubletID":
+        """Deserialize a dotted ID, converting the input to a string first."""
         return cls.from_dotted(str(data))
 
 
 @serializable
 class DVBTripletID(NamedTuple):
-    '''Represents a DVB triplet that globally and uniquely identifies a DVB service (i.e. channel).'''
+    """Identify a service by its ONID, TSID, and service ID. This should globally and
+    uniquely identify a service within the DVB network.
+
+    Attributes:
+        original_network_id: DVB original network identifier (ONID).
+        transport_stream_id: DVB transport stream identifier (TSID).
+        service_id: DVB service identifier (SID).
+
+    The integer representation packs these three 16-bit identifiers in order.
+    The dotted representation is ``ONID.TSID.SID``.
+    """
     original_network_id: int
     transport_stream_id: int
     service_id: int
 
     @classmethod
     def from_int(cls, value: int) -> "DVBTripletID":
-        """Create a DVBTripletID from a single integer."""
+        """Unpack ONID, TSID, and SID from an integer."""
         onid = (value >> 32) & 0xFFFF
         tsid = (value >> 16) & 0xFFFF
         sid = value & 0xFFFF
@@ -277,57 +337,79 @@ class DVBTripletID(NamedTuple):
 
     @classmethod
     def from_dotted(cls, value: str) -> "DVBTripletID":
-        """Create a DVBTripletID from a dotted string in the format ONID.TSID.SID"""
+        """Parse an ``ONID.TSID.SID`` string into a triplet."""
         onid, tsid, sid = map(int, value.split("."))
         return cls(original_network_id=onid, transport_stream_id=tsid, service_id=sid)
 
-    # Compact aliases for convenience
     @property
     def onid(self) -> int:
+        """Return ``original_network_id`` using its standard abbreviation."""
         return self.original_network_id
 
     @property
     def tsid(self) -> int:
+        """Return ``transport_stream_id`` using its standard abbreviation."""
         return self.transport_stream_id
 
     @property
     def sid(self) -> int:
+        """Return ``service_id`` using its standard abbreviation."""
         return self.service_id
 
     @property
     def doublet_id(self) -> DVBDoubletID:
+        """Return the stream-identifying ONID and TSID portion of this ID."""
         return DVBDoubletID(original_network_id=self.original_network_id, transport_stream_id=self.transport_stream_id)
 
     def __int__(self) -> int:
-        '''Converts the DVBTriplet to a single integer.'''
+        """Pack ONID, TSID, and SID into one integer, in that bit order."""
         return (self.original_network_id << 32) | (self.transport_stream_id << 16) | self.service_id
 
     def __index__(self) -> int:
-        '''Allows bin(), hex(), oct() and other functions that require a number to work with this object.'''
+        """Allow integer-formatting functions such as ``hex()`` to use this ID."""
         return int(self)
 
     def dotted(self) -> str:
-        '''Return the DVB triplet as a dotted string in the format ONID.TSID.SID'''
+        """Return the ID in ``ONID.TSID.SID`` form."""
         return f"{self.original_network_id}.{self.transport_stream_id}.{self.service_id}"
 
     def __str__(self) -> str:
+        """Return the dotted representation."""
         return self.dotted()
 
     def __format__(self, format_spec: str) -> str:
+        """Format the dotted representation with the requested string format."""
         return format(self.dotted(), format_spec)
 
     def _serialize(self, ctx: Context) -> str:
+        """Serialize the ID using its dotted representation."""
         return self.dotted()
 
     @classmethod
     def _deserialize(cls, data: object, ctx: Context) -> "DVBTripletID":
+        """Deserialize a dotted ID, converting the input to a string first."""
         return cls.from_dotted(str(data))
 
 
 @serializable
 @dataclass
 class DVBService:
-    """Metadata for a single DVB service (channel)."""
+    """Metadata for a single DVB service (channel).
+
+    Attributes:
+        service_id: DVB service identifier (SID).
+        triplet_id: Globally identifying ONID/TSID/SID tuple, when known.
+        name: Broadcast service name, if advertised.
+        provider_name: Broadcast provider name, if advertised.
+        logical_channel_number: LCN, if present in a NIT or BAT descriptor.
+        service_type: DVB service-type code; unknown codes remain integers.
+        service_metatype: Broad TV, radio, or other category.
+        pmt_pid: PID carrying this service's PMT.
+        pcr_pid: PID carrying its program clock reference, if known.
+        elementary_streams: Audio, video, and data streams advertised by its PMT.
+        current_event: Current event from present/following EIT, if available.
+        next_event: Next event from present/following EIT, if available.
+    """
     service_id: int
     triplet_id: DVBTripletID | None = None
     name: str | None = None
@@ -357,6 +439,7 @@ class DVBService:
         )
 
     def _serialize(self, ctx: Context) -> dict:
+        """Serialize service metadata without embedding current or next events."""
         output = standard_serializer(self, ctx)
         # No need to serialize the current event or the next event.
         output["current_event"] = None
@@ -367,7 +450,17 @@ class DVBService:
 @serializable
 @dataclass
 class DVBStreamInfo:
-    """Accumulated result of scanning a DVB transport stream."""
+    """Snapshot of metadata accumulated while scanning a transport stream.
+
+    Attributes:
+        original_network_id: ONID from the stream's SDT or NIT, if known.
+        transport_stream_id: TSID from the stream's PAT or SDT, if known.
+        network_name: Network name from the NIT, if advertised.
+        services: Discovered services in service-ID order.
+        packets_seen: Number of complete TS packets passed to packet processing.
+        complete: Whether the selected scan policy was met when snapshotted.
+        warnings: Non-fatal parsing issues encountered during scanning.
+    """
     original_network_id: int | None = None
     transport_stream_id: int | None = None
     network_name: str | None = None
@@ -394,6 +487,7 @@ class DVBStreamInfo:
         )
 
     def _serialize(self, ctx: Context) -> dict:
+        """Serialize stream metadata without including non-fatal warnings."""
         output = standard_serializer(self, ctx)
         # No need to serialize warnings
         output["warnings"] = []
@@ -406,9 +500,32 @@ class DVBScanner:
     ``feed`` accepts arbitrary byte chunks. The scanner is independent of USB
     and can consume a file or an adapter read loop. It does not start or stop
     the source supplied by the caller.
+
+    Attributes:
+        verify_crc: Whether complete table sections must pass MPEG-2 CRC
+            validation before decoding.
+        _buffer: Incomplete or not-yet-processed transport-stream packet bytes.
+        _section_buffers: Partially assembled section bytes, keyed by PID.
+        _continuity: Most recently accepted continuity counter for each PID.
+        _services: Mutable service records accumulated during the scan, keyed
+            by service ID.
+        _pmt_pids: Current PAT mapping from service IDs to PMT PIDs.
+        _decoded_pmt_pids: PMT PID most recently decoded for each service.
+        _seen_tables: Table IDs for sections that passed CRC validation.
+        _warnings: Non-fatal parsing warnings accumulated during the scan.
+        _packets_seen: Number of complete packets removed from the input buffer.
+        _transport_stream_id: TSID most recently read from a PAT or SDT.
+        _original_network_id: ONID most recently read from an SDT or matching NIT.
+        _network_name: Network name, if found in a NIT.
     """
 
     def __init__(self, *, verify_crc: bool = True) -> None:
+        """Create an empty scanner with optional section CRC validation.
+
+        Args:
+            verify_crc: If true, discard table sections whose MPEG-2 CRC
+                remainder is non-zero.
+        """
         self.verify_crc = verify_crc
         self._buffer = bytearray()              # Buffer for accumulating TS packet bytes
         self._section_buffers: dict[int, bytearray] = {} # Buffers for accumulating section data keyed by PID
@@ -452,6 +569,7 @@ class DVBScanner:
             raise ValueError("read_timeout_ms must be non-negative")
 
         def feed_and_report(data: bytes) -> None:
+            """Feed a chunk and report only increases in discovered services."""
             previous_count = len(self._services)
             self.feed(data)
             service_count = len(self._services)
@@ -505,7 +623,12 @@ class DVBScanner:
         self,
         policy: ScanPolicy = ScanPolicy.MIN_METADATA,
     ) -> DVBStreamInfo:
-        """Return a snapshot of the scanner state."""
+        """Return a detached snapshot of accumulated scan state.
+
+        Services are ordered by service ID and their elementary-stream
+        descriptors are copied. The snapshot's ``complete`` flag is evaluated
+        using ``policy``; the scanner remains usable and is not reset.
+        """
         original_network_id = self._original_network_id
         transport_stream_id = self._transport_stream_id
         services = tuple(
@@ -556,11 +679,14 @@ class DVBScanner:
     def feed(self, data: bytes) -> None:
         """Consume zero or more complete or partial transport-stream packets.
         
-        This method can be called multiple times as more TS data becomes available.
-        Partial packets are buffered internally until complete.
+        This method can be called multiple times as new data becomes available.
+        Partial packets remain buffered until a later call supplies enough bytes.
+        When packet alignment is lost, bytes are discarded up to the next sync
+        byte; if no sync byte is present in the current buffer, that buffer is
+        cleared. Complete packets are dispatched immediately.
 
-        It is usually more convenient to call ``scan()`` with an iterable of byte chunks
-        instead of repeatedly calling ``feed()``.
+        It is usually more convenient to call ``scan()`` with an iterable of
+        byte chunks instead of repeatedly calling ``feed()``.
         """
         self._buffer.extend(data)
         while True:
@@ -585,7 +711,13 @@ class DVBScanner:
             self._feed_packet(packet)
 
     def _feed_packet(self, packet: bytes) -> None:
-        """Feed a Transport Stream (TS) packet to the scanner."""
+        """Filter and dispatch one complete TS packet, feeding it to the scanner.
+
+        Only table PIDs and currently advertised PMT PIDs are considered.
+        Packets marked with a transport error or without payload are ignored.
+        An unexpected continuity counter on a continuation packet invalidates
+        that PID's partial section before the payload is assembled.
+        """
 
         # Perform quick extraction of the PID from the TS packet header, and confirm
         # whether this PID is one of the standard table PIDs or a PMT PID that we are tracking.
@@ -626,7 +758,9 @@ class DVBScanner:
         Args:
             pid: The Packet Identifier (PID) of the TS packet.
             payload: The payload data for the specific PID.
-            payload_start: A boolean indicating if this payload starts a new section.
+            payload_start: Whether the payload begins a new section. When true,
+                its first byte is the pointer to the start of that section; any
+                pointed-to prefix first finishes a previously buffered section.
         """
         section_buffer = self._section_buffers.setdefault(pid, bytearray())
         if payload_start:
@@ -642,7 +776,12 @@ class DVBScanner:
         self._extract_sections(pid, section_buffer)
 
     def _extract_sections(self, pid: int, buffer: bytearray) -> None:
-        """Extract complete sections from the buffer for a specific PID."""
+        """Decode complete sections from a PID buffer, retaining any partial tail.
+
+        Invalid section lengths clear the buffer. With CRC verification enabled,
+        sections with a non-zero MPEG-2 CRC remainder are dropped and recorded
+        as warnings.
+        """
         while len(buffer) >= 3:
             header = SECTION_HEADER.parse(bytes(buffer[:3]))
             total_length = 3 + header.section_length
@@ -659,7 +798,7 @@ class DVBScanner:
             self._decode_section(pid, section)
 
     def _decode_section(self, pid: int, section: bytes) -> None:
-        """Decode a complete section for a specific PID."""
+        """Record a section's table ID and dispatch supported PID/table pairs."""
         table_id = section[0]
         self._seen_tables.add(table_id)
         if pid == 0 and table_id == 0x00: # PAT (Program Association Table)
@@ -676,7 +815,7 @@ class DVBScanner:
             self._decode_pmt(pid, section)
 
     def _decode_pat(self, section: bytes) -> None:
-        """Decode a Program Association Table (PAT) section."""
+        """Read the TSID and service-to-PMT PID entries from a PAT section."""
         self._transport_stream_id = int.from_bytes(section[3:5], "big")
         end = _section_end(section)
         for offset in range(8, end, 4):
@@ -687,7 +826,7 @@ class DVBScanner:
                 self._services.setdefault(service_id, DVBService(service_id)).pmt_pid = pid
 
     def _decode_pmt(self, pid: int, section: bytes) -> None:
-        """Decode a Program Map Table (PMT) section."""
+        """Replace a service's PMT-derived PCR and elementary-stream metadata."""
         service_id = int.from_bytes(section[3:5], "big")
         service = self._services.setdefault(service_id, DVBService(service_id))
         end = _section_end(section)
@@ -715,7 +854,11 @@ class DVBScanner:
         self._decoded_pmt_pids[service_id] = pid
 
     def _decode_sdt(self, section: bytes) -> None:
-        """Decode a Service Description Table (SDT) section."""
+        """Read stream identifiers and advertised service descriptor metadata.
+
+        Known service descriptor codes map to :class:`DVBServiceType`; unknown
+        codes are retained as integers and classified as ``OTHER``.
+        """
         self._transport_stream_id = int.from_bytes(section[3:5], "big")
         self._original_network_id = int.from_bytes(section[8:10], "big")
         end = _section_end(section)
@@ -741,7 +884,12 @@ class DVBScanner:
             offset += 5 + descriptor_length
 
     def _decode_nit(self, section: bytes) -> None:
-        """Decode a Network Information Table (NIT) section."""
+        """Read the network name and transport descriptors from a NIT.
+
+        The ONID is taken from the NIT transport entry only when that entry's
+        TSID matches the scanner's current transport stream. LCN descriptors
+        are decoded from the listed transport entries.
+        """
         end = _section_end(section)
         network_length = ((section[8] & 0x0F) << 8) | section[9]
         for tag, value in _descriptors(section[10 : 10 + network_length]):
@@ -766,7 +914,11 @@ class DVBScanner:
             offset += 6 + descriptor_length
 
     def _decode_bat(self, section: bytes) -> None:
-        """Decode local channel numbers from a Bouquet Association Table."""
+        """Decode LCN descriptors from transport entries in a BAT.
+
+        BAT-derived LCNs only fill services that do not already have a number,
+        so an LCN previously found in a NIT takes precedence.
+        """
         if len(section) < 12:
             self._warnings.append("truncated BAT section")
             return
@@ -785,7 +937,7 @@ class DVBScanner:
             offset += 6 + descriptor_length
 
     def _decode_lcn_descriptors(self, data: bytes) -> None:
-        """Decode LCN descriptors without replacing an LCN found in the NIT."""
+        """Read service LCNs from descriptor 0x83 without replacing an existing LCN."""
         for tag, value in _descriptors(data):
             if tag != 0x83:
                 continue
@@ -796,7 +948,12 @@ class DVBScanner:
                     service.logical_channel_number = int.from_bytes(value[index + 2 : index + 4], "big") & 0x03FF
 
     def _decode_eit(self, section: bytes) -> None:
-        """Decode an Event Information Table (EIT) section."""
+        """Decode event names, descriptions, times, and running status from EIT.
+
+        Extended-event descriptor text is reassembled in descriptor-number
+        order and preferred over short-event text when it is non-empty.
+        Present/following sections update the current and next event records.
+        """
         if len(section) < 26:
             self._warnings.append("truncated EIT section")
             return
@@ -867,17 +1024,41 @@ class DVBScanner:
                 service.current_event = event
             offset = descriptor_end
 
-        if section[0] == 0x4E:
-            if section[6] == 1:
+        if section[0] == 0x4E: # 0x4E indicates an EIT present/following section
+            if section[6] == 1: # Current event present
                 service.next_event = events[0] if events else None
-            elif len(events) > 1:
+            elif len(events) > 1: # Next event present
                 service.next_event = events[1]
-            elif section[7] == 0:
+            elif section[7] == 0: # No next event present
                 service.next_event = None
 
 
 class DVBEventScanner(DVBScanner):
-    """Scan present/following events for services in an existing stream info."""
+    """Scan present/following events for services in an existing stream info.
+
+    Only EIT packets are passed to the base scanner, and events for services
+    outside ``stream_info`` are ignored. Services are matched by the full
+    ONID/TSID/SID triplet first, then by TSID and SID if the broadcast ONID
+    differs from the stream map.
+
+    Attributes:
+        eit_packets_seen: EIT-PID packets passed to the base scanner.
+        eit_sections_seen: EIT sections presented to this scanner's decoder.
+        matched_eit_services: Broadcast triplets matched to a known service.
+        unmatched_eit_services: Broadcast triplets with no known TSID/SID match.
+        onid_mismatch_eit_services: Matched broadcast triplets that required
+            the TSID/SID fallback because their ONID differed.
+        event_updates: Number of times a service's current/next event pair changed.
+        _on_event_ready: Optional callback invoked when a service is ready and
+            its event pair becomes available or changes.
+        _event_lock: Protects the event results and readiness-section sets.
+        _event_results: Current and next event snapshots keyed by mapped triplet.
+        _current_sections: Services for which a current-section EIT was received.
+        _following_sections: Services for which following-event information is
+            known, including cases where the current EIT declares no next event.
+        _existing_services: Exact broadcast-triplet to stream-info-triplet map.
+        _existing_services_by_ts_service: Fallback map keyed by TSID and SID.
+    """
 
     def __init__(
         self,
@@ -891,6 +1072,13 @@ class DVBEventScanner(DVBScanner):
         """Create a scanner that reports events only for services in ``stream_info``.
 
         EIT sections for services outside this stream info are ignored.
+
+        Args:
+            stream_info: Existing stream metadata defining the services to watch.
+            on_event_ready: Optional callback receiving a service triplet and
+                its current and next events after the service becomes ready or
+                its event pair changes.
+            verify_crc: Whether to discard sections that fail MPEG-2 CRC checks.
         """
         super().__init__(verify_crc=verify_crc)
         self.eit_packets_seen = 0
@@ -943,17 +1131,24 @@ class DVBEventScanner(DVBScanner):
 
     @property
     def _ready_services(self) -> set[DVBTripletID]:
+        """Return services with both current and following EIT information."""
         return self._current_sections & self._following_sections
 
     def _feed_packet(self, packet: bytes) -> None:
-        """Ignore every transport-stream PID except the EIT PID."""
+        """Count and pass only EIT-PID packets to the base packet processor."""
         pid = ((packet[1] & 0x1F) << 8) | packet[2]
         if pid == 0x12:
             self.eit_packets_seen += 1
             super()._feed_packet(packet)
 
     def _decode_eit(self, section: bytes) -> None:
-        """Decode EIT for a known service and update this scanner's event snapshot."""
+        """Match an EIT section, update its event snapshot, and notify if ready.
+
+        An exact triplet match is preferred; a TSID/SID fallback is logged when
+        ONIDs differ. Readiness requires current and following-section evidence
+        for the service. Callbacks run after the event lock is released and
+        only when a ready service is new or its event pair has changed.
+        """
         self.eit_sections_seen += 1
         if len(section) < 12:
             return
@@ -1039,14 +1234,18 @@ class DVBEventScanner(DVBScanner):
         event: DVBEvent | None,
         triplet_id: DVBTripletID,
     ) -> DVBEvent | None:
-        """Return an event associated with the mapped service triplet."""
+        """Copy an event with the matched stream-info triplet attached."""
         if event is None:
             return None
         return replace(event, triplet_id=triplet_id)
 
 
 def _descriptors(data: bytes):
-    """Yield (tag, value) pairs for each descriptor in the given data."""
+    """Yield ``(tag, payload)`` pairs from a descriptor loop.
+
+    If the loop ends with an incomplete header or payload, iteration stops
+    without yielding that malformed descriptor or any trailing bytes.
+    """
     offset = 0
     while offset + 2 <= len(data):
         length = data[offset + 1]
@@ -1059,7 +1258,12 @@ def _descriptors(data: bytes):
 def _parse_extended_event_descriptor(
     value: bytes,
 ) -> tuple[bytes, int, int, bytes] | None:
-    """Return the language, sequence numbers, and text from an extended-event descriptor."""
+    """Parse language, sequence numbers, and text from descriptor 0x4E.
+
+    Return ``None`` for truncated data or an invalid descriptor-number range.
+    The returned text bytes exclude the descriptor's item loop and length
+    fields; callers can combine multiple descriptors by sequence number.
+    """
     if len(value) < 6:
         return None
 
@@ -1085,10 +1289,11 @@ def _parse_extended_event_descriptor(
 
 
 def _section_end(section: bytes) -> int:
-    """Return the index of the end of the section."""
+    """Return the exclusive end index of section data before its four-byte CRC."""
     return 3 + (int.from_bytes(section[1:3], "big") & 0x0FFF) - 4
 
 
+# Maps ISO/IEC 6937 single-byte characters and combining accents to their Unicode equivalents.
 _ISO6937_SINGLE_BYTE = (
     "\u00a0\u00a1\u00a2\u00a3\ufffd\u00a5\ufffd\u00a7"
     "\u00a4\u2018\u201c\u00ab\u2190\u2191\u2192\u2193"
@@ -1104,6 +1309,7 @@ _ISO6937_SINGLE_BYTE = (
     + "\u0142\u00f8\u0153\u00df\u00fe\u0167\u014b\u00ad"
 )
 
+# Maps ISO/IEC 6937 combining accents to their Unicode equivalents.
 _ISO6937_ACCENTS = {
     0xC1: "\u0300",
     0xC2: "\u0301",
@@ -1120,6 +1326,7 @@ _ISO6937_ACCENTS = {
     0xCF: "\u030C",
 }
 
+# Maps ISO/IEC 6937 spacing accents to their Unicode equivalents.
 _ISO6937_SPACING_ACCENTS = {
     0xC1: "\u00B4",
     0xC5: "\u00AF",
@@ -1133,6 +1340,7 @@ _ISO6937_SPACING_ACCENTS = {
     0xCF: "\u02C7",
 }
 
+# Maps DVB ISO 8859 selectors to their corresponding Python codec names.
 _DVB_ISO8859_SELECTORS = {
     0x01: "iso8859_5",
     0x02: "iso8859_6",
@@ -1148,7 +1356,11 @@ _DVB_ISO8859_SELECTORS = {
 
 
 def _decode_iso6937(data: bytes) -> str:
-    """Decode DVB's default ISO/IEC 6937 text encoding."""
+    """Decode DVB's default ISO/IEC 6937 text, including combining accents.
+
+    Invalid bytes and dangling accent prefixes become the Unicode replacement
+    character; combining sequences are normalized to NFC.
+    """
     characters: list[str] = []
     offset = 0
     while offset < len(data):
@@ -1176,7 +1388,10 @@ def _decode_iso6937(data: bytes) -> str:
 
 
 def _decode_iso6937_byte(value: int) -> str:
-    """Decode one ISO/IEC 6937 byte that is not a diacritic prefix."""
+    """Decode one non-accent-prefix ISO/IEC 6937 byte.
+
+    Unassigned control-range bytes map to the Unicode replacement character.
+    """
     if value < 0xA0:
         return chr(value)
     if value <= 0xBF or value >= 0xD0:
@@ -1185,7 +1400,13 @@ def _decode_iso6937_byte(value: int) -> str:
 
 
 def _decode_text(data: bytes) -> str:
-    """Decode DVB text using its selector or the ISO/IEC 6937 default."""
+    """Decode text using a DVB character-table selector or ISO/IEC 6937.
+
+    Supported selectors include ISO-8859 variants, UTF-16BE, EUC-KR, GB2312,
+    Big5, and UTF-8. Unsupported selector forms are skipped and decoded using
+    the default encoding; decoding errors in selected codecs are replaced.
+    Leading and trailing whitespace is removed.
+    """
     if not data or data[0] == 0:
         return ""
 
@@ -1229,12 +1450,16 @@ def _decode_text(data: bytes) -> str:
 
 
 def _decode_bcd(value: int) -> int:
-    """Decode a single byte of Binary-Coded Decimal (BCD) into an integer."""
+    """Convert the high and low decimal nibbles of one byte to an integer."""
     return (value >> 4) * 10 + (value & 0x0F)
 
 
 def _decode_dvb_time(data: bytes) -> datetime | None:
-    """Decode a 5-byte DVB time field into a datetime object."""
+    """Decode a five-byte MJD/BCD time field as a UTC datetime.
+
+    Return ``None`` for an unspecified all-ones value, wrong-length input, or
+    invalid BCD-derived clock fields.
+    """
     if len(data) != 5 or data == b"\xff" * 5:
         return None
     mjd = int.from_bytes(data[:2], "big")
@@ -1247,14 +1472,17 @@ def _decode_dvb_time(data: bytes) -> datetime | None:
 
 
 def _decode_duration(data: bytes) -> timedelta | None:
-    """Decode a 3-byte DVB duration field into a timedelta object."""
+    """Decode three BCD hour/minute/second bytes into a duration.
+
+    Return ``None`` for an unspecified all-ones value or wrong-length input.
+    """
     if len(data) != 3 or data == b"\xff" * 3:
         return None
     return timedelta(hours=_decode_bcd(data[0]), minutes=_decode_bcd(data[1]), seconds=_decode_bcd(data[2]))
 
 
 def _mpeg_crc32(data: bytes) -> int:
-    """Compute the MPEG-2 CRC32 of the given data."""
+    """Compute the non-reflected MPEG-2 CRC-32 remainder for ``data``."""
     crc = 0xFFFFFFFF
     for byte in data:
         crc ^= byte << 24
