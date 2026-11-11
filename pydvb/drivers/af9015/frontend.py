@@ -1,4 +1,11 @@
-"""AF9013 DVB-T frontend control behind an AF9015 bridge."""
+"""AF9013 DVB-T frontend control behind an AF9015 bridge.
+
+The demodulator logic follows ``af9013_set_frontend`` (``linux/af9013.c:105``),
+``af9013_get_frontend`` (397), ``af9013_read_status`` (515), ``af9013_init``
+(829), and ``af9013_sleep`` (977). Register transport follows
+``af9013_wregs`` (1279) and ``af9013_rregs`` (1321); tuner-gate selection
+corresponds to ``af9013_select`` and ``af9013_deselect`` (1236 and 1257).
+"""
 
 from __future__ import annotations
 
@@ -24,12 +31,24 @@ from ...driver_api.tuner import (
 
 
 DEFAULT_LOCK_TIMEOUT: float | None = 15.0
+# ``None`` disables the timeout; otherwise this is the default lock wait limit.
 
 
 class _AF9013RegisterIO(RegisterIO):
-    """Translate logical AF9013 register accesses to AF9015 bridge commands."""
+    """Translate logical AF9013 register accesses to AF9015 bridge commands.
+
+    Adapter zero accesses demodulator registers through bridge memory
+    operations, while adapter one uses the I2C command path. The ``0xAE00``
+    register window is byte-oriented and therefore handled separately.
+
+    Attributes:
+        bridge: Shared AF9015 command bridge.
+        address: Seven-bit I2C address of the AF9013.
+        adapter_index: Selects the primary or secondary register protocol.
+    """
 
     def __init__(self, bridge: AF9015Bridge, address: int, adapter_index: int) -> None:
+        """Bind register I/O to one AF9013 behind the bridge."""
         self.bridge = bridge
         self.address = address
         self.adapter_index = adapter_index
@@ -104,12 +123,38 @@ class AF9013Frontend(DVBFrontend):
 
     The frontend is the tuner's I2C gate and owns tuner configuration and
     tuning state; transport-stream demultiplexing belongs to the adapter.
+    Register constants identify AF9013 register addresses, while
+    ``DEMOD_INIT``, ``TDA18271_INIT``, and ``COEFFICIENTS`` contain the
+    board/chip-specific masked initialization and CFOE values.
 
     Locking:
         The base class supplies the replaceable control lock, while this
         concrete frontend explicitly applies it to hardware operations,
         diagnostics, and the complete tuner-gate sequence. A dual-device
         configuration binds both frontends to the same device-owned lock.
+
+    Attributes:
+        bridge: Shared AF9015 control bridge.
+        demodulator_address: Seven-bit I2C address of this AF9013.
+        tuner: Attached tuner, if supported by the device configuration.
+        clock_hz: Demodulator crystal frequency from EEPROM.
+        intermediate_frequency_hz: Configured IF fallback when the tuner
+            does not report its active IF.
+        spectrum_inverted: Board-specific spectrum orientation.
+        tuner_id: EEPROM tuner identifier used during demodulator setup.
+        adapter_index: Primary or secondary AF9013 index.
+        mt2060_if: Board-specific MT2060 IF setting.
+        register_map: Register access facade backed by ``_AF9013RegisterIO``.
+        ts_mode: Configured AF9015 transport-stream output mode.
+        ts_output_pin: AF9013 output pin selected for TS data.
+        gpio: Per-pin GPIO modes used to power/configure the tuner.
+        _initialized: Whether demodulator initialization completed.
+        _sleeping: Whether the demodulator/tuner are in their low-power state.
+        current_tuning: Last successfully programmed tuning request.
+        _last_bandwidth_hz: Bandwidth for which CFOE coefficients were written.
+        _block_errors: Accumulated uncorrected transport-block errors.
+        _bit_count: Accumulated measured bits for BER diagnostics.
+        _block_count: Accumulated measured transport packets.
     """
 
     API_VERSION = b"\x00\x01\x09\x00"
@@ -243,6 +288,7 @@ class AF9013Frontend(DVBFrontend):
         mt2060_if: int = 0,
         control_lock: RLock | None = None,
     ) -> None:
+        """Configure one demodulator and its board-specific register mapping."""
         if adapter_index not in (0, 1):
             raise ValueError("AF9013 adapter_index must be 0 or 1")
         self.bridge = bridge
@@ -292,6 +338,7 @@ class AF9013Frontend(DVBFrontend):
             }
 
     def _set_gate(self, enabled: bool) -> None:
+        """Toggle the AF9013 I2C gate bit without disturbing other reset bits."""
         current = self.register_map.read(self.GATE_REGISTER)[0]
         value = (current & ~self.GATE_MASK) | (self.GATE_MASK if enabled else 0)
         self.register_map.write(self.GATE_REGISTER, bytes((value,)))
@@ -327,10 +374,12 @@ class AF9013Frontend(DVBFrontend):
             }
 
     def _apply_table(self, table: tuple[tuple[int, int, int], ...]) -> None:
+        """Apply ordered ``(register, mask, value)`` updates to the demodulator."""
         for register, mask, value in table:
             self.register_map.update_bits(register, mask, value)
 
     def _set_gpio(self, gpio: int, value: int) -> None:
+        """Set one of four GPIO nibbles, preserving the other GPIO in its byte."""
         if gpio in (0, 1):
             register = self.REG_GPIO_01
         elif gpio in (2, 3):
@@ -342,6 +391,7 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def init_hardware(self) -> None:
+        """Initialize the demodulator and attached tuner under the control lock."""
         self._init_hardware()
 
     def _init_hardware(self) -> None:
@@ -449,6 +499,13 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def tune(self, tuning: DVBTuning, wait_for_lock: bool = True) -> DVBFrontendStatus:
+        """Program tuner and AF9013 for a DVB-T channel.
+
+        The method validates the supported terrestrial frequency and
+        bandwidth, programs CFOE and IF control words, clears old lock flags,
+        and writes the transmission parameters. It either polls for lock or
+        returns the current status according to ``wait_for_lock``.
+        """
         if self.tuner is None:
             raise ValueError("AF9013 frontend has no tuner attached")
         if tuning.inversion is not SpectralInversion.AUTO:
@@ -526,6 +583,12 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def read_status(self) -> DVBFrontendStatus:
+        """Read lock, signal, CNR and BER counters from the demodulator.
+
+        Strength and CNR are reported only when their hardware-ready bits are
+        set. BER/block counters are accumulated across ready samples; the
+        hardware BER window is re-armed after each sample.
+        """
         mpeg_locked = bool(self.register_map.read(self.REG_MPEG_STATUS)[0] & 0x40)
         tps_locked = bool(self.register_map.read(self.REG_TPS_STATUS)[0] & 0x08)
         if mpeg_locked:
@@ -585,6 +648,12 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def read_tuning(self) -> DVBTuning | None:
+        """Decode transmission parameters, retaining frequency from last tune.
+
+        AF9013 does not expose a recoverable RF-frequency register here, so
+        the cached frequency is combined with modulation fields read back
+        from the hardware.
+        """
         if self.current_tuning is None:
             return None
         transmission = self.register_map.read(self.REG_TRANSMISSION, 3)
@@ -630,7 +699,12 @@ class AF9013Frontend(DVBFrontend):
         timeout: float | None = DEFAULT_LOCK_TIMEOUT,
         poll_interval: float = 0.05,
     ) -> DVBFrontendStatus:
-        """Poll AF9013 status until it locks or the timeout expires."""
+        """Poll status until lock or timeout, then return the last status.
+
+        ``timeout=None`` waits indefinitely. A finite timeout is not raised
+        as an exception: if lock is absent when it expires, the final
+        unlocked status is returned.
+        """
         if timeout is not None and timeout < 0:
             raise ValueError("timeout must be non-negative")
         if poll_interval <= 0:
@@ -645,6 +719,11 @@ class AF9013Frontend(DVBFrontend):
 
     @with_control_lock
     def sleep(self) -> None:
+        """Reset the demodulator, wait for reset acknowledgement, then sleep tuner.
+
+        A reset that is not acknowledged within one second raises
+        ``TimeoutError`` and does not mark the frontend as sleeping.
+        """
         if not self._initialized or self._sleeping:
             return
         self.register_map.update_bits(self.REG_LOCK_LED, 0x01, 0)

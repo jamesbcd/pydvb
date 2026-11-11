@@ -1,4 +1,11 @@
-"""AF9015 USB bridge protocol."""
+"""AF9015 USB bridge protocol.
+
+Wire transactions follow ``af9015_ctrl_msg`` in ``linux/af9015.c:17``;
+I2C register helpers correspond to ``af9015_write_reg_i2c`` and
+``af9015_read_reg_i2c`` at lines 113 and 126. Firmware operations follow
+``af9015_download_firmware`` (line 289) and ``af9015_copy_firmware``
+(line 763) in that same Linux source file.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +24,12 @@ ACK_LENGTH = 2
 
 
 class Command(IntEnum):
+    """AF9015 control command codes, including Python-only I2C aliases.
+
+    ``READ_I2C`` and ``WRITE_I2C`` are logical commands; ``transact`` encodes
+    either one as ``READ_WRITE_I2C`` with the direction bit in the address.
+    """
+
     GET_CONFIG = 0x10
     DOWNLOAD_FIRMWARE = 0x11
     BOOT = 0x13
@@ -33,6 +46,18 @@ class Command(IntEnum):
 
 @dataclass(frozen=True)
 class ControlRequest:
+    """Immutable fields for one AF9015 control request.
+
+    Attributes:
+        command: Logical operation to encode on the USB control endpoint.
+        i2c_address: Seven-bit target I2C address, if the operation uses I2C.
+        address: Register or memory address carried in the command header.
+        mailbox: AF9015 mailbox selector used by memory/I2C operations.
+        address_length: Number of address bytes used by the target protocol.
+        data: Bytes sent after the request header for write operations.
+        read_length: Requested reply payload length for read operations.
+    """
+
     command: Command
     i2c_address: int = 0
     address: int = 0        # Often the register address for I2C operations
@@ -55,9 +80,16 @@ class AF9015Bridge:
         complete USB request/reply exchange, but does not replace the
         device-wide frontend/control lock that protects multi-transaction
         operations.
+
+    Attributes:
+        transport: USB transport used for the AF9015 control endpoints.
+        timeout_ms: Timeout applied to each USB bulk transfer.
+        _sequence: Eight-bit request sequence, incremented for each packet.
+        _lock: Lock serializing request/reply transactions on the bridge.
     """
 
     def __init__(self, transport: USBTransport, timeout_ms: int = 2000) -> None:
+        """Bind the bridge to a transport and initialize transaction state."""
         self.transport = transport
         self.timeout_ms = timeout_ms
         self._sequence = 0
@@ -140,6 +172,7 @@ class AF9015Bridge:
         mailbox: int = 0,
         i2c_address: int = 0,
     ) -> bytes:
+        """Read a byte range from AF9015-addressed memory."""
         return self.transact(
             ControlRequest(
                 Command.READ_MEMORY,
@@ -152,6 +185,7 @@ class AF9015Bridge:
         )
 
     def get_state(self) -> int:
+        """Return the one-byte AF9015 firmware state reported by GET_CONFIG."""
         return self.transact(ControlRequest(Command.GET_CONFIG, read_length=1))[0]
 
     def write_memory(
@@ -162,6 +196,7 @@ class AF9015Bridge:
         mailbox: int = 0,
         i2c_address: int = 0,
     ) -> None:
+        """Write bytes to AF9015-addressed memory."""
         self.transact(
             ControlRequest(
                 Command.WRITE_MEMORY,
@@ -174,6 +209,7 @@ class AF9015Bridge:
         )
 
     def update_memory_bits(self, address: int, mask: int, value: int) -> None:
+        """Replace only the selected bits in one memory-mapped byte."""
         current = self.read_memory(address, 1)[0]
         self.write_memory(address, bytes(((current & ~mask) | (value & mask),)))
 
@@ -190,6 +226,7 @@ class AF9015Bridge:
         address_length: int = 1,
         mailbox: int = 0,
     ) -> bytes:
+        """Read bytes from a device register over the AF9015 I2C command."""
         return self.transact(
             ControlRequest(
                 Command.READ_I2C,
@@ -209,6 +246,7 @@ class AF9015Bridge:
         address_length: int = 1,
         mailbox: int = 0,
     ) -> None:
+        """Write bytes to a device register over the AF9015 I2C command."""
         self.transact(
             ControlRequest(
                 Command.WRITE_I2C,
@@ -227,6 +265,7 @@ class AF9015Bridge:
         address_length: int = 1,
         mailbox: int = 0,
     ) -> int:
+        """Read one I2C register byte."""
         return self.read_i2c(address, register, 1, address_length, mailbox)[0]
 
     def write_i2c_byte(
@@ -237,6 +276,7 @@ class AF9015Bridge:
         address_length: int = 1,
         mailbox: int = 0,
     ) -> None:
+        """Write the low eight bits of a value to one I2C register."""
         self.write_i2c(
             address,
             register,
@@ -246,6 +286,11 @@ class AF9015Bridge:
         )
 
     def download_firmware(self, firmware: bytes) -> None:
+        """Upload firmware in bridge-sized chunks and issue the boot command.
+
+        Upload chunks are limited by the 63-byte bridge packet buffer after
+        reserving the eight-byte command header.
+        """
         max_payload_length = BUFFER_LENGTH - HEADER_LENGTH
         for offset in range(0, len(firmware), max_payload_length):
             chunk = firmware[offset : offset + max_payload_length]
@@ -253,5 +298,6 @@ class AF9015Bridge:
         self.transact(ControlRequest(Command.BOOT))
 
     def copy_firmware(self, firmware_size: int, firmware_checksum: int) -> None:
+        """Ask the AF9015 to copy staged firmware into its secondary demodulator."""
         payload = firmware_size.to_bytes(2, "big") + firmware_checksum.to_bytes(2, "big")
         self.transact(ControlRequest(Command.COPY_FIRMWARE, address=0x5100, data=payload))

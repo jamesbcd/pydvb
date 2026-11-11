@@ -1,4 +1,12 @@
-"""High-level AF9015 device composition."""
+"""High-level AF9015 device composition.
+
+The Linux counterparts are ``af9015_identify_state`` (``linux/af9015.c:268``),
+``af9015_eeprom_hash`` (339), ``af9015_read_config`` (372),
+``af9015_get_adapter_count`` (659), ``af9015_copy_firmware`` (763),
+``af9015_af9013_frontend_attach`` (844), and ``af9015_init`` (1102).
+The shared USB firmware upload path is ``af9015_download_firmware`` at line
+289 of that file.
+"""
 
 from pathlib import Path
 from time import monotonic, sleep
@@ -46,6 +54,17 @@ class AF9015Device(DVBDevice):
         Unlike the standalone base-object default, this device owns one
         control lock and shares it with every configured adapter, frontend,
         and tuner. Stream-read synchronization remains in each demuxer.
+
+    Attributes:
+        bridge: Current USB-to-AF9015 command bridge; replaced after reboot.
+        transport: USB transport used by the bridge and adapter stream readers.
+        eeprom: Cached full EEPROM image, or ``None`` before configuration.
+        eeprom_hash: Linux-compatible hash of the cached EEPROM, if read.
+        firmware_size: Size of the last uploaded firmware image in bytes.
+        firmware_checksum: Additive 16-bit checksum used for the second demod.
+        adapters: Logical DVB adapters created from receiver EEPROM data.
+        _hardware_initialized: Whether device and composed adapters finished
+            their latest hardware initialization.
     """
 
     STREAM_ENDPOINTS = (0x84, 0x85)
@@ -99,12 +118,14 @@ class AF9015Device(DVBDevice):
         transport: USBTransport,
         device_id: USBDeviceID | None = None,
     ) -> None:
+        """Initialize device state and attach a bridge to the USB transport."""
         super().__init__(transport, device_id)
         self.firmware_size = 0
         self.firmware_checksum = 0
         self._reset_with_bridge(AF9015Bridge(transport))
 
     def _reset_with_bridge(self, bridge: AF9015Bridge) -> None:
+        """Replace the bridge after USB reconnect and clear cached device state."""
         self.bridge = bridge
         self.transport = bridge.transport
         self.eeprom: bytes | None = None
@@ -112,10 +133,12 @@ class AF9015Device(DVBDevice):
         self._reset_device_state()
 
     def is_warm(self) -> bool:
+        """Return whether AF9015 firmware is running."""
         with self._control_lock:
             return self.bridge.get_state() == 0x02
 
     def log_transport_stats(self) -> None:
+        """Log transfer statistics collected by the underlying USB transport."""
         self.bridge.transport.log_stats()
 
     def init_hardware(
@@ -124,6 +147,12 @@ class AF9015Device(DVBDevice):
         firmware_path: str | Path | None = None,
         download_firmware: bool = True,
     ) -> None:
+        """Ensure firmware is running, compose adapters, and initialize hardware.
+
+        Existing streams are stopped first. If firmware is cold, downloading
+        can be explicitly disabled to make initialization fail rather than
+        perform a firmware upload.
+        """
         with self._control_lock:
             self._hardware_initialized = False
             for adapter in self.adapters:
@@ -147,6 +176,7 @@ class AF9015Device(DVBDevice):
         firmware: bytes | None = None,
         firmware_path: str | Path | None = None,
     ) -> None:
+        """Upload firmware from bytes or a file, then reconnect the receiver."""
         with self._control_lock:
             for adapter in self.adapters:
                 adapter.stop()
@@ -165,6 +195,7 @@ class AF9015Device(DVBDevice):
             self._reconnect()
 
     def _reconnect(self, timeout: float = 5.0, poll_interval: float = 0.1) -> int:
+        """Reconnect USB and atomically replace the bridge after state probing."""
         with self._control_lock:
             new_transport = self.bridge.transport.reconnect(timeout, poll_interval)
             candidate_bridge = AF9015Bridge(new_transport)
@@ -245,6 +276,12 @@ class AF9015Device(DVBDevice):
         return result
 
     def _start_secondary_demodulator(self, address: int) -> None:
+        """Copy the staged firmware into a cold second AF9013 and await startup.
+
+        A running demodulator is left untouched. Firmware failure and timeout
+        are reported distinctly so callers can distinguish device errors from
+        a demodulator that never reached its running state.
+        """
         status = self.bridge.read_i2c_byte(address, 0x98BE, address_length=3)
         if status == 0x0C:
             return

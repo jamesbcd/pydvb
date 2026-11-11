@@ -1,4 +1,23 @@
-"""AF9015-supported TDA18271 tuner implementation."""
+"""AF9015-supported TDA18271 tuner implementation.
+
+Register access and PLL calculations follow ``tda18271_read_extended`` and
+``__tda18271_write_regs`` in ``linux/tda18271-common.c`` (lines 138 and 178),
+plus ``tda18271_calc_main_pll`` and ``tda18271_calc_cal_pll`` (550 and 573).
+The tuning/lifecycle paths correspond to ``tda18271_init`` and
+``tda18271_sleep`` in ``linux/tda18271-fe.c`` (812 and 837), and
+``tda18271_set_params`` (921). Calibration helpers are based on
+``tda18271_read_thermometer`` (198), ``tda18271c2_rf_tracking_filters_correction``
+(242), ``tda18271_por`` (295), ``tda18271_calibrate_rf`` (328),
+``tda18271_powerscan`` (431), ``tda18271_rf_tracking_filters_init`` (560),
+``tda18271_calc_rf_filter_curve`` (632), ``tda18271c2_rf_cal_init`` (663),
+``tda18271c1_rf_tracking_filter_calibration`` (694), and
+``tda18271_ir_cal_init`` (795). Frequency maps follow
+``tda18271_lookup_thermometer``, ``tda18271_lookup_cid_target``,
+``tda18271_lookup_rf_band``, ``tda18271_lookup_pll_map``, and
+``tda18271_lookup_map`` in ``linux/tda18271-maps.c`` (lines 920, 966, 1007,
+1051, and 1102). The Python implementation intentionally exposes only the
+AF9015 digital DVB-T subset.
+"""
 
 from dataclasses import dataclass, field
 from time import sleep
@@ -15,6 +34,16 @@ class RFCalibrationBand:
     """Calibration data for one RF band.
 
     Example: ``RFCalibrationBand(47_900_000, 0, (46_000_000, 0, 0))``.
+
+    Attributes:
+        rf_max_hz: Inclusive upper RF frequency for this calibration band.
+        rf_band: Hardware RF-band code associated with the range.
+        defaults_hz: Default calibration frequencies (zero entries are unused).
+        measured_hz: Frequencies accepted by power scans during calibration.
+        slope_low: Low-range correction slope in register units per kHz.
+        offset_low: Low-range correction intercept relative to the RF map.
+        slope_high: High-range correction slope in register units per kHz.
+        offset_high: High-range correction intercept relative to the RF map.
     """
 
     rf_max_hz: int
@@ -47,6 +76,23 @@ class TDA18271Tuner(DVBTuner):
         implementation applies it to register-cache, lifecycle, calibration,
         and tuning operations. It shares the frontend's device-owned lock,
         rather than creating a separate tuner lock.
+
+    Attributes:
+        frontend: AF9013 gate used for all tuner I2C transfers.
+        i2c_address: Seven-bit tuner address (fixed at 0x60 for AF9015 boards).
+        _registers: 39-byte software mirror used for masked register updates.
+        _chip_id: Detected HDC1/HDC2 model, or ``None`` before initialization.
+        _initialized: Whether defaults and initial calibration have completed.
+        _sleeping: Whether the tuner is in standby.
+        current_tuning: Last successfully programmed DVB-T tuning request.
+        _rf_calibration_bands: Per-band HDC2 measurement and correction state.
+        _rf_calibration_initialized: Whether HDC2 RF calibration has run.
+        _rf_calibration_temperature: Temperature recorded for HDC2 calibration.
+
+    The chip-specific PLL, standard, RF tracking, gain-taper, and calibration
+    lookup tables below are ported from the Linux TDA18271 map data. They are
+    ordered by inclusive frequency limit; lookup helpers select the first
+    matching entry.
     """
 
     CHIP_ID_HDC1 = 0x83
@@ -367,6 +413,7 @@ class TDA18271Tuner(DVBTuner):
     )
 
     def __init__(self, frontend: "AF9013Frontend", i2c_address: int = I2C_ADDRESS) -> None:
+        """Bind the tuner to its demodulator gate and seed a default register cache."""
         if i2c_address != self.I2C_ADDRESS:
             raise ValueError("TDA18271 must use I2C address 0x60")
         self.frontend = frontend
@@ -386,19 +433,26 @@ class TDA18271Tuner(DVBTuner):
 
     @property
     def chip_id(self) -> int | None:
+        """Return the detected HDC1/HDC2 identifier, if initialized."""
         return self._chip_id
 
     @property
     def initialized(self) -> bool:
+        """Return whether tuner initialization has completed."""
         return self._initialized
 
     @property
     def sleeping(self) -> bool:
+        """Return whether the tuner is currently in standby."""
         return self._sleeping
 
     @with_control_lock
     def get_config_dict(self) -> dict[str, object]:
-        """Return tuner configuration and current state for diagnostics."""
+        """Return a synchronized configuration snapshot for diagnostics.
+
+        When initialized, collecting the snapshot also triggers a thermometer
+        read from the tuner.
+        """
         return {
             "i2c_address": self.i2c_address,
             "chip_id": self._chip_id,
@@ -419,9 +473,11 @@ class TDA18271Tuner(DVBTuner):
         return if_frequency
 
     def _read_register(self, register: int, length: int) -> bytes:
+        """Read a register range through the frontend's I2C gate."""
         return self.frontend.gated_read_register(self.i2c_address, register, length)
 
     def _write_register(self, register: int, data: bytes) -> None:
+        """Write a checked register range and update the cache after success."""
         if not 0 <= register < self.REGISTER_COUNT:
             raise ValueError("TDA18271 register is out of range")
         if register + len(data) > self.REGISTER_COUNT:
@@ -430,6 +486,7 @@ class TDA18271Tuner(DVBTuner):
         self._registers[register : register + len(data)] = data
 
     def _write_cached(self, register: int, length: int) -> None:
+        """Write a cache range in bridge-safe chunks, at most 20 bytes each."""
         for offset in range(0, length, self.I2C_WRITE_CHUNK_SIZE):
             chunk_length = min(self.I2C_WRITE_CHUNK_SIZE, length - offset)
             self._write_register(
@@ -462,6 +519,12 @@ class TDA18271Tuner(DVBTuner):
 
     @with_control_lock
     def init_hardware(self) -> None:
+        """Detect the tuner, load chip defaults and perform required calibration.
+
+        HDC1 uses image-rejection and RF-tracking calibration; HDC2 additionally
+        measures and stores its RF calibration curve. Re-entry wakes the tuner
+        without repeating the one-time calibration sequence.
+        """
         chip_id = self._read_register(self.REG_ID, 1)[0]
         if chip_id not in (self.CHIP_ID_HDC1, self.CHIP_ID_HDC2):
             raise IOError(f"unexpected TDA18271 ID 0x{chip_id:02x}")
@@ -482,18 +545,21 @@ class TDA18271Tuner(DVBTuner):
         self._sleeping = False
 
     def _lookup_rf_band(self, frequency_hz: int) -> RFCalibrationBand:
+        """Return the HDC2 calibration band whose upper limit covers a frequency."""
         for limit_hz, _, defaults_hz in self.RF_CAL_BANDS:
             if frequency_hz <= limit_hz:
                 return next(band for band in self._rf_calibration_bands if band.rf_max_hz == limit_hz)
         raise ValueError("frequency is outside the HDC2 RF calibration bands")
 
     def _lookup_cid_target(self, frequency_hz: int) -> tuple[int, int]:
+        """Return the HDC2 charge-pump target and scan-distance limit."""
         for limit_hz, target, count_limit in self.CID_TARGET_MAP:
             if frequency_hz <= limit_hz:
                 return target, count_limit
         raise ValueError("frequency is outside the HDC2 power-scan bands")
 
     def _read_thermometer(self) -> int:
+        """Trigger a measurement, decode its Gray-code value, and restore state."""
         self._registers[self.REG_TM] |= 0x10
         self._write_cached(self.REG_TM, 1)
         self.read_hardware_registers()
@@ -516,6 +582,12 @@ class TDA18271Tuner(DVBTuner):
         return temperature
 
     def _power_scan(self, frequency_hz: int) -> tuple[bool, int]:
+        """Find a nearby RF calibration point meeting its charge-pump target.
+
+        The scan searches upward and then downward in 200 kHz steps around
+        the requested frequency (with the tuner IF offset applied). It returns
+        whether the target was reached and the accepted RF frequency.
+        """
         self._apply_rf_maps(frequency_hz)
         self._write_cached(self.REG_EP2, 1)
         self._write_cached(self.REG_EB14, 1)
@@ -554,6 +626,7 @@ class TDA18271Tuner(DVBTuner):
         return calibrated, scan_frequency_hz - 1_000_000 if calibrated else frequency_hz
 
     def _calibrate_rf_point(self, frequency_hz: int) -> int:
+        """Measure the RF tracking-filter calibration value at one frequency."""
         self._registers[self.REG_EP4] &= ~0x03
         self._write_cached(self.REG_EP4, 1)
         self._registers[self.REG_EP3] |= 0x40
@@ -595,6 +668,12 @@ class TDA18271Tuner(DVBTuner):
         return self._registers[self.REG_EB14]
 
     def _initialize_hdc2_calibration(self) -> None:
+        """Measure HDC2 calibration points and derive per-band correction slopes.
+
+        Calibration performs multiple timed power scans and register
+        measurements. It records a reference temperature and restores the
+        tuner power-on-reset register state before setting the initialized flag.
+        """
         self._registers[self.REG_EP3] = (self._registers[self.REG_EP3] & 0xE0) | 0x12
         self._registers[self.REG_EP4] &= ~0x1F
         self._write_cached(self.REG_EP3, 2)
@@ -647,6 +726,7 @@ class TDA18271Tuner(DVBTuner):
         self._write_cached(self.REG_EB21, 3)
 
     def _apply_hdc2_calibration(self, frequency_hz: int) -> None:
+        """Apply RF-band and temperature compensation to HDC2 register EB14."""
         if not self._rf_calibration_initialized:
             self._initialize_hdc2_calibration()
         band = self._lookup_rf_band(frequency_hz)
@@ -665,10 +745,12 @@ class TDA18271Tuner(DVBTuner):
         self._write_cached(self.REG_EB14, 1)
 
     def _charge_pump(self, register: int, enabled: bool) -> None:
+        """Set or clear the charge-pump enable bit in a cached register."""
         self._registers[register] = (self._registers[register] & ~0x20) | (0x20 if enabled else 0)
         self._write_cached(register, 1)
 
     def _image_rejection_calibration(self) -> None:
+        """Run the timed image-rejection calibration sequence for the detected chip."""
         self._registers[self.REG_EB17] = 0x00
         self._write_cached(self.REG_EB17, 1)
         for value in (0x03, 0x43, 0x4C):
@@ -735,6 +817,7 @@ class TDA18271Tuner(DVBTuner):
         self._write_cached(self.REG_EP1, 1)
 
     def _set_main_pll(self, frequency_hz: int) -> None:
+        """Calculate the chip-specific main PLL divider into cached registers."""
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
         frequency_khz = frequency_hz // 1000
@@ -751,12 +834,14 @@ class TDA18271Tuner(DVBTuner):
 
     @staticmethod
     def _map_value(frequency_hz: int, table: tuple[tuple[int, int], ...]) -> int:
+        """Select the first table value whose inclusive frequency limit matches."""
         for limit, value in table:
             if frequency_hz <= limit:
                 return value
         raise ValueError("frequency is outside the TDA18271 lookup maps")
 
     def _apply_rf_maps(self, frequency_hz: int) -> None:
+        """Apply frequency-dependent RF band, filter, gain, and calibration codes."""
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
         self._registers[self.REG_EP1] = (self._registers[self.REG_EP1] & 0xF8) | self._map_value(frequency_hz, self.BP_FILTER_MAP)
@@ -768,6 +853,11 @@ class TDA18271Tuner(DVBTuner):
             self._registers[self.REG_EB14] = self._map_value(frequency_hz, self.RF_CAL_MAP[self._chip_id])
 
     def _calibrate_rf_tracking_filter(self, frequency_hz: int, bandwidth_hz: int) -> None:
+        """Run the HDC1 RF tracking-filter calibration around channel center.
+
+        HDC2 uses its measured/temperature-corrected calibration path instead,
+        so this helper returns without hardware access for that chip.
+        """
         if self._chip_id != self.CHIP_ID_HDC1:
             return
         self._registers[self.REG_EP4] &= ~0x03
@@ -823,6 +913,7 @@ class TDA18271Tuner(DVBTuner):
             self._write_cached(self.REG_EB14, 1)
 
     def _set_cal_pll(self, frequency_hz: int) -> None:
+        """Calculate the chip-specific calibration PLL divider into the cache."""
         if self._chip_id is None:
             raise RuntimeError("TDA18271 is not initialized")
         frequency_khz = frequency_hz // 1000
@@ -842,6 +933,12 @@ class TDA18271Tuner(DVBTuner):
 
     @with_control_lock
     def tune(self, tuning: DVBTuning) -> None:
+        """Tune the selected TDA18271 for a supported DVB-T frequency/bandwidth.
+
+        The IF, AGC, standard and RFAGC values come from the chip-specific
+        standard map. HDC2 calibration is applied before the ordinary RF maps
+        so the measured-register refresh cannot overwrite the final map values.
+        """
         if not self.MIN_FREQUENCY_HZ <= tuning.frequency_hz <= self.MAX_FREQUENCY_HZ:
             raise ValueError("frequency is outside the TDA18271 range")
         if tuning.bandwidth_hz not in (6_000_000, 7_000_000, 8_000_000):
@@ -892,6 +989,7 @@ class TDA18271Tuner(DVBTuner):
 
     @with_control_lock
     def sleep(self) -> None:
+        """Put an initialized tuner into standby; leave an already sleeping one alone."""
         if not self._initialized or self._sleeping:
             return
         self._registers[self.REG_EP3] = (self._registers[self.REG_EP3] & 0x1F) | 0x80

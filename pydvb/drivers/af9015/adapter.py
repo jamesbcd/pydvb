@@ -1,4 +1,8 @@
-"""Logical DVB adapter composition for AF9015 receivers."""
+"""Logical DVB adapter composition for AF9015 receivers.
+
+The hardware PID operations correspond to ``af9015_pid_filter_ctrl`` and
+``af9015_pid_filter`` in ``linux/af9015.c`` (lines 1075 and 1088).
+"""
 
 from __future__ import annotations
 
@@ -25,6 +29,12 @@ class AF9015Adapter(DVBAdapter):
         control lock. Hardware PID-filter bookkeeping additionally uses the
         demuxer's PID lock; stream lifecycle and reads use separate demux
         synchronization.
+
+    Attributes:
+        frontend: AF9013 demodulator and tuner controller for this adapter.
+        demuxer: USB transport-stream reader and hardware PID-slot manager.
+        _using_hardware_pid_filter: Whether the active PID list is programmed
+            in the demodulator instead of the base class software filter.
     """
 
     frontend: AF9013Frontend
@@ -65,11 +75,12 @@ class AF9015Adapter(DVBAdapter):
                 super().configure_pid_filter(validated, enabled)
 
     def set_pid_filter_enabled(self, enabled: bool = True) -> None:
-        """Enable or disable the PID filtering.
+        """Enable or disable whichever PID filter currently holds the list.
 
-        We override the base class method to provide hardware PID filtering when available.
-        AF9015 hardware has 32 PID slots. Larger allow-lists use the unfiltered hardware
-        stream and the software filter of the base class
+        Hardware filtering is used only when the configured list fits the
+        AF9015's 32 slots; otherwise this delegates to the base software filter.
+        Linux's corresponding hardware control is
+        ``af9015_pid_filter_ctrl`` in ``linux/af9015.c:1075``.
         """
         if not ALLOW_HARDWARE_PID_FILTER:
             # Use the software filter of the base class.

@@ -1,4 +1,9 @@
-"""DVB transport-stream demuxer interface and AF9015 stream handling."""
+"""DVB transport-stream demuxer interface and AF9015 stream handling.
+
+USB stream setup corresponds to ``af9015_streaming_ctrl`` in
+``linux/af9015.c:552``. Hardware PID-slot programming corresponds to
+``af9015_pid_filter_ctrl`` and ``af9015_pid_filter`` at lines 1075 and 1088.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +27,16 @@ class AF9015Demuxer(DVBDemuxer):
         The base demuxer condition protects stream state and active reads.
         This AF9015 implementation adds a separate PID lock for hardware-slot
         state; neither lock is the device-wide frontend/control lock.
+
+    Attributes:
+        bridge: Shared AF9015 USB command bridge.
+        adapter_index: Physical demodulator/stream index, zero or one.
+        _dual_mode: Whether the receiver has two active demodulators.
+        demodulator_address: Seven-bit I2C address of this adapter's AF9013.
+        _buffer_size: Hardware buffer size in bytes selected for USB speed.
+        _hw_pid_lock: Protects the software view of PID slot assignments.
+        _hw_pid_slots: Mapping from configured PID to its hardware slot.
+        _hw_pid_filter_enabled: Whether the demodulator currently filters PIDs.
     """
 
     TS_PACKET_COUNT = 87        # Number of TS packets in the buffer for full-speed mode
@@ -39,6 +54,11 @@ class AF9015Demuxer(DVBDemuxer):
         full_speed: bool = False,
         endpoint: int = 0x84,
     ) -> None:
+        """Configure one adapter's USB endpoint and PID-filter state.
+
+        Full-speed devices use smaller transport buffers; adapter index one
+        is valid only when ``dual_mode`` is enabled.
+        """
         if adapter_index not in (0, 1) or (adapter_index == 1 and not dual_mode):
             raise ValueError("adapter_index must be 0, or 1 for a dual tuner")
         if not 0 <= demodulator_address <= 0x7F:
@@ -57,7 +77,6 @@ class AF9015Demuxer(DVBDemuxer):
         self._hw_pid_filter_enabled = False
 
     def get_config_dict(self) -> dict[str, object]:
-        """Return demuxer configuration and current state for diagnostics."""
         """Return demuxer configuration and current state for diagnostics.
 
         Threading:
@@ -82,6 +101,7 @@ class AF9015Demuxer(DVBDemuxer):
                 }
 
     def _configure_stream(self) -> None:
+        """Program per-adapter stream buffer registers and dual-mode flags."""
         stream_register = 0xDD88 if self.adapter_index == 0 else 0xDD8A
         buffer_register = 0xDD0C if self.adapter_index == 0 else 0xDD0D
         buffer_words = self.packet_count * self.TS_PACKET_SIZE // 4
@@ -91,6 +111,7 @@ class AF9015Demuxer(DVBDemuxer):
         self.bridge.update_memory_bits(0xD520, 0x10, 0x10 if self._dual_mode else 0)
 
     def _start_stream(self) -> None:
+        """Enable the selected stream path by clearing its stop/control bits."""
         if self.adapter_index == 0:
             self.bridge.update_memory_bits(0xDD13, 0x20, 0)
             self.bridge.update_memory_bits(0xDD11, 0x20, 0x20)
@@ -101,6 +122,11 @@ class AF9015Demuxer(DVBDemuxer):
             self.bridge.update_memory_bits(0xD50B, 0x02, 0)
 
     def _stop_stream(self) -> None:
+        """Pause pending reads, stop the selected stream, then drain USB reads.
+
+        The transport is always told to stop asynchronous reads, even if a
+        register write fails while shutting the stream down.
+        """
         transport = self.bridge.transport
         transport.pause_async_reads(self.endpoint)
         try:
@@ -116,6 +142,7 @@ class AF9015Demuxer(DVBDemuxer):
             transport.stop_async_reads(self.endpoint)
 
     def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
+        """Read raw transport-stream bytes from this adapter's USB endpoint."""
         return self.bridge.transport.bulk_read(self.endpoint, length, timeout_ms)
 
     def configure_one_hw_pid_filter(self, pid: int, enabled: bool = True) -> None:
@@ -158,6 +185,7 @@ class AF9015Demuxer(DVBDemuxer):
                 del self._hw_pid_slots[pid]
 
     def set_hw_pid_filter_enabled(self, enabled: bool = True) -> None:
+        """Enable or disable filtering after PID slots have been configured."""
         with self._hw_pid_lock:
             if enabled == self._hw_pid_filter_enabled:
                 return
@@ -172,11 +200,13 @@ class AF9015Demuxer(DVBDemuxer):
 
     @property
     def hw_pid_filter_enabled(self) -> bool:
+        """Return whether the demodulator's hardware PID filter is enabled."""
         with self._hw_pid_lock:
             return self._hw_pid_filter_enabled
 
     @property
     def hw_filter_pids(self) -> frozenset[int]:
+        """Return a stable snapshot of PIDs assigned to hardware slots."""
         with self._hw_pid_lock:
             return frozenset(self._hw_pid_slots)
 
@@ -241,6 +271,7 @@ class AF9015Demuxer(DVBDemuxer):
                 )
 
     def _set_hw_pid_filter_enabled(self, enabled: bool) -> None:
+        """Update the AF9013 PID-filter control bit for this adapter."""
         if self.adapter_index == 0:
             current = self.bridge.read_memory(
                 self.AF9013_PID_FILTER_CONTROL,
