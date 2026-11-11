@@ -1,4 +1,12 @@
 
+"""Build and query indexes of DVB services discovered on tuned multiplexes.
+
+The service map associates each discovered service with its tuning and
+transport-stream metadata. It can be populated directly from tunings or from a
+DVB-T scan table, and it serializes the underlying tuning/stream pairs rather
+than the derived lookup indexes.
+"""
+
 from collections.abc import Mapping
 import logging
 from pathlib import Path
@@ -24,45 +32,79 @@ logger = logging.getLogger(__name__)
 
 @serializable
 class DVBServiceMap:
+    """Index discovered DVB services by service, multiplex, and channel number.
+
+    The tuning and stream-info lists are the canonical stored data. Lookup
+    dictionaries are derived from those lists as stream information is added
+    or deserialized. Public properties expose live, read-only views of the
+    dictionaries.
+    """
+
     def __init__(self):
-        # For ease of use, we use dictionaries of triplet IDs to tunings, stream infos, and services.
-        # But for compact serialization, we also stores lists of the tunings and stream infos, and only
-        # serialize these lists. Serializating the dictionaries would produce many duplicate references
-        # to the same objects, which is unnecessary.
+        """Create empty service indexes and their read-only views."""
+        #: Canonical tuning entries, kept in the same order as
+        #: ``_stream_info_list`` for efficientserialization and reconstruction.
+        #: (Serializing the dictionaries themselves results in excessive redundant
+        #: data and very large serialization files.)
         self._tuning_list: list[DVBTuning] = []
+        #: Canonical stream metadata entries, paired positionally with
+        #: ``_tuning_list``.
         self._stream_info_list: list[DVBStreamInfo] = []
 
-        # Dictionaries mapping triplet IDs to tunings, stream infos, and services.
+        #: Tuning associated with each service's DVB triplet identifier.
         self._tuning_dict: dict[DVBTripletID, DVBTuning] = {}
+        #: Stream metadata associated with each service's triplet identifier.
         self._stream_info_dict: dict[DVBTripletID, DVBStreamInfo] = {}
+        #: Service records indexed by their triplet identifiers.
         self._service_dict: dict[DVBTripletID, DVBService] = {}
 
-        # Dictionaries mapping doublet IDs to tunings and stream infos.
+        #: Tuning associated with each multiplex's DVB doublet identifier.
         self._doublet_tuning_dict: dict[DVBDoubletID, DVBTuning] = {}
+        #: Stream metadata associated with each multiplex's doublet identifier.
         self._doublet_stream_info_dict: dict[DVBDoubletID, DVBStreamInfo] = {}
 
-        # Dictionary mapping logical channel number to triplet ID
+        #: Service triplet identifier indexed by logical channel number.
         self._tripletID_dict: dict[int, DVBTripletID] = {}
 
         self._initialize_read_only_views()
 
     def _initialize_read_only_views(self):
-        # Read-only views of the tunings, stream infos, and services, keyed by
-        # DVBTripletIDs for convenience.
+        """Create live read-only views over the mutable lookup dictionaries.
+
+        The views reflect later dictionary updates; they are not snapshots.
+        This method is also called after deserialization to bind the views to
+        the reconstructed dictionaries.
+        """
+        #: Read-only live view of ``_tuning_dict``.
         self._read_only_tunings = MappingProxyType(self._tuning_dict)
+        #: Read-only live view of ``_stream_info_dict``.
         self._read_only_stream_infos = MappingProxyType(self._stream_info_dict)
+        #: Read-only live view of ``_service_dict``.
         self._read_only_services = MappingProxyType(self._service_dict)
+        #: Read-only live view of ``_tripletID_dict``.
         self._read_only_tripletIDs = MappingProxyType(self._tripletID_dict)
 
-        # Read-only views of the tunings and stream infos, keyed by DVBDoubletIDs for convenience.
+        #: Read-only live view of ``_doublet_tuning_dict``.
         self._read_only_doublet_tunings = MappingProxyType(self._doublet_tuning_dict)
+        #: Read-only live view of ``_doublet_stream_info_dict``.
         self._read_only_doublet_stream_infos = MappingProxyType(self._doublet_stream_info_dict)
 
     def add_stream_info(self, tuning: DVBTuning, stream_info: DVBStreamInfo):
-        '''Add a stream info and its corresponding tuning to the channel map.
-        
-        Raises ValueError if either is None.
-        '''
+        """Add a tuning and its scanned stream information to the map.
+
+        The pair is always appended to the canonical lists. Available
+        multiplex identifiers and service triplet identifiers are then added
+        to their lookup indexes. Services without a triplet identifier are
+        logged and omitted from service-level indexes; an available doublet
+        identifier is still indexed independently.
+
+        Args:
+            tuning: Tuning used to receive the multiplex.
+            stream_info: Stream metadata and services discovered on it.
+
+        Raises:
+            ValueError: If either argument is ``None``.
+        """
         if tuning is None or stream_info is None:
             raise ValueError("Tuning and stream_info must not be None.")
         
@@ -90,40 +132,65 @@ class DVBServiceMap:
 
     @property
     def tunings(self) -> Mapping[DVBTripletID, DVBTuning]:
-        '''Return a read-only map of all DVBTunings, keyed by service DVBTripletID.'''
+        """Return tunings indexed by service triplet identifier.
+
+        The returned mapping is read-only and reflects later additions to the
+        service map.
+        """
         return self._read_only_tunings
 
     @property
     def stream_infos(self) -> Mapping[DVBTripletID, DVBStreamInfo]:
-        '''Return a read-only map of all DVBStreamInfos, keyed by serviceDVBTripletID.'''
+        """Return stream metadata indexed by service triplet identifier.
+
+        The returned mapping is read-only and reflects later additions to the
+        service map.
+        """
         return self._read_only_stream_infos
 
     @property
     def services(self) -> Mapping[DVBTripletID, DVBService]:
-        '''Return a read-only map of all DVBServices, keyed by serviceDVBTripletID.'''
+        """Return services indexed by triplet identifier.
+
+        The returned mapping is read-only and reflects later additions to the
+        service map.
+        """
         return self._read_only_services
 
     @property
     def triplet_ids(self) -> Mapping[int, DVBTripletID]:
-        '''Return a read-only map of all DVBTripletIDs, keyed by logical channel number.'''
+        """Return the read-only logical-channel-number to triplet mapping."""
         return self._read_only_tripletIDs
 
     @property
     def tunings_by_doublet(self) -> Mapping[DVBDoubletID, DVBTuning]:
-        '''Return a read-only map of all DVBTunings, keyed by DVBDoubletID.'''
+        """Return tunings indexed by multiplex doublet identifier.
+
+        The returned mapping is read-only and reflects later additions to the
+        service map.
+        """
         return self._read_only_doublet_tunings
 
     @property
     def stream_infos_by_doublet(self) -> Mapping[DVBDoubletID, DVBStreamInfo]:
-        '''Return a read-only map of all DVBStreamInfos, keyed by DVBDoubletID.'''
+        """Return stream metadata indexed by multiplex doublet identifier.
+
+        The returned mapping is read-only and reflects later additions to the
+        service map.
+        """
         return self._read_only_doublet_stream_infos
 
     def services_sorted(self, key=None) -> list[DVBService]:
-        '''Return a sorted list of all DVB services in the channel map.
-        
-        If no key function is provided, services are sorted by logical channel number,
-        with services lacking an LCN appearing last, and then by triplet ID.
-        '''
+        """Return services sorted by a supplied key or their default ordering.
+
+        The default places services with logical channel numbers first,
+        ascending by number, and then sorts by triplet identifier, placing
+        services without one last. If ``key`` is provided, it is passed
+        directly to :func:`sorted` instead.
+
+        Args:
+            key: Optional sort-key function applied to each service.
+        """
         if key is None:
             key = lambda service: (service.logical_channel_number is None,
                                    service.logical_channel_number,
@@ -133,17 +200,28 @@ class DVBServiceMap:
 
     @property
     def lcns(self) -> list[int | None]:
-        '''Return a sorted list of all DVB logical channel numbers (LCNs) in the channel map.'''
+        """Return service logical channel numbers in ascending order.
+
+        Missing numbers are included and sorted after all numeric values.
+        """
         return sorted([service.logical_channel_number for service in self.services.values()],
                       key=lambda lcn: (lcn is None, lcn))
 
     @property
     def service_names(self) -> list[str | None]:
-        '''Return a sorted list of all DVB service names in the channel map.'''
+        """Return service names in ascending order, with missing names last."""
         return sorted([service.name for service in self.services.values()],
                       key=lambda name: (name is None, name))
 
     def _serialize(self, ctx: Context) -> dict:
+        """Return the canonical tuning/stream pairs for serialization.
+
+        Lookup dictionaries are omitted because they are derived from these
+        lists and can contain repeated references to the same objects.
+
+        Args:
+            ctx: Serialization context supplied by the serializer.
+        """
         return {
             "_tuning_list": self._tuning_list,
             "_stream_info_list": self._stream_info_list,
@@ -151,6 +229,16 @@ class DVBServiceMap:
 
     @classmethod
     def _deserialize(cls, data: object, ctx: Context) -> "DVBServiceMap":
+        """Rebuild the map's lookup indexes from serialized tuning/stream pairs.
+
+        Args:
+            data: Serialized representation containing the canonical lists.
+            ctx: Deserialization context supplied by the serializer.
+
+        Returns:
+            A populated service map with read-only views attached to its
+            reconstructed indexes.
+        """
         instance = cls()
         data = cast(dict, data)
         # Reconstruct internal dictionaries from the serialized lists.
@@ -170,8 +258,23 @@ def map_from_scan(
 ):
     """Parse a scan table and build a service map.
 
-    ``on_service_count`` receives cumulative service discoveries across tunings,
-    counting services found on multiple tunings once per tuning.
+    The scan table is parsed using :func:`pydvb.scan_tables.parse_table`; its
+    tunings are then scanned in order. Unsupported and malformed table blocks
+    are reported by the parser and do not prevent scanning the tunings it did
+    parse.
+
+    Args:
+        scan_table: Local scan-table path or table source accepted by the
+            scan-table parser.
+        adapter: Adapter used to tune and scan each multiplex.
+        prefer_auto: Whether the parser should prefer automatic values for
+            omitted tuning parameters.
+        on_service_count: Optional callback receiving cumulative service
+            discoveries across tunings. A service found on multiple tunings
+            is counted once for each tuning.
+
+    Returns:
+        The service map built from the tunings in the parsed table.
     """
     logger.info("Parsing scan table from %s", scan_table)
     result = parse_table(scan_table, prefer_auto=prefer_auto)
@@ -199,11 +302,30 @@ def map_from_tunings(
 ) -> DVBServiceMap:
     """Tune each channel, scan locked streams, and put the adapter to sleep.
 
-    ``on_scan_error`` is called with a scanning exception before stream cleanup,
-    allowing callers to collect diagnostics while the frontend remains awake.
-    ``on_service_count`` receives the cumulative number of services discovered
-    across the scanned tunings. Services found on multiple tunings are counted
-    once per tuning.
+    A stream scan is attempted only when tuning reports a lock. Each started
+    stream is stopped in a ``finally`` block, and the adapter is put to sleep
+    once the scan sequence finishes or fails. If sleeping fails while handling
+    another error, the original error remains primary and the sleep error is
+    attached as its cause.
+
+    Args:
+        tunings: Tuning values to try, processed in iteration order.
+        adapter: Adapter used to tune, start, stop, and sleep the receiver.
+        on_scan_error: Optional diagnostic callback invoked with an exception
+            raised while starting or scanning a locked stream, before stream
+            cleanup. If this callback itself raises, the scan exception remains
+            primary and the callback exception is attached as its cause.
+        on_service_count: Optional callback receiving cumulative discoveries.
+            Services found on multiple tunings are counted once per tuning.
+
+    Returns:
+        A service map containing metadata from successfully scanned,
+        lock-acquired tunings.
+
+    Raises:
+        Exception: Propagates tuning, scanning, cleanup, or sleep errors. If
+            sleeping fails while another error is active, the active error is
+            re-raised with the sleep error as its cause.
     """
     channel_map = DVBServiceMap()
     total_service_count = 0
