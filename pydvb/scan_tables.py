@@ -1,4 +1,10 @@
-"""Download and parse DVB scan files."""
+"""Discover, download, and parse DVB-T scan tables.
+
+Tables can be read from a local path or downloaded by filename from the
+LinuxTV scan-table repository, with the Tvheadend mirror used as a fallback.
+The parser supports both LinuxTV ``[CHANNEL]`` blocks and legacy ``T`` rows,
+and reports unsupported channel blocks separately from malformed ones.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +32,7 @@ from pydvb.driver_api.tuner import (
 logger = logging.getLogger(__name__)
 
 
+# Listing and download sources are ordered by preference; mirrors are fallbacks.
 DVB_T_SCAN_TABLES_URL = [
     "https://git.linuxtv.org/dtv-scan-tables.git/tree/dvb-t",
     "https://api.github.com/repos/tvheadend/dtv-scan-tables/contents/dvb-t"
@@ -40,7 +47,15 @@ DVB_T_SCAN_TABLE_URL = [
 
 @dataclass(frozen=True, slots=True)
 class ScanTableResult:
-    """Parsed DVB tunings and counts of skipped or failed scan-table blocks."""
+    """Parsed tunings and counts of skipped or failed scan-table entries.
+
+    Attributes:
+        tunings: Tuning values parsed from supported DVB-T entries.
+        skipped_blocks: Entries intentionally ignored, such as unsupported
+            delivery systems.
+        failed_blocks: Entries that could not be parsed because their data was
+            missing or invalid.
+    """
 
     tunings: list[DVBTuning]
     skipped_blocks: int = 0
@@ -48,13 +63,16 @@ class ScanTableResult:
 
 
 class _ScanTableLinkParser(HTMLParser):
-    """Collect direct file links from the LinuxTV DVB-T directory page."""
+    """Collect unique, direct file links from the LinuxTV DVB-T directory."""
 
     def __init__(self) -> None:
+        """Initialize an empty list of discovered filenames."""
         super().__init__()
+        #: Unique filenames encountered in source order.
         self.file_names: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Record a direct DVB-T file link, ignoring folders and duplicates."""
         if tag != "a":
             return
         href = dict(attrs).get("href")
@@ -72,7 +90,13 @@ class _ScanTableLinkParser(HTMLParser):
 
 
 def known_table_names() -> list[str]:
-    """Download LinuxTV DVB-T filenames, falling back to the Tvheadend mirror."""
+    """Return available DVB-T table filenames.
+
+    Tries the LinuxTV directory first and the Tvheadend API mirror second.
+    Invalid listing content is ignored so the next source can be tried. If all
+    sources fail with HTTP/request errors, the last such error is raised; if
+    sources respond but provide no usable names, an empty list is returned.
+    """
     last_error: requests.RequestException | None = None
     for url in DVB_T_SCAN_TABLES_URL:
         try:
@@ -94,7 +118,12 @@ def known_table_names() -> list[str]:
 
 
 def _parse_table_names(response: Response) -> list[str]:
-    """Extract table filenames from a LinuxTV HTML page or mirror JSON response."""
+    """Extract filenames from a LinuxTV HTML listing or mirror JSON response.
+
+    JSON listings are recognized by their leading ``[`` and include only
+    entries marked as files with string names. Otherwise the response is
+    decoded as UTF-8 HTML and direct links are collected. Results are sorted.
+    """
     content = response.content.lstrip()
     if content.startswith(b"["):
         entries = json.loads(content)
@@ -117,10 +146,19 @@ def parse_table(scan: str | Path, prefer_auto: bool = True) -> ScanTableResult:
 
     Args:
         scan: Local path or name of a known LinuxTV DVB-T scan table.
-        prefer_auto: Whether to prefer 'auto' values when parsing.
+        prefer_auto: If true, retain only frequency and bandwidth, allowing
+            hardware to determine the other tuning parameters automatically.
 
     Returns:
-        Parsed tunings and the number of skipped and failed blocks.
+        Parsed tunings and counts of skipped and malformed entries. A local
+        file is parsed directly; otherwise its basename is tried against each
+        configured download source. A downloaded table with no tunings does
+        not prevent trying the next source.
+
+    Raises:
+        requests.RequestException: If every download source fails at the
+            request level. An unreadable or malformed response is not itself
+            raised here; the last successfully parsed result is returned.
     """
     scan_path = Path(scan)
     if scan_path.is_file():
@@ -151,7 +189,22 @@ def parse_table(scan: str | Path, prefer_auto: bool = True) -> ScanTableResult:
 
 
 def _parse_table_contents(contents: str, prefer_auto: bool) -> ScanTableResult:
-    """Parse scan-table text into DVB tuning values."""
+    """Parse scan-table text containing channel blocks or legacy ``T`` rows.
+
+    Recognized key/value fields are accumulated until the next ``[CHANNEL]``
+    marker or end of input. Unsupported delivery systems are counted as
+    skipped; invalid or incomplete supported entries are logged and counted as
+    failed. Legacy rows are parsed immediately, and malformed rows are also
+    counted as failed. Unrecognized lines and keys are ignored.
+
+    Args:
+        contents: Full decoded scan-table text.
+        prefer_auto: Whether to reduce each parsed tuning to frequency and
+            bandwidth, leaving all other parameters automatic.
+
+    Returns:
+        Tunings in input order together with skipped and failed entry counts.
+    """
     tunings: list[DVBTuning] = []
     channel: dict[str, str] = {}
     channel_line_number = 0
@@ -159,6 +212,7 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> ScanTableResult:
     failed_blocks = 0
 
     def parse_channel_block() -> None:
+        """Parse the accumulated block and update its result counters."""
         nonlocal skipped_blocks, failed_blocks
         if not channel:
             return
@@ -228,7 +282,17 @@ def _parse_table_contents(contents: str, prefer_auto: bool) -> ScanTableResult:
 
 
 def _get_from_urls(urls: Iterable[str]) -> Response:
-    """Return the first successful HTTP response from an ordered URL sequence."""
+    """Return the first successful response from an ordered sequence of URLs.
+
+    Each URL is requested with a 15-second timeout and HTTP error statuses are
+    treated as request failures. If every request fails, the last request
+    exception is raised.
+
+    Raises:
+        requests.RequestException: If one or more URLs were configured but
+            every request failed.
+        ValueError: If no URLs were supplied.
+    """
     last_error: requests.RequestException | None = None
     for url in urls:
         try:
@@ -245,7 +309,25 @@ def _get_from_urls(urls: Iterable[str]) -> Response:
 def _parse_channel(
     channel: dict[str, str], line_number: int, prefer_auto: bool
 ) -> DVBTuning | None:
-    """Convert one LinuxTV channel block into a DVB tuning value."""
+    """Convert one LinuxTV channel block into a DVB tuning value.
+
+    Non-DVB-T blocks are ignored (and logged when a delivery system is
+    specified). A DVB-T block must contain every required tuning field;
+    inversion is optional and defaults to ``auto``. Enum-like values are
+    normalized to lowercase, and modulation slashes are removed.
+
+    Args:
+        channel: Recognized key/value fields from one channel block.
+        line_number: Source line where the block began, for diagnostics.
+        prefer_auto: Whether to leave non-frequency tuning values automatic.
+
+    Returns:
+        A parsed tuning for a supported DVB-T block, or ``None`` for an empty
+        or unsupported block.
+
+    Raises:
+        ValueError: If a DVB-T block is incomplete or contains invalid values.
+    """
     if not channel:
         return None
     delivery_system = channel.get("DELIVERY_SYSTEM")
@@ -284,7 +366,10 @@ def _parse_channel(
 
 
 def _prefer_auto_values(tuning: DVBTuning) -> DVBTuning:
-    """Replace discoverable DVB-T parameters with automatic values."""
+    """Keep frequency and bandwidth while making other parameters automatic.
+
+    This constructs a new tuning rather than mutating the supplied value.
+    """
     return DVBTuning(
         frequency_hz=tuning.frequency_hz,
         bandwidth_hz=tuning.bandwidth_hz,
@@ -292,7 +377,14 @@ def _prefer_auto_values(tuning: DVBTuning) -> DVBTuning:
 
 
 def _parse_bandwidth(value: str) -> int:
-    """Convert a scan-table bandwidth token to Hz."""
+    """Convert a bandwidth token to an integer number of hertz.
+
+    ``MHz`` and ``kHz`` suffixes are case-insensitive; a value without either
+    suffix is interpreted as already being in hertz.
+
+    Raises:
+        ValueError: If the numeric portion is not an integer.
+    """
     normalized = value.lower()
     if normalized.endswith("mhz"):
         return int(normalized[:-3]) * 1_000_000
