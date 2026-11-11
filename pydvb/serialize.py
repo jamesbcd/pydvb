@@ -431,6 +431,7 @@ def serializable(cls_or_json_name: type | str, *args, **kwargs) -> Any:
         # We have to return a wrapper function that will be called with the class itself
         json_name = cls_or_json_name
         def wrapper(cls: type) -> type:
+            '''Register ``cls`` under the selected JSON type name and return it.'''
             serializer, deserializer = _get_serializers_for_decorated_class(cls)
             _registry.register(cls, serializer, deserializer, json_name)
             # We leave the underlying class unchanged
