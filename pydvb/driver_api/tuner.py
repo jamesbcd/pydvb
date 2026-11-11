@@ -1,4 +1,9 @@
-"""Reusable DVB-T tuner types and lifecycle contract."""
+"""DVB-T tuning configuration, enumerations, and tuner lifecycle contract.
+
+Concrete tuner implementations handle chipset-specific hardware, while the
+immutable :class:`DVBTuning` value object carries standard DVB-T channel
+parameters between callers and frontends/tuners.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,8 @@ from .locking import ControlLockMixin
 
 @serializable
 class SpectralInversion(str, Enum):
+    """Requested spectral inversion behavior."""
+
     AUTO = "auto"
     OFF = "off"
     ON = "on"
@@ -20,6 +27,8 @@ class SpectralInversion(str, Enum):
 
 @serializable
 class TransmissionMode(str, Enum):
+    """DVB-T OFDM transmission mode."""
+
     AUTO = "auto"
     K2 = "2k"
     K8 = "8k"
@@ -27,6 +36,8 @@ class TransmissionMode(str, Enum):
 
 @serializable
 class GuardInterval(str, Enum):
+    """DVB-T guard interval."""
+
     AUTO = "auto"
     GI_1_32 = "1/32"
     GI_1_16 = "1/16"
@@ -36,6 +47,8 @@ class GuardInterval(str, Enum):
 
 @serializable
 class Hierarchy(str, Enum):
+    """DVB-T hierarchy setting."""
+
     AUTO = "auto"
     NONE = "none"
     LEVEL_1 = "1"
@@ -45,6 +58,8 @@ class Hierarchy(str, Enum):
 
 @serializable
 class Modulation(str, Enum):
+    """DVB-T constellation/modulation."""
+
     AUTO = "auto"
     QPSK = "qpsk"
     QAM16 = "qam16"
@@ -53,6 +68,8 @@ class Modulation(str, Enum):
 
 @serializable
 class CodeRate(str, Enum):
+    """DVB-T forward-error-correction code rate."""
+
     AUTO = "auto"
     RATE_1_2 = "1/2"
     RATE_2_3 = "2/3"
@@ -71,6 +88,17 @@ class DVBTuning:
     digital television standards. Frontends may support only a subset of the
     parameters; unsupported explicit settings should be rejected by the
     frontend implementation.
+
+    Attributes:
+        frequency_hz: RF center frequency in hertz.
+        bandwidth_hz: Channel bandwidth in hertz.
+        transmission_mode: OFDM mode, or automatic selection.
+        guard_interval: Guard interval, or automatic selection.
+        hierarchy: Hierarchy level, or automatic selection.
+        modulation: Constellation, or automatic selection.
+        code_rate_hp: High-priority stream code rate.
+        code_rate_lp: Low-priority stream code rate.
+        inversion: Spectral inversion setting, or automatic selection.
     """
 
     frequency_hz: int
@@ -89,6 +117,14 @@ class DVBTuner(ControlLockMixin, ABC):
 
     The tuner normally shares its frontend's device-owned control lock so
     tuner I2C operations cannot interleave with demodulator operations.
+
+    The implementation is responsible for serializing public hardware
+    operations with the shared control lock, typically using
+    :func:`with_control_lock`.
+
+    Attributes:
+        _control_lock: Reentrant lock used to serialize tuner operations and,
+            when composed, shared with the device and frontend.
     """
 
     def __init__(self, control_lock: RLock | None = None) -> None:

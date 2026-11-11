@@ -1,4 +1,9 @@
-"""Generic frontend lifecycle and lock polling for DVB receivers."""
+"""Frontend contracts and normalized reception-status values.
+
+Chipset-specific frontends implement initialization, tuning, status, and sleep.
+The base class supplies a shareable control lock so frontend and tuner hardware
+operations can participate in their owning device's serialized control path.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,22 @@ from .locking import ControlLockMixin
 
 @dataclass(frozen=True)
 class DVBFrontendStatus:
-    """The frontend lock state and reception metrics."""
+    """The frontend lock state and optional reception metrics.
+
+    Attributes:
+        signal: Signal-detection state.
+        carrier: Carrier-detection state.
+        viterbi: Forward-error-correction/Viterbi lock state.
+        sync: Transport synchronization state.
+        lock: Overall frontend lock state.
+        signal_strength_dbm: Optional signal strength in dBm.
+        snr_db: Optional signal-to-noise ratio in dB.
+        bit_errors: Optional observed bit-error count.
+        block_errors: Optional observed block-error count.
+        bit_count: Optional number of bits represented by the error counter.
+        block_count: Optional number of blocks represented by the error
+            counter.
+    """
 
     signal: bool
     carrier: bool
@@ -32,6 +52,10 @@ class DVBFrontend(ControlLockMixin, ABC):
 
     A standalone frontend owns a private control lock. A device replaces it
     with one lock shared by all of that device's frontend and tuner objects.
+
+    Attributes:
+        adapter_index: Logical adapter index exposed by the concrete frontend.
+        tuner: Associated tuner, or ``None`` if no tuner is available.
     """
 
     adapter_index: int

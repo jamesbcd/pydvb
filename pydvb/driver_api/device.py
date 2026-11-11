@@ -1,4 +1,11 @@
-"""Generic device lifecycle and adapter operations for DVB receivers."""
+"""Base device lifecycle, firmware resolution, and adapter dispatch.
+
+Concrete devices open a USB transport, initialize chipset hardware, and
+populate the logical adapters they expose. The device owns one reentrant
+control lock shared by those adapters and their frontend/tuner components.
+Stream reads release that lock while waiting for data; demuxer synchronization
+then coordinates a concurrent stop or close.
+"""
 
 from __future__ import annotations
 
@@ -18,8 +25,21 @@ from pydvb.usb import USBDeviceID, USBDeviceInfo, USBTransport
 
 
 class DVBDevice(ABC):
-    """Provide common lifecycle and adapter operations for a DVB device."""
+    """Provide common lifecycle and adapter operations for a DVB device.
 
+    Class attributes describe supported USB models and optional firmware
+    acquisition settings for each concrete device implementation.
+
+    Attributes:
+        transport: Open USB transport used by the concrete driver.
+        device_id: USB vendor/product identity, if known.
+        _hardware_initialized: Whether subclass hardware setup has completed.
+        _control_lock: Device-wide reentrant lock shared with configured
+            adapters, frontends, and tuners.
+        adapters: Configured logical adapters owned by this device.
+    """
+
+    # Device-specific metadata used by discovery and firmware resolution.
     SUPPORTED_USB_MODELS: ClassVar[Mapping[USBDeviceID, str]] = {}
     FIRMWARE_URLS: ClassVar[tuple[str, ...]] = ()
     FIRMWARE_FILENAME: ClassVar[str | None] = None
@@ -34,10 +54,12 @@ class DVBDevice(ABC):
 
     @abstractmethod
     def is_warm(self) -> bool:
+        """Return whether the device firmware is already running."""
         ...
 
     @abstractmethod
     def log_transport_stats(self) -> None:
+        """Log implementation-specific USB transport statistics."""
         ...
 
     @abstractmethod
@@ -50,6 +72,12 @@ class DVBDevice(ABC):
         transport: USBTransport,
         device_id: USBDeviceID | None = None,
     ) -> None:
+        """Create a device wrapper around an open transport.
+
+        Args:
+            transport: Open USB transport owned and closed by this device.
+            device_id: Optional USB identity used for model lookup.
+        """
         self.transport = transport
         self.device_id = device_id
         self._hardware_initialized = False
@@ -112,12 +140,14 @@ class DVBDevice(ABC):
 
     @staticmethod
     def _matches_firmware_hash(path: Path, expected_hash: str) -> bool:
+        """Return whether ``path`` exists and matches the expected SHA-256."""
         try:
             return sha256(path.read_bytes()).hexdigest() == expected_hash
         except OSError:
             return False
 
     def _reset_device_state(self) -> None:
+        """Clear adapter configuration and mark hardware uninitialized."""
         self.adapters = []
         self._hardware_initialized = False
 
@@ -143,22 +173,27 @@ class DVBDevice(ABC):
             self._share_control_lock_with_adapter(adapter)
 
     def _require_initialized(self) -> None:
+        """Raise unless hardware setup has completed."""
         if not self._hardware_initialized:
             raise RuntimeError("call init_hardware() before using configured adapters")
 
     def _get_adapter(self, adapter_index: int) -> DVBAdapter:
+        """Return the configured adapter at ``adapter_index``."""
         if not 0 <= adapter_index < len(self.adapters):
             raise ValueError(f"adapter_index {adapter_index} is not configured")
         return self.adapters[adapter_index]
 
     def __enter__(self) -> DVBDevice:
+        """Return this device for use as a context manager."""
         return self
 
     def __exit__(self, _exception_type: object, _exception: object, _traceback: object) -> None:
+        """Close the device when leaving its context."""
         self.close()
 
     @property
     def adapter_count(self) -> int:
+        """Return the configured adapter count after hardware initialization."""
         with self._control_lock:
             self._require_initialized()
             return len(self.adapters) or 1

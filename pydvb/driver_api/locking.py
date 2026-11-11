@@ -1,4 +1,9 @@
-"""Reusable locking helpers for hardware driver objects."""
+"""Shared reentrant control-lock support for composable hardware objects.
+
+Standalone objects create their own lock; device composition can bind related
+objects to one device-owned lock. The decorator is intended for public
+hardware-control methods, including nested calls that need reentrancy.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,10 @@ class ControlLockMixin:
     An object created on its own owns its private lock. A device may replace
     that lock with the device-owned lock so related hardware objects serialize
     as one control domain.
+
+    Attributes:
+        _control_lock: Reentrant lock protecting this object's control
+            operations, optionally shared with its owner.
     """
 
     def __init__(self, control_lock: RLock | None = None) -> None:
@@ -45,9 +54,17 @@ def with_control_lock(method: Callable[..., Any]) -> Callable[..., Any]:
 
     Driver implementers apply this decorator to public hardware operations;
     application callers invoke the resulting method normally.
+
+    Args:
+        method: Instance method whose body should run under
+            ``self._control_lock``.
+
+    Returns:
+        A wrapped method that acquires the shared lock before calling ``method``.
     """
     @wraps(method)
     def locked_method(self: ControlLockMixin, *args: Any, **kwargs: Any) -> Any:
+        """Run the wrapped hardware operation under the shared control lock."""
         with self._control_lock:
             return method(self, *args, **kwargs)
 

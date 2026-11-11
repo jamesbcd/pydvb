@@ -1,4 +1,9 @@
-"""Reusable DVB transport-stream demuxer functionality."""
+"""Base transport-stream buffering, synchronization, and read lifecycle.
+
+Concrete demuxers implement the hardware-specific stream configuration,
+start/stop, and raw-read hooks. This base class aligns the raw byte stream to
+MPEG transport packets and synchronizes active reads with stream shutdown.
+"""
 
 from abc import ABC, abstractmethod
 from threading import Condition
@@ -10,13 +15,37 @@ class DVBDemuxer(ABC):
     Demuxer state and active-read synchronization are intentionally separate
     from the device frontend/control lock so ``stop()`` can interrupt a
     blocking stream read.
+
+    Attributes:
+        endpoint: Device-specific endpoint identifier used by the raw reader.
+        packet_count: Number of transport-packet-sized units requested per raw
+            read.
+        _state_condition: Protects stream state and coordinates active readers
+            with ``start()`` and ``stop()``.
+        _active_reads: Number of reads currently inside the raw-read path
+            (limited to one).
+        _running: Whether stream delivery has been started.
+        _configured: Whether the hardware stream has been configured.
+        _ts_buffer: Bytes received but not yet returned as complete,
+            synchronized transport packets.
+        _ts_synchronized: Whether packet boundaries have been found in the
+            current stream.
     """
 
+    # MPEG transport-stream framing and the minimum run used to establish it.
     TS_PACKET_SIZE = 188
     MPEG_TS_SYNC_BYTE = 0x47
     SYNC_PACKET_COUNT = 4
 
     def __init__(self, endpoint: int, packet_count: int) -> None:
+        """Create a demuxer for a device stream endpoint.
+
+        Args:
+            endpoint: Device-specific endpoint identifier passed to
+                ``_read_stream_raw``.
+            packet_count: Number of 188-byte packet lengths requested for each
+                raw read.
+        """
         self.endpoint = endpoint
         self.packet_count = packet_count
         self._state_condition = Condition()
@@ -27,6 +56,10 @@ class DVBDemuxer(ABC):
         self._ts_synchronized = False
 
     def start(self) -> None:
+        """Configure once, clear buffered framing state, and start streaming.
+
+        Waits for any active read to finish before resetting the stream.
+        """
         with self._state_condition:
             while self._active_reads:
                 self._state_condition.wait()
@@ -40,10 +73,15 @@ class DVBDemuxer(ABC):
 
     @property
     def running(self) -> bool:
+        """Return whether stream delivery is currently active."""
         with self._state_condition:
             return self._running
 
     def stop(self) -> None:
+        """Stop delivery after any active raw read has returned.
+
+        A stopped demuxer discards data returned late by an in-flight read.
+        """
         with self._state_condition:
             if not self._running:
                 return
@@ -107,13 +145,21 @@ class DVBDemuxer(ABC):
                 self._state_condition.notify_all()
 
     @abstractmethod
-    def _configure_stream(self) -> None: ...
+    def _configure_stream(self) -> None:
+        """Configure device-specific stream parameters before the first start."""
+        ...
 
     @abstractmethod
-    def _start_stream(self) -> None: ...
+    def _start_stream(self) -> None:
+        """Enable the device-specific stream endpoint."""
+        ...
 
     @abstractmethod
-    def _stop_stream(self) -> None: ...
+    def _stop_stream(self) -> None:
+        """Disable the device-specific stream endpoint."""
+        ...
 
     @abstractmethod
-    def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes: ...
+    def _read_stream_raw(self, length: int, timeout_ms: int) -> bytes:
+        """Read up to ``length`` raw bytes, respecting the supplied timeout."""
+        ...

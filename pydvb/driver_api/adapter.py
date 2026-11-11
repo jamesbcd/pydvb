@@ -1,4 +1,11 @@
-"""Generic adapter protocol for DVB receivers."""
+"""Adapter-level coordination of DVB frontend control and stream delivery.
+
+An adapter serializes frontend and demux lifecycle operations through its
+control lock, while the demuxer manages its own blocking read lifecycle.
+Software PID filtering is applied to demuxed, packet-aligned transport-stream
+data unless a device-specific adapter replaces that behavior with hardware
+filtering.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +30,18 @@ class DVBAdapter:
     The adapter's control lock is normally replaced by its owning device's
     lock. The demuxer retains separate locks for stream lifecycle and PID
     bookkeeping.
+
+    Attributes:
+        frontend: Frontend that performs tuning and reports reception status.
+        demuxer: Stream demuxer supplying transport-stream packets.
+        _control_lock: Reentrant lock shared with the owning device when
+            composed; serializes hardware-control operations.
+        _sw_pid_filter_lock: Protects the software PID filter configuration
+            while stream data is being processed.
+        _sw_pid_filter_pids: Immutable allow-list of 13-bit transport PIDs.
+        _sw_pid_filter_enabled: Whether the software allow-list is applied.
+        _first_sw_filter_call: Whether the next filtering pass should log the
+            current software-filter state.
     """
 
     frontend: DVBFrontend
@@ -47,35 +66,54 @@ class DVBAdapter:
 
     @property
     def adapter_index(self) -> int:
+        """Return the index assigned to this adapter by its frontend."""
         return self.frontend.adapter_index
 
     @property
     def tuner(self) -> object | None:
+        """Return the frontend's tuner, or ``None`` if it has no tuner."""
         return self.frontend.tuner
 
     def init_hardware(self) -> None:
+        """Initialize frontend hardware while holding the control lock."""
         with self._control_lock:
             self.frontend.init_hardware()
 
     def sleep(self) -> None:
+        """Put the frontend into its low-power state under the control lock."""
         with self._control_lock:
             self.frontend.sleep()
 
     def tune(self, tuning: Any, wait_for_lock: bool = True) -> Any:
+        """Tune the frontend, rejecting changes while stream delivery is active.
+
+        Args:
+            tuning: Device/frontend-specific tuning configuration.
+            wait_for_lock: Whether the frontend should wait for reception lock.
+
+        Returns:
+            The frontend's tuning result.
+
+        Raises:
+            RuntimeError: If the demuxer is currently running.
+        """
         with self._control_lock:
             if getattr(self.demuxer, "running", False):
                 raise RuntimeError("stop the adapter before tuning")
             return self.frontend.tune(tuning, wait_for_lock)
 
     def read_status(self) -> Any:
+        """Return the frontend's current reception status."""
         with self._control_lock:
             return self.frontend.read_status()
 
     def start(self) -> None:
+        """Start transport-stream delivery through the demuxer."""
         with self._control_lock:
             self.demuxer.start()
 
     def stop(self) -> None:
+        """Stop stream delivery and disable software PID filtering."""
         with self._control_lock:
             self.demuxer.stop()
             self.set_pid_filter_enabled(False)
@@ -87,6 +125,16 @@ class DVBAdapter:
         packets. It returns only complete, 188-byte packets; empty chunks are
         retried here so adapter callers receive usable stream data or a
         timeout error.
+
+        Args:
+            timeout_ms: Total time allowed for a non-empty result.
+
+        Returns:
+            Non-empty transport-stream bytes, filtered when configured.
+
+        Raises:
+            ValueError: If ``timeout_ms`` is negative.
+            TimeoutError: If no non-empty data arrives before the deadline.
         """
         if timeout_ms < 0:
             raise ValueError("timeout_ms must be non-negative")
@@ -105,7 +153,16 @@ class DVBAdapter:
         """Atomically configure the PID allow-list, and enable or disable PID filtering.
 
         This base class provides software PID filtering functionality.
-        Subclasses may override this method to provide hardware PID filtering."""
+        Subclasses may override this method to provide hardware PID filtering.
+
+        Args:
+            pids: Iterable of transport-stream PIDs in the inclusive range
+                0 through ``0x1FFF``.
+            enabled: Whether filtering should be enabled after configuration.
+
+        Raises:
+            ValueError: If any PID is outside the valid range.
+        """
         with self._control_lock:
             with self._sw_pid_filter_lock:
                 self._sw_pid_filter_pids = self._validate_pids(pids)
@@ -116,7 +173,11 @@ class DVBAdapter:
         """Enable or disable the PID filtering.
 
         This base class provides software PID filtering functionality.
-        Subclasses may override this method to provide hardware PID filtering."""
+        Subclasses may override this method to provide hardware PID filtering.
+
+        Args:
+            enabled: Whether to apply the currently configured PID allow-list.
+        """
         with self._control_lock:
             with self._sw_pid_filter_lock:
                 self._sw_pid_filter_enabled = enabled
@@ -124,14 +185,14 @@ class DVBAdapter:
 
     @staticmethod
     def _validate_pids(pids: Iterable[int]) -> frozenset[int]:
+        """Validate and freeze a collection of 13-bit transport PIDs."""
         pid_set = frozenset(pids)
         if any(not isinstance(pid, int) or not 0 <= pid <= 0x1FFF for pid in pid_set):
             raise ValueError("PID must be between 0 and 0x1FFF")
         return pid_set
 
     def _filter_pid_stream(self, data: bytes) -> bytes:
-        """ Software PID filter. Returns complete packets whose PID is in the
-        configured allow-list.
+        """Apply the software filter and return packets with an allowed PID.
 
         ``data`` is expected to be packet-aligned and to contain only complete
         packets, as provided by :meth:`DVBDemuxer.read_stream_once`. Any
