@@ -1,4 +1,19 @@
-"""HTTP serving for live MPEG transport streams."""
+"""Serve mapped DVB services as live MPEG transport streams over HTTP.
+
+The root and ``/playlist.m3u8`` endpoints return an M3U playlist; each
+``/service/X.Y.Z`` endpoint streams the selected service as chunked
+``video/mp2t``. Clients for services on the same multiplex share one tuned
+adapter session, while each client receives only its service's transport
+stream PIDs. Bounded per-client queues prevent a slow client from blocking
+other subscribers; when full, the oldest queued block is discarded.
+
+The session producer can also feed a separate bounded queue to a DVB EIT
+scanner (i.e. program guide information). Scans run in bounded bursts
+with configurable pauses so event discovery does not block stream delivery.
+
+Module constants define adapter lease retry timing and event-scanner queue,
+history, burst-duration, and pause defaults.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +55,18 @@ EVENT_SCAN_PAUSE_SECONDS = 150.0
 
 @dataclass(eq=False)
 class _StreamSubscriber:
+    """Track one service client and queue its filtered transport-stream data.
+
+    Attributes:
+        pids: Transport-stream packet identifiers to forward to this client.
+        output: Bounded queue of filtered byte blocks waiting for the client.
+        peer: Remote address formatted as ``host:port``, if known.
+        service_name: Display name used by client-status reporting.
+        service_id: Dotted DVB triplet identifying the selected service.
+        connected_at: Monotonic time when this subscriber was created.
+        bytes_sent: Number of payload bytes successfully written to the client.
+    """
+
     pids: frozenset[int]
     output: Queue[bytes]
     peer: str = ""
@@ -51,7 +78,15 @@ class _StreamSubscriber:
 
 @dataclass(frozen=True)
 class HTTPClientStatus:
-    """Immutable snapshot of one connected HTTP stream client."""
+    """Immutable snapshot of one connected HTTP stream client.
+
+    Attributes:
+        peer: Remote address formatted as ``host:port``.
+        service_name: Display name of the subscribed service.
+        service_id: Dotted DVB triplet identifying the service.
+        bytes_sent: Payload bytes written successfully to the client.
+        connected_seconds: Elapsed connection time at snapshot creation.
+    """
 
     peer: str
     service_name: str
@@ -62,6 +97,21 @@ class HTTPClientStatus:
 
 @dataclass(eq=False)
 class _MultiplexSession:
+    """Own one adapter tuned to a multiplex and its service subscribers.
+
+    Attributes:
+        adapter: Adapter leased for this multiplex until the producer exits.
+        tuning: Tuning parameters used when starting the session.
+        stream_info: Services and multiplex identity associated with the stream.
+        subscribers: Live clients receiving services from this multiplex.
+        pid_routes: Snapshot routing each packet PID to interested subscribers.
+        stop_event: Signals the producer to stop and release the adapter.
+        ready_event: Signals that startup succeeded or failed.
+        done_event: Signals that cleanup and adapter release have completed.
+        startup_error: Startup/producer exception, if one was raised.
+        producer: Thread reading and distributing transport-stream chunks.
+    """
+
     adapter: DVBAdapter
     tuning: DVBTuning
     stream_info: DVBStreamInfo
@@ -75,7 +125,30 @@ class _MultiplexSession:
 
 
 class LocalTS_HTTPServer:
-    """Serve mapped DVB services using a pool of available adapters."""
+    """Serve mapped DVB services using a pool of available adapters.
+
+    The listening socket is bound during construction. Call
+    :meth:`serve_forever` to process requests, :meth:`shutdown` to stop that
+    loop from another thread, and :meth:`close` to stop stream sessions and
+    release the socket.
+
+    Attributes:
+        service_map: Service, tuning, and multiplex information used by routes.
+        client_queue_size: Maximum queued output blocks retained per client.
+        buffer_log: Retained compatibility/configuration flag; it does not
+            currently change stream processing.
+        scan_dvb_events: Whether multiplex sessions scan DVB event information.
+        event_scan_pause_seconds: Pause between event-scan bursts.
+        event_scan_max_duration_seconds: Maximum duration of one scan burst.
+        evict_oldest_on_exhaustion: Whether a new multiplex request stops the
+            oldest active multiplex when all adapters are leased.
+        httpd: Underlying threaded HTTP server bound to the requested address.
+        _available_adapters: Adapters not currently leased to a session.
+        _sessions: Active session by multiplex identity, for session reuse.
+        _active_sessions: Active sessions in creation order, used for eviction.
+        _adapters_condition: Lock/condition protecting adapter and session state.
+        _stop_event: Signals the server and its request handlers to stop streams.
+    """
 
     def __init__(
         self,
@@ -94,6 +167,26 @@ class LocalTS_HTTPServer:
         event_scan_pause_seconds: float = EVENT_SCAN_PAUSE_SECONDS,
         event_scan_max_duration_seconds: float = EVENT_SCAN_MAX_DURATION_SECONDS,
     ) -> None:
+        """Bind an HTTP listener and configure adapter and event-scan policies.
+
+        Args:
+            adapters: Adapters available to serve multiplexes.
+            service_map: Mapping from DVB services to tuning and stream data.
+            host: Interface address on which to bind the HTTP listener.
+            port: TCP port to bind; ``0`` asks the operating system to select it.
+            client_queue_size: Positive maximum output blocks buffered per client.
+            buffer_log: Compatibility option retained for callers; currently
+                has no effect on stream processing.
+            scan_dvb_events: Whether to scan event information from stream data.
+            evict_oldest_on_exhaustion: Stop the oldest active multiplex when
+                all adapters are leased instead of only waiting for an adapter.
+            event_scan_pause_seconds: Non-negative pause between scan bursts.
+            event_scan_max_duration_seconds: Positive time limit per scan burst.
+
+        Raises:
+            ValueError: If a port, queue size, or event-scan option is invalid.
+            OSError: If the listening socket cannot be bound.
+        """
         if not 0 <= port <= 65535:
             raise ValueError("port must be between 0 and 65535")
         if client_queue_size <= 0:
@@ -132,13 +225,17 @@ class LocalTS_HTTPServer:
 
     @property
     def address(self) -> tuple[str, int]:
-        """Return the address selected by the operating system."""
+        """Return the bound host and port, including an OS-selected port."""
         address = self.httpd.server_address
         return cast(str, address[0]), address[1]
 
     @property
     def client_statuses(self) -> tuple[HTTPClientStatus, ...]:
-        """Return a thread-safe snapshot of active HTTP stream clients."""
+        """Return immutable status snapshots for current stream subscribers.
+
+        The snapshot is collected while holding the session-state lock; later
+        subscriber changes do not mutate the returned tuple or its entries.
+        """
         now = monotonic()
         with self._adapters_condition:
             return tuple(
@@ -154,7 +251,11 @@ class LocalTS_HTTPServer:
             )
 
     def start(self) -> None:
-        """Mark the server ready to accept service requests."""
+        """Retain the lifecycle hook expected by callers; no action is needed.
+
+        The socket is bound during construction and the request loop is started
+        separately by :meth:`serve_forever`.
+        """
 
     def serve_forever(self) -> None:
         """Serve HTTP requests until ``shutdown()`` is called from another thread.
@@ -202,6 +303,18 @@ class LocalTS_HTTPServer:
         service_name: str = "",
         service_id: str = "",
     ) -> tuple[_MultiplexSession, _StreamSubscriber] | None:
+        """Join or create the session for a multiplex and add a subscriber.
+
+        Adapter acquisition waits for at most
+        :data:`ADAPTER_LEASE_RETRY_TIMEOUT`, waking periodically as adapters
+        are released. Requests for the same running multiplex share its
+        producer; if configured, exhaustion can instead stop the oldest
+        active multiplex. Returns ``None`` if acquisition times out, shutdown
+        begins, or the producer thread cannot be started.
+
+        The adapter/session condition must protect all changes to shared
+        adapter and session bookkeeping.
+        """
         doublet_id = stream_info.doublet_id
         if doublet_id is None:
             raise ValueError("stream info must identify its multiplex")
@@ -294,6 +407,7 @@ class LocalTS_HTTPServer:
         service_name: str = "",
         service_id: str = "",
     ) -> _StreamSubscriber:
+        """Create and register a subscriber while holding the session lock."""
         subscriber = _StreamSubscriber(
             pids=pids,
             output=Queue(maxsize=self.client_queue_size),
@@ -307,6 +421,11 @@ class LocalTS_HTTPServer:
 
     @staticmethod
     def _refresh_pid_routes_locked(session: _MultiplexSession) -> None:
+        """Rebuild the session's immutable per-PID subscriber routing snapshot.
+
+        Call while holding the adapter/session condition so routing changes
+        are published consistently with subscriber membership changes.
+        """
         routes: dict[int, list[_StreamSubscriber]] = {}
         for subscriber in session.subscribers:
             for pid in subscriber.pids:
@@ -318,6 +437,7 @@ class LocalTS_HTTPServer:
     def _unsubscribe(
         self, session: _MultiplexSession, subscriber: _StreamSubscriber
     ) -> None:
+        """Remove a client and stop its session when it was the last subscriber."""
         with self._adapters_condition:
             if subscriber not in session.subscribers:
                 return
@@ -333,12 +453,22 @@ class LocalTS_HTTPServer:
         subscriber: _StreamSubscriber,
         count: int,
     ) -> None:
-        """Update delivered-byte telemetry while holding the session lock."""
+        """Add successfully written payload bytes to a live client's telemetry.
+
+        Updates are ignored if the subscriber has already been removed.
+        """
         with self._adapters_condition:
             if subscriber in session.subscribers:
                 subscriber.bytes_sent += count
 
     def _run_session(self, session: _MultiplexSession) -> None:
+        """Tune an adapter, distribute chunks, and release all session resources.
+
+        Startup failures are stored on the session for waiting request handlers
+        and logged. The ``finally`` block signals readiness, stops optional
+        event scanning, stops and sleeps the adapter, removes session state,
+        returns the adapter to the pool, and signals completion.
+        """
         dvb_event_scan_queue: Queue[bytes] | None = None
         dvb_event_scan_stop = Event()
         dvb_event_scanner: Thread | None = None
@@ -362,6 +492,7 @@ class LocalTS_HTTPServer:
             )
 
             def sync_dvb_event_scanner() -> None:
+                """Start, retain, or stop the optional event-scanner worker."""
                 nonlocal dvb_event_scan_queue, dvb_event_scan_stop, dvb_event_scanner
                 if not session.stream_info.services:
                     return
@@ -446,7 +577,13 @@ class LocalTS_HTTPServer:
         scan_queue: Queue[bytes],
         stop_event: Event,
     ) -> None:
-        """Scan queued chunks in bursts, pausing between complete multiplex scans."""
+        """Scan queued chunks in bounded bursts with pauses between bursts.
+
+        A burst ends when all services have event data, the duration limit is
+        reached, or shutdown is requested. Chunks accumulated during a pause
+        are discarded before the next burst so scanning resumes on recent data.
+        Scanner errors are logged without terminating the stream producer.
+        """
         scan_durations: deque[float] = deque(maxlen=EVENT_SCAN_DURATION_HISTORY_SIZE)
         try:
             while not stop_event.is_set():
@@ -557,7 +694,7 @@ class LocalTS_HTTPServer:
         chunks_received: int,
         bytes_received: int,
     ) -> None:
-        """Log event scanner counters for one burst."""
+        """Log packet, section, service-match, readiness, and update counters."""
         total_services = len(scanner.events)
         ready_services = total_services - len(scanner.pending_services)
         logger.info(
@@ -585,7 +722,11 @@ class LocalTS_HTTPServer:
         current_event: DVBEvent | None,
         next_event: DVBEvent | None,
     ) -> None:
-        """Apply one scanner event snapshot to the corresponding mapped service."""
+        """Replace the mapped service's current and next event snapshots.
+
+        A scanner result for a service absent from the current service map is
+        ignored after a warning.
+        """
         service = self.service_map.services.get(triplet_id)
         if service is None:
             logger.warning("Cannot apply DVB events for unmapped service %s", triplet_id)
@@ -595,7 +736,7 @@ class LocalTS_HTTPServer:
 
     @staticmethod
     def _discard_dvb_event_scan_chunks(scan_queue: Queue[bytes]) -> None:
-        """Discard chunks accumulated while a completed event scan was paused."""
+        """Drain currently queued chunks, preserving any future arrivals."""
         for _ in range(scan_queue.qsize()):
             try:
                 scan_queue.get_nowait()
@@ -604,7 +745,11 @@ class LocalTS_HTTPServer:
 
     @staticmethod
     def _enqueue_dvb_event_scan_chunk(scan_queue: Queue[bytes], chunk: bytes) -> None:
-        """Enqueue a chunk without blocking stream delivery, dropping stale scan data."""
+        """Queue a scan chunk without blocking stream delivery.
+
+        On overflow, discard one oldest chunk and retry once with the newest
+        chunk; if the retry still fails, drop the new chunk as well.
+        """
         try:
             scan_queue.put_nowait(chunk)
         except Full:
@@ -618,6 +763,12 @@ class LocalTS_HTTPServer:
                 logger.debug("Dropping transport-stream chunk from event scan queue")
 
     def _route_stream_chunk(self, session: _MultiplexSession, chunk: bytes) -> None:
+        """Filter complete 188-byte TS packets and queue blocks for each client.
+
+        Trailing bytes that do not form a complete packet are ignored. Each
+        subscriber's interested packets are coalesced into one block per input
+        chunk before entering its bounded output queue.
+        """
         packet_size = 188
         packet_end = len(chunk) - len(chunk) % packet_size
         routes = session.pid_routes
@@ -637,6 +788,7 @@ class LocalTS_HTTPServer:
 
     @staticmethod
     def _enqueue_output(subscriber: _StreamSubscriber, output: bytes) -> None:
+        """Queue a client's output block, dropping the oldest block on overflow."""
         try:
             subscriber.output.put_nowait(output)
         except Full:
@@ -650,6 +802,12 @@ class LocalTS_HTTPServer:
                 pass
 
     def _playlist(self, base_url: str) -> bytes:
+        """Build a UTF-8 M3U playlist rooted at ``base_url``.
+
+        Services are emitted in service-map order; entries without a triplet
+        are skipped, missing channel numbers use ``---``, and missing names use
+        ``Unnamed service``.
+        """
         lines = ["#EXTM3U"]
         for service in self.service_map.services_sorted():
             if service.triplet_id is None:
@@ -662,15 +820,29 @@ class LocalTS_HTTPServer:
 
 
 class _HTTPServer(ThreadingHTTPServer):
+    """Threaded listener that gives request handlers access to its owner.
+
+    Attributes:
+        owner: :class:`LocalTS_HTTPServer` coordinating requests and streams.
+    """
+
     allow_reuse_address = True
     daemon_threads = True
 
     def __init__(self, server_address, request_handler, owner) -> None:
+        """Store the owning service and initialize the threaded listener."""
         self.owner = owner
         super().__init__(server_address, request_handler)
 
 
 class _StreamRequestHandler(BaseHTTPRequestHandler):
+    """Handle playlist and filtered-service GET requests.
+
+    The base handler supplies the request, connection, client address, and
+    server references. For streams, this handler sets HTTP/1.1 and writes
+    payloads using HTTP chunked transfer encoding.
+    """
+
     server: BaseServer
 
     def send_error(
@@ -679,7 +851,11 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         message: str | None = None,
         explain: str | None = None,
     ) -> None:
-        """Send an HTTP error unless the client has already disconnected."""
+        """Send an HTTP error unless the client has already disconnected.
+
+        Broken pipes and connection resets during error delivery are ignored
+        because there is no remaining peer to receive the response.
+        """
         try:
             super().send_error(code, message, explain)
         except (BrokenPipeError, ConnectionResetError):
@@ -687,10 +863,19 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _log(message: str, *, level: int = logging.DEBUG) -> None:
-        """Log a handler diagnostic at the requested level."""
+        """Write a handler diagnostic through the module logger."""
         logger.log(level, message)
 
     def do_GET(self) -> None:
+        """Serve a playlist or stream one mapped service.
+
+        Playlist paths validate the ``Host`` authority before using it to
+        construct absolute URLs. Service paths parse a dotted DVB triplet,
+        resolve its service/tuning/multiplex, and subscribe to the shared
+        session. The response is chunked MPEG-TS containing only that
+        subscriber's service PIDs. Invalid, missing, or unavailable resources
+        receive the corresponding HTTP error response.
+        """
         owner = cast(_HTTPServer, self.server).owner
         path = urlsplit(self.path).path
         logger.info(
@@ -845,6 +1030,12 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
             )
 
     def _client_disconnected(self) -> bool:
+        """Return whether a non-blocking socket peek observes peer EOF.
+
+        Socket readiness without EOF is treated as still connected; transient
+        non-blocking and socket errors are likewise left for normal writes to
+        report.
+        """
         try:
             readable, _, _ = select.select([self.connection], [], [], 0)
             if not readable:
@@ -855,4 +1046,5 @@ class _StreamRequestHandler(BaseHTTPRequestHandler):
         return data == b""
 
     def log_message(self, format: str, *_args: object) -> None:
+        """Suppress the base handler's default stderr access logging."""
         return
