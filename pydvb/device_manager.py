@@ -13,7 +13,12 @@ from .usb import LibUSBError, USBDeviceID, USBDeviceInfo, enumerate_usb_devices,
 
 @dataclass(frozen=True, slots=True)
 class DeviceConnectionFailure:
-    """Describe a supported USB device that could not be opened."""
+    """Describe a supported USB device that could not be opened.
+
+    Attributes:
+        device: Enumerated USB device for which opening was attempted.
+        error: Exception raised while opening the device.
+    """
 
     device: USBDeviceInfo
     error: Exception
@@ -21,7 +26,12 @@ class DeviceConnectionFailure:
 
 @dataclass(frozen=True, slots=True)
 class DeviceRemovalFailure:
-    """Describe a detached device whose resources could not be fully closed."""
+    """Describe a detached device whose resources could not be fully closed.
+
+    Attributes:
+        device: Previously connected device that was removed from the manager.
+        error: Exception raised while closing the device.
+    """
 
     device: DVBDevice
     error: Exception
@@ -29,7 +39,16 @@ class DeviceRemovalFailure:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConnectionResult:
-    """Report successful and unsuccessful connection attempts."""
+    """Report the outcomes of a device discovery and connection pass.
+
+    Attributes:
+        connected: Devices opened during this pass.
+        unavailable: Supported devices that could not be opened, with errors.
+        unsupported: Enumerated devices excluded by the requested or registered
+            USB IDs.
+        removed: Previously connected devices no longer present during this pass.
+        removal_failures: Errors raised while closing devices reported as removed.
+    """
 
     connected: tuple[DVBDevice, ...]
     unavailable: tuple[DeviceConnectionFailure, ...]
@@ -39,13 +58,37 @@ class DeviceConnectionResult:
 
 
 class DVBDeviceManager:
-    """Register DVB drivers and connect to all matching USB devices."""
+    """Discover, open, track, and close devices supported by DVB drivers.
+
+    If no driver classes are supplied, the manager discovers the built-in
+    drivers. USB device identity is tracked by vendor ID, product ID, bus
+    number, and device address; a device moving to a different address is
+    therefore treated as a different connection.
+
+    Attributes:
+        _device_types: Driver classes registered with this manager.
+        _drivers_by_id: Mapping from each supported USB ID to its driver class.
+        _context: Lazily created libusb context used for enumeration.
+        _devices: Devices opened and currently tracked by the manager.
+        _connected_usb_addresses: USB identities currently represented in
+            ``_devices``.
+        _usb_address_by_device: USB identity for each tracked device, keyed by
+            the identity of its Python object.
+    """
 
     def __init__(
         self,
         device_types: Iterable[type[DVBDevice]] | None = None,
     ) -> None:
-        """Create a manager using built-in drivers or the supplied driver classes."""
+        """Create a manager using built-in drivers or supplied driver classes.
+
+        Args:
+            device_types: Driver classes to register. If omitted, discovers
+                built-in drivers.
+
+        Raises:
+            ValueError: If different driver classes claim the same USB ID.
+        """
         self._device_types = (
             discover_device_types() if device_types is None else tuple(device_types)
         )
@@ -56,6 +99,15 @@ class DVBDeviceManager:
         self._usb_address_by_device: dict[int, tuple[int, int, int, int]] = {}
 
     def _build_driver_index(self) -> dict[USBDeviceID, type[DVBDevice]]:
+        """Build the USB ID lookup and reject conflicting driver claims.
+
+        Returns:
+            A mapping from supported USB IDs to the driver class that opens
+            them.
+
+        Raises:
+            ValueError: If two distinct driver classes claim the same USB ID.
+        """
         drivers: dict[USBDeviceID, type[DVBDevice]] = {}
         for device_type in self._device_types:
             for device_id in device_type.SUPPORTED_USB_MODELS:
@@ -70,15 +122,30 @@ class DVBDeviceManager:
 
     @property
     def devices(self) -> tuple[DVBDevice, ...]:
-        """Return devices successfully connected by this manager."""
+        """Return a snapshot of devices currently tracked by the manager.
+
+        Returns:
+            An immutable tuple in connection order.
+        """
         return tuple(self._devices)
 
     def supported_ids(self) -> frozenset[USBDeviceID]:
-        """Return the USB IDs advertised by registered drivers."""
+        """Return the USB IDs advertised by registered drivers.
+
+        Returns:
+            An immutable set of all registered USB IDs.
+        """
         return frozenset(self._drivers_by_id)
 
     def enumerate(self) -> tuple[USBDeviceInfo, ...]:
-        """Enumerate USB devices using the manager's libusb context."""
+        """Enumerate currently attached USB devices.
+
+        Creates and retains the libusb context on the first call; ``close()``
+        releases it.
+
+        Returns:
+            The devices returned by the USB enumeration helper.
+        """
         if self._context is None:
             self._context = usb1.USBContext()
         return enumerate_usb_devices(self._context)
@@ -87,7 +154,20 @@ class DVBDeviceManager:
         self,
         ids: Collection[USBDeviceID] | None = None,
     ) -> DeviceConnectionResult:
-        """Connect to every available supported device matching optional IDs."""
+        """Attempt to open all currently attached devices matching the IDs.
+
+        Args:
+            ids: Optional allowlist of USB IDs. Defaults to all IDs supported
+                by the registered drivers.
+
+        Returns:
+            Results for connections, opening failures, unsupported devices,
+            and devices removed since the previous pass.
+
+        Note:
+            Existing connections are not skipped, so repeated calls may
+            attempt to open the same still-attached device again.
+        """
         requested_ids = self.supported_ids() if ids is None else frozenset(ids)
         return self._connect(self.enumerate(), requested_ids, only_new=False)
 
@@ -95,7 +175,16 @@ class DVBDeviceManager:
         self,
         ids: Collection[USBDeviceID] | None = None,
     ) -> DeviceConnectionResult:
-        """Connect to supported devices not already opened by this manager."""
+        """Connect to matching devices not already tracked as connected.
+
+        Args:
+            ids: Optional allowlist of USB IDs. Defaults to all IDs supported
+                by the registered drivers.
+
+        Returns:
+            Results for newly opened devices, opening failures, unsupported
+            devices, and devices removed since the previous pass.
+        """
         requested_ids = self.supported_ids() if ids is None else frozenset(ids)
         return self._connect(self.enumerate(), requested_ids, only_new=True)
 
@@ -106,7 +195,23 @@ class DVBDeviceManager:
         *,
         only_new: bool,
     ) -> DeviceConnectionResult:
-        """Open matching enumerated devices, optionally skipping existing connections."""
+        """Reconcile tracked connections and open matching enumerated devices.
+
+        Previously tracked devices absent from the enumeration are removed
+        first. Devices whose IDs are outside ``requested_ids`` or lack a
+        registered driver are reported as unsupported. Opening exceptions in
+        the expected USB, operating-system, and device-validation categories
+        are recorded as unavailable rather than aborting the pass.
+
+        Args:
+            devices: Snapshot of currently enumerated USB devices.
+            requested_ids: USB IDs allowed in this connection pass.
+            only_new: If true, skip devices whose USB identity is already
+                connected; otherwise attempt to open every matching device.
+
+        Returns:
+            The outcomes of this connection and removal pass.
+        """
         connected: list[DVBDevice] = []
         unavailable: list[DeviceConnectionFailure] = []
         unsupported: list[USBDeviceInfo] = []
@@ -154,7 +259,18 @@ class DVBDeviceManager:
         )
 
     def remove_device(self, device: DVBDevice) -> DeviceRemovalFailure | None:
-        """Forget and close one device known to have been disconnected."""
+        """Forget and close a device, usually after it has disappeared.
+
+        An unknown device is ignored. A known device is removed from manager
+        tracking before ``close()`` is called, so a close error does not leave
+        it marked as connected.
+
+        Args:
+            device: Device instance to remove.
+
+        Returns:
+            A ``DeviceRemovalFailure`` if closing raises, otherwise ``None``.
+        """
         device_index = next(
             (
                 index
@@ -177,7 +293,14 @@ class DVBDeviceManager:
 
     @staticmethod
     def _usb_address(device: USBDeviceInfo) -> tuple[int, int, int, int]:
-        """Return the identity for one device at its current USB bus address."""
+        """Return the identity for a device at its current USB bus address.
+
+        Args:
+            device: Enumerated USB device to identify.
+
+        Returns:
+            A tuple of vendor ID, product ID, bus number, and device address.
+        """
         return (
             device.vendor_id,
             device.product_id,
@@ -186,7 +309,12 @@ class DVBDeviceManager:
         )
 
     def close(self) -> None:
-        """Close connected devices and release the manager's libusb context."""
+        """Close tracked devices and release the libusb context.
+
+        Attempts to close devices in reverse connection order. If a device
+        raises while closing, iteration stops; tracking state is still cleared
+        and release of the context is attempted. Cleanup exceptions propagate.
+        """
         try:
             for device in reversed(self._devices):
                 device.close()
@@ -199,7 +327,14 @@ class DVBDeviceManager:
                 self._context = None
 
     def __enter__(self) -> "DVBDeviceManager":
+        """Return this manager for use as a context manager."""
         return self
 
     def __exit__(self, _exception_type: object, _exception: object, _traceback: object) -> None:
+        """Close managed devices and the libusb context when leaving a block.
+
+        The exception details from the ``with`` block are accepted to satisfy
+        the context-manager protocol; cleanup behavior is the same whether or
+        not the block raised.
+        """
         self.close()
