@@ -11,7 +11,9 @@ from time import monotonic, sleep
 from typing import Any, Callable, cast
 
 
-from pydvb import usb, serialize
+from simple_serialize import load, save
+
+from pydvb import usb
 from pydvb.device_manager import DVBDeviceManager
 from pydvb.driver_api.device import DVBDevice
 from pydvb.driver_api.tuner import DVBTuning, GuardInterval, Hierarchy, Modulation, TransmissionMode, CodeRate
@@ -348,7 +350,7 @@ def _run_device(device: DVBDevice, args) -> int:
         return 0 if all(locks_acquired) else 2
 
     if args.load_services is not None:
-        channel_map = cast(DVBServiceMap, serialize.load(args.load_services))
+        channel_map = cast(DVBServiceMap, load(args.load_services))
     else:
         # Perform a scan to create a channel map
         channel_map = map_from_tunings(
@@ -360,7 +362,7 @@ def _run_device(device: DVBDevice, args) -> int:
         )
 
     if args.save_services is not None:
-        serialize.save(channel_map, args.save_services)
+        save(channel_map, args.save_services)
 
     if args.command == "scan":
         # Print the results of the channel scan

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
 
-from pydvb.serialize import serializable
+from simple_serialize import serializable
 from .locking import ControlLockMixin
 
 

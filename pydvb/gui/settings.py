@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from os import PathLike
 
+from simple_serialize import load, save, serializable
+
 from pydvb.driver_api.tuner import DVBTuning
-from pydvb.serialize import load, save, serializable
 from pydvb.service_map import DVBServiceMap
 
 

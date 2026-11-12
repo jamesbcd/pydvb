@@ -71,7 +71,7 @@ def test_gui_settings_reject_invalid_values(field, value, message):
 
 
 def test_load_settings_rejects_another_serializable_type(tmp_path):
-    from pydvb.serialize import save
+    from simple_serialize import save
 
     path = tmp_path / "not-settings.pydvb"
     save(DVBServiceMap(), path)

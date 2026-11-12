@@ -658,7 +658,7 @@ def test_scan_loads_services_without_tuning_or_scan_table(monkeypatch, tmp_path)
     channel_map = SimpleNamespace(services_sorted=lambda: [])
     install_fake_manager(monkeypatch, device)
     monkeypatch.setattr(
-        __main__.serialize,
+        __main__,
         "load",
         lambda path: channel_map if path == services_path else pytest.fail("unexpected path"),
     )
@@ -857,7 +857,7 @@ def test_serve_passes_event_decode_to_server(monkeypatch, event_decode):
             pass
 
     monkeypatch.setattr(__main__, "LocalTS_HTTPServer", FakeServer)
-    monkeypatch.setattr(__main__.serialize, "load", lambda _path: object())
+    monkeypatch.setattr(__main__, "load", lambda _path: object())
     args = SimpleNamespace(
         command="serve",
         adapter_index=0,

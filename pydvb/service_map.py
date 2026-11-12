@@ -13,10 +13,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Collection, cast
 
+from simple_serialize import serializable
+
 from pydvb.driver_api.adapter import DVBAdapter
 from pydvb.driver_api.tuner import DVBTuning
 from pydvb.scan_tables import parse_table
-from pydvb.serialize import Context, serializable, standard_serializer
 from pydvb.stream_scanner import (
     DVBScanner,
     DVBStreamInfo,
@@ -30,7 +31,7 @@ from pydvb.stream_scanner import (
 logger = logging.getLogger(__name__)
 
 
-@serializable
+@serializable(select=["_tuning_list", "_stream_info_list"])
 class DVBServiceMap:
     """Index discovered DVB services by service, multiplex, and channel number.
 
@@ -213,22 +214,10 @@ class DVBServiceMap:
         return sorted([service.name for service in self.services.values()],
                       key=lambda name: (name is None, name))
 
-    def _serialize(self, ctx: Context) -> dict:
-        """Return the canonical tuning/stream pairs for serialization.
-
-        Lookup dictionaries are omitted because they are derived from these
-        lists and can contain repeated references to the same objects.
-
-        Args:
-            ctx: Serialization context supplied by the serializer.
-        """
-        return {
-            "_tuning_list": self._tuning_list,
-            "_stream_info_list": self._stream_info_list,
-        }
-
     @classmethod
-    def _deserialize(cls, data: object, ctx: Context) -> "DVBServiceMap":
+    def _deserialize(
+        cls, data: object, options: dict[str, object], ctx: object | None
+    ) -> "DVBServiceMap":
         """Rebuild the map's lookup indexes from serialized tuning/stream pairs.
 
         Args:

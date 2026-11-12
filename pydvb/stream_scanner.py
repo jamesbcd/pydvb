@@ -20,9 +20,9 @@ from threading import Lock
 import unicodedata
 
 from construct import Bit, BitStruct, BitsInteger
+from simple_serialize import serializable, standard_serializer
 
 from pydvb.driver_api.adapter import DVBAdapter
-from pydvb.serialize import Context, serializable, standard_serializer
 
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class DVBDescriptor:
     data: bytes
 
 
-@serializable
+@serializable(exclude=["descriptors"]) # No need to serialize the raw descriptors
 @dataclass
 class DVBElementaryStream:
     """Elementary stream entry advertised by a service's Program Map Table (PMT).
@@ -133,13 +133,6 @@ class DVBElementaryStream:
     pid: int
     stream_type: int
     descriptors: tuple[DVBDescriptor, ...] = ()
-
-    def _serialize(self, ctx: Context) -> dict:
-        """Serialize this stream while excluding raw descriptors."""
-        output = standard_serializer(self, ctx)
-        # No need to serialize the descriptors.
-        output["descriptors"] = []
-        return output
 
 
 @serializable
@@ -300,12 +293,14 @@ class DVBDoubletID(NamedTuple):
         """Format the dotted representation with the requested string format."""
         return format(self.dotted(), format_spec)
 
-    def _serialize(self, ctx: Context) -> str:
+    def _serialize(self, options: dict[str, object], ctx: object | None) -> str:
         """Serialize the ID using its dotted representation."""
         return self.dotted()
 
     @classmethod
-    def _deserialize(cls, data: object, ctx: Context) -> "DVBDoubletID":
+    def _deserialize(
+        cls, data: object, options: dict[str, object], ctx: object | None
+    ) -> "DVBDoubletID":
         """Deserialize a dotted ID, converting the input to a string first."""
         return cls.from_dotted(str(data))
 
@@ -381,17 +376,19 @@ class DVBTripletID(NamedTuple):
         """Format the dotted representation with the requested string format."""
         return format(self.dotted(), format_spec)
 
-    def _serialize(self, ctx: Context) -> str:
+    def _serialize(self, options: dict[str, object], ctx: object | None) -> str:
         """Serialize the ID using its dotted representation."""
         return self.dotted()
 
     @classmethod
-    def _deserialize(cls, data: object, ctx: Context) -> "DVBTripletID":
+    def _deserialize(
+        cls, data: object, options: dict[str, object], ctx: object | None
+    ) -> "DVBTripletID":
         """Deserialize a dotted ID, converting the input to a string first."""
         return cls.from_dotted(str(data))
 
 
-@serializable
+@serializable(exclude=["current_event", "next_event"]) # No need to serialize EIT events
 @dataclass
 class DVBService:
     """Metadata for a single DVB service (channel).
@@ -438,16 +435,8 @@ class DVBService:
             )
         )
 
-    def _serialize(self, ctx: Context) -> dict:
-        """Serialize service metadata without embedding current or next events."""
-        output = standard_serializer(self, ctx)
-        # No need to serialize the current event or the next event.
-        output["current_event"] = None
-        output["next_event"] = None
-        return output
 
-
-@serializable
+@serializable(exclude=["warnings"]) # No need to serialize long lists of warnings
 @dataclass
 class DVBStreamInfo:
     """Snapshot of metadata accumulated while scanning a transport stream.
@@ -485,13 +474,6 @@ class DVBStreamInfo:
             ),
             None,
         )
-
-    def _serialize(self, ctx: Context) -> dict:
-        """Serialize stream metadata without including non-fatal warnings."""
-        output = standard_serializer(self, ctx)
-        # No need to serialize warnings
-        output["warnings"] = []
-        return output
 
 
 class DVBScanner:
