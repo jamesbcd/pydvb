@@ -174,6 +174,18 @@ applications include the AF9015 firmware; USB permissions and hardware
 requirements are otherwise unchanged. The macOS app bundle is not signed for
 distribution; sign and notarize it as part of your release process.
 
+The Windows executable and macOS bundle use the pre-generated
+`pydvb/gui/icons/tv-play.ico` and `pydvb/gui/icons/tv-play.icns`, respectively.
+After editing `tv-play.svg`, regenerate the icons with the GUI dependencies
+installed:
+
+```sh
+python3 scripts/generate_app_icon.py
+```
+
+The ICO can be generated on any platform; the ICNS is also generated when the
+script runs on macOS.
+
 The GUI restores settings from its per-user configuration directory on launch
 and saves them on orderly exit. Settings include tuning and server preferences,
 the scanned service map, and the Configure menu toggles. Use **Open Settings**
