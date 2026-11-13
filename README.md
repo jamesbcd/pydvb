@@ -179,8 +179,8 @@ app bundle is not signed for distribution; sign and notarize it as part of your
 release process.
 
 The Windows executable and macOS bundle use the pre-generated
-`pydvb/gui/icons/tv-play.ico` and `pydvb/gui/icons/tv-play.icns`, respectively.
-After editing `tv-play.svg`, regenerate the icons with the GUI dependencies
+`pydvb/gui/icons/app.ico` and `pydvb/gui/icons/app.icns`, respectively.
+After editing `app.svg`, regenerate the icons with the GUI dependencies
 installed:
 
 ```sh

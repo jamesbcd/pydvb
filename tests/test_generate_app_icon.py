@@ -13,8 +13,8 @@ from scripts.generate_app_icon import create_macos_app_icon, create_windows_app_
 
 
 def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_path):
-    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "tv-play.svg"
-    output_path = tmp_path / "tv-play.icns"
+    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    output_path = tmp_path / "app.icns"
 
     def run_iconutil(command, *, check):
         assert check is True
@@ -48,8 +48,8 @@ def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_
 
 
 def test_create_macos_app_icon_preserves_existing_icon_on_failure(monkeypatch, tmp_path):
-    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "tv-play.svg"
-    output_path = tmp_path / "tv-play.icns"
+    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    output_path = tmp_path / "app.icns"
     output_path.write_bytes(b"existing icon")
 
     def fail_iconutil(command, *, check):
@@ -68,12 +68,12 @@ def test_create_macos_app_icon_rejects_invalid_svg(tmp_path):
     svg_path.write_text("not an SVG")
 
     with pytest.raises(ValueError, match="Could not load application icon SVG"):
-        create_macos_app_icon(svg_path, tmp_path / "tv-play.icns")
+        create_macos_app_icon(svg_path, tmp_path / "app.icns")
 
 
 def test_create_windows_app_icon_contains_rendered_images(tmp_path):
-    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "tv-play.svg"
-    output_path = tmp_path / "tv-play.ico"
+    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    output_path = tmp_path / "app.ico"
     create_windows_app_icon(svg_path, output_path)
 
     data = output_path.read_bytes()
@@ -109,7 +109,7 @@ def test_create_windows_app_icon_rejects_invalid_svg(tmp_path):
     svg_path.write_text("not an SVG")
 
     with pytest.raises(ValueError, match="Could not load application icon SVG"):
-        create_windows_app_icon(svg_path, tmp_path / "tv-play.ico")
+        create_windows_app_icon(svg_path, tmp_path / "app.ico")
 
 
 @pytest.mark.parametrize(

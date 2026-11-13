@@ -114,7 +114,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    icon=str(gui_dir / "icons" / "tv-play.ico") if is_win else None,
+    icon=str(gui_dir / "icons" / "app.ico") if is_win else None,
 )
 coll = COLLECT(
     exe,
@@ -130,5 +130,5 @@ if is_darwin:
         coll,
         name="PyDVB.app",
         bundle_identifier="org.pydvb.gui",
-        icon=str(gui_dir / "icons" / "tv-play.icns"),
+        icon=str(gui_dir / "icons" / "app.icns"),
     )

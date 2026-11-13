@@ -100,10 +100,10 @@ def create_windows_app_icon(svg_path: Path, icon_path: Path) -> None:
 def main() -> None:
     """Generate the Windows icon and, on macOS, the macOS icon."""
     icons_dir = Path(__file__).resolve().parents[1] / "pydvb" / "gui" / "icons"
-    svg_path = icons_dir / "tv-play.svg"
-    create_windows_app_icon(svg_path, icons_dir / "tv-play.ico")
+    svg_path = icons_dir / "app.svg"
+    create_windows_app_icon(svg_path, icons_dir / "app.ico")
     if sys.platform == "darwin":
-        create_macos_app_icon(svg_path, icons_dir / "tv-play.icns")
+        create_macos_app_icon(svg_path, icons_dir / "app.icns")
 
 
 if __name__ == "__main__":

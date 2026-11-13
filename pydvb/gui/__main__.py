@@ -48,7 +48,7 @@ def main() -> int:
     application.setApplicationName("PyDVB")
     application.setOrganizationName("pydvb")
     application.setWindowIcon(
-        QIcon(str(_main_qml_path().parent / "icons" / "tv-play.svg"))
+        QIcon(str(_main_qml_path().parent / "icons" / "app.svg"))
     )
 
     engine = QQmlApplicationEngine()
