@@ -29,6 +29,15 @@ def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_
             image = QImage(str(iconset / name))
             assert not image.isNull()
             assert (image.width(), image.height()) == (pixels, pixels)
+            assert all(
+                image.pixelColor(x, y).alpha() == 0
+                for x, y in (
+                    *((x, 0) for x in range(pixels)),
+                    *((x, pixels - 1) for x in range(pixels)),
+                    *((0, y) for y in range(pixels)),
+                    *((pixels - 1, y) for y in range(pixels)),
+                )
+            )
         Path(command[-2]).write_bytes(b"generated icon")
 
     monkeypatch.setattr(subprocess, "run", run_iconutil)
@@ -78,6 +87,15 @@ def test_create_windows_app_icon_contains_rendered_images(tmp_path):
         image = QImage.fromData(data[offset : offset + length], "PNG")
         assert not image.isNull()
         assert (image.width(), image.height()) == (size, size)
+        assert all(
+            image.pixelColor(x, y).alpha() == 0
+            for x, y in (
+                *((x, 0) for x in range(size)),
+                *((x, size - 1) for x in range(size)),
+                *((0, y) for y in range(size)),
+                *((size - 1, y) for y in range(size)),
+            )
+        )
         assert any(
             image.pixelColor(x, y).alpha()
             for x in range(size)

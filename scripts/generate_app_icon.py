@@ -24,7 +24,10 @@ def _render_image(renderer: QSvgRenderer, size: int) -> QImage:
     image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
-    renderer.render(painter, QRectF(0, 0, size, size))
+    padding = size / 8
+    renderer.render(
+        painter, QRectF(padding, padding, size - 2 * padding, size - 2 * padding)
+    )
     painter.end()
     return image
 
