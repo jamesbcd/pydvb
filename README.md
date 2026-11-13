@@ -160,6 +160,9 @@ python3 -m pip install -e '.[app]'
 python3 -m PyInstaller --clean pydvb.spec
 ```
 
+The CLI executable is written to `dist/pydvb/` (`pydvb` on macOS and Linux,
+`pydvb.exe` on Windows).
+
 Build the windowed GUI app:
 
 ```sh
@@ -167,12 +170,13 @@ python3 -m pip install -e '.[gui,app]'
 python3 -m PyInstaller --clean pydvb-gui.spec
 ```
 
-On macOS, the GUI build produces `dist/pydvb-gui.app`; on other platforms it
-produces a windowed executable in `dist/pydvb-gui/`. To include the optional
-in-app video player, build the GUI with `.[player,app]` instead. Both
-applications include the AF9015 firmware; USB permissions and hardware
-requirements are otherwise unchanged. The macOS app bundle is not signed for
-distribution; sign and notarize it as part of your release process.
+The GUI build produces `dist/PyDVB.app` on macOS and a windowed executable at
+`dist/PyDVB/pydvb-gui` (`pydvb-gui.exe` on Windows) on other platforms. To
+include the optional in-app video player, install `.[player,app]` instead of
+`.[gui,app]` before building. Both applications include the AF9015 firmware;
+USB permissions and hardware requirements are otherwise unchanged. The macOS
+app bundle is not signed for distribution; sign and notarize it as part of your
+release process.
 
 The Windows executable and macOS bundle use the pre-generated
 `pydvb/gui/icons/tv-play.ico` and `pydvb/gui/icons/tv-play.icns`, respectively.
