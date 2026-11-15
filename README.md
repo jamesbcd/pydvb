@@ -3,9 +3,9 @@
 `pydvb` is a Python framework and command-line tool for using DVB-T receivers. It
 currently only supports a single device and chipset: the the **Leadtek WinFast DTV Dongle Gold** (USB ID `0413:6029`), which uses the Afateach AF9015 bridge, AF9013 demodulator and TDA18271 HDC1/HDC2 tuner.
 
-This framework has been developed using Github Copilot to translate the Linux device driver code to Python. Although a single device is currently supported, it should be relatively easy to use AI to add support for other DVB-T devices, using the abstractions provided here.
+This framework has been developed using Github Copilot to translate the Linux device driver code to user-space Python. Although a single device is currently supported, it should be relatively easy to use AI to add support for other DVB-T devices, using the abstractions provided here.
 
-This project started has an experiment in using AI to port a DVB device driver from Linux to user space on macOS, which has no native DVB support. I've used Python partly because of my own familiarity, partly for ease of prototyping, and partly for portability, in case the framework is useful on other platforms.
+This project started has an experiment in using AI to port a DVB device driver from Linux to user-space on macOS, which has no native DVB support. I've used Python partly because of my own familiarity, partly for ease of prototyping, and partly for portability, in case the framework is useful on other platforms.
 
 ## Requirements
 
@@ -105,7 +105,8 @@ device adapter is initialized and a service map with channels is available.
 Turn off **Configure > Auto-start server when available** to disable this.
 
 The **Logs** window shows live Python logging output. Closing or hiding it
-leaves logging active in the background.
+leaves logging active in the background. The **Help > About PyDVB** dialog
+links to third-party library homepages and credits the icon sources.
 
 ### In-app video player
 

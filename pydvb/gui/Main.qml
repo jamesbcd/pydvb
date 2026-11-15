@@ -758,6 +758,13 @@ ApplicationWindow {
                 action: toggleLogWindowAction
             }
         }
+        Menu {
+            title: "&Help"
+            MenuItem {
+                text: "About PyDVB"
+                onTriggered: aboutDialog.open()
+            }
+        }
     }
 
     Connections {
@@ -2426,6 +2433,82 @@ ApplicationWindow {
                         window.selectedProgramEventDescription = ""
                         window.selectedProgramEventTime = ""
                     }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: aboutDialog
+        title: "About PyDVB"
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 560
+        height: 500
+        standardButtons: Dialog.Ok
+
+        contentItem: ScrollView {
+            clip: true
+            contentWidth: availableWidth
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 10
+
+                Label {
+                    text: "PyDVB"
+                    font.pixelSize: 22
+                    font.bold: true
+                    color: "#26362c"
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: "A Python framework and desktop application for DVB-T receivers."
+                    wrapMode: Text.Wrap
+                    color: "#526158"
+                }
+                Label {
+                    text: "Third-party libraries"
+                    font.pixelSize: 16
+                    font.bold: true
+                    color: "#26362c"
+                }
+                Label {
+                    Layout.fillWidth: true
+                    textFormat: Text.RichText
+                    text: "<ul>"
+                        + "<li><a href='https://www.python.org/'>Python</a></li>"
+                        + "<li><a href='https://doc.qt.io/qtforpython-6/'>PySide6-Essentials / PySide6-Addons</a></li>"
+                        + "<li><a href='https://www.qt.io/'>Qt 6</a></li>"
+                        + "<li><a href='https://github.com/vpelletier/python-libusb1'>libusb1</a></li>"
+                        + "<li><a href='https://github.com/pyocd/libusb-package'>libusb-package</a></li>"
+                        + "<li><a href='https://construct.readthedocs.io/'>Construct</a></li>"
+                        + "<li><a href='https://requests.readthedocs.io/'>Requests</a></li>"
+                        + "<li><a href='https://github.com/jamesbcd/simple-serialize'>simple-serialize</a></li>"
+                        + "<li><a href='https://ffmpeg.org/'>FFmpeg</a> (optional Qt Multimedia player backend)</li>"
+                        + "</ul>"
+                    onLinkActivated: Qt.openUrlExternally(link)
+                    linkColor: "#338457"
+                    wrapMode: Text.Wrap
+                    color: "#526158"
+                }
+                Label {
+                    text: "Icons"
+                    font.pixelSize: 16
+                    font.bold: true
+                    color: "#26362c"
+                }
+                Label {
+                    Layout.fillWidth: true
+                    textFormat: Text.RichText
+                    text: "<a href='https://lucide.dev/'>Lucide Icons</a> and contributors. "
+                        + "Some icons are derived from "
+                        + "<a href='https://feathericons.com/'>Feather Icons by Cole Bemis</a>. "
+                        + "The Lucide license text is included in pydvb/gui/icons/LICENSE.txt."
+                    onLinkActivated: Qt.openUrlExternally(link)
+                    linkColor: "#338457"
+                    wrapMode: Text.Wrap
+                    color: "#526158"
                 }
             }
         }
