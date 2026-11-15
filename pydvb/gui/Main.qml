@@ -71,6 +71,13 @@ ApplicationWindow {
         return value.toFixed(2) + " " + unit
     }
 
+    function showSaveSettingsDialog(resetAfterSave) {
+        saveSettingsDialog.resetAfterSave = resetAfterSave
+        saveSettingsDialog.selectedFile =
+            saveSettingsDialog.currentFolder + "/Settings.pydvb"
+        saveSettingsDialog.open()
+    }
+
     component TableFrame: Flickable {
         id: tableFrame
         default property alias contentData: tableContents.data
@@ -410,7 +417,7 @@ ApplicationWindow {
         id: saveSettingsAction
         text: "&Save Settings..."
         shortcut: StandardKey.Save
-        onTriggered: saveSettingsDialog.open()
+        onTriggered: window.showSaveSettingsDialog(false)
     }
 
     Action {
@@ -2547,8 +2554,7 @@ ApplicationWindow {
         buttons: MessageDialog.Yes | MessageDialog.No | MessageDialog.Cancel
         onButtonClicked: function(button, role) {
             if (button === MessageDialog.Yes) {
-                saveSettingsDialog.resetAfterSave = true
-                saveSettingsDialog.open()
+                window.showSaveSettingsDialog(true)
             } else if (button === MessageDialog.No) {
                 window.controller.resetSettings()
             }

@@ -31,6 +31,16 @@ def test_main_qml_path_uses_source_file_when_not_frozen(monkeypatch):
     assert _main_qml_path() == Path(__file__).parents[1] / "pydvb" / "gui" / "Main.qml"
 
 
+def test_save_settings_dialog_defaults_to_settings_filename():
+    qml = _main_qml_path().read_text()
+    save_dialog = qml.split("function showSaveSettingsDialog", maxsplit=1)[1].split(
+        "\n    }", maxsplit=1
+    )[0]
+
+    assert 'saveSettingsDialog.currentFolder + "/Settings.pydvb"' in save_dialog
+    assert "saveSettingsDialog.open()" in save_dialog
+
+
 def test_main_qml_path_uses_pyinstaller_bundle_root_on_macos(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
