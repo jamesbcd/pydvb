@@ -32,12 +32,13 @@ def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_
             assert all(
                 image.pixelColor(x, y).alpha() == 0
                 for x, y in (
-                    *((x, 0) for x in range(pixels)),
-                    *((x, pixels - 1) for x in range(pixels)),
-                    *((0, y) for y in range(pixels)),
-                    *((pixels - 1, y) for y in range(pixels)),
+                    (0, 0),
+                    (pixels - 1, 0),
+                    (0, pixels - 1),
+                    (pixels - 1, pixels - 1),
                 )
             )
+            assert image.pixelColor(pixels // 16, pixels // 2).name() == "#d8e5da"
         Path(command[-2]).write_bytes(b"generated icon")
 
     monkeypatch.setattr(subprocess, "run", run_iconutil)
@@ -54,7 +55,7 @@ def test_render_image_uses_svg_viewbox_for_icon_margin():
         (x, y)
         for y in range(image.height())
         for x in range(image.width())
-        if image.pixelColor(x, y).alpha()
+        if image.pixelColor(x, y).name() == "#17251e"
     ]
 
     left = min(x for x, _ in opaque_pixels) / image.width()
@@ -65,6 +66,21 @@ def test_render_image_uses_svg_viewbox_for_icon_margin():
     assert right == pytest.approx(0.15625, abs=0.01)
     assert top == pytest.approx(0.15625, abs=0.01)
     assert bottom == pytest.approx(0.15625, abs=0.01)
+
+
+def test_render_image_uses_gui_palette_for_background_and_accent():
+    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    image = generate_app_icon._render_image(generate_app_icon._load_svg(svg_path), 256)
+    colors = {
+        image.pixelColor(x, y).name()
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y).alpha()
+    }
+
+    assert image.pixelColor(256 // 16, 256 // 2).name() == "#d8e5da"
+    assert "#17251e" in colors
+    assert "#338457" in colors
 
 
 def test_create_macos_app_icon_preserves_existing_icon_on_failure(monkeypatch, tmp_path):
@@ -110,12 +126,13 @@ def test_create_windows_app_icon_contains_rendered_images(tmp_path):
         assert all(
             image.pixelColor(x, y).alpha() == 0
             for x, y in (
-                *((x, 0) for x in range(size)),
-                *((x, size - 1) for x in range(size)),
-                *((0, y) for y in range(size)),
-                *((size - 1, y) for y in range(size)),
+                (0, 0),
+                (size - 1, 0),
+                (0, size - 1),
+                (size - 1, size - 1),
             )
         )
+        assert image.pixelColor(size // 16, size // 2).name() == "#d8e5da"
         assert any(
             image.pixelColor(x, y).alpha()
             for x in range(size)
