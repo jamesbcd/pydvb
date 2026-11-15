@@ -47,6 +47,26 @@ def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_
     assert list(tmp_path.iterdir()) == [output_path]
 
 
+def test_render_image_uses_svg_viewbox_for_icon_margin():
+    svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    image = generate_app_icon._render_image(generate_app_icon._load_svg(svg_path), 256)
+    opaque_pixels = [
+        (x, y)
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y).alpha()
+    ]
+
+    left = min(x for x, _ in opaque_pixels) / image.width()
+    right = (image.width() - 1 - max(x for x, _ in opaque_pixels)) / image.width()
+    top = min(y for _, y in opaque_pixels) / image.height()
+    bottom = (image.height() - 1 - max(y for _, y in opaque_pixels)) / image.height()
+    assert left == pytest.approx(0.15625, abs=0.01)
+    assert right == pytest.approx(0.15625, abs=0.01)
+    assert top == pytest.approx(0.15625, abs=0.01)
+    assert bottom == pytest.approx(0.15625, abs=0.01)
+
+
 def test_create_macos_app_icon_preserves_existing_icon_on_failure(monkeypatch, tmp_path):
     svg_path = Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
     output_path = tmp_path / "app.icns"
