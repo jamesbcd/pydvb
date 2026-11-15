@@ -992,11 +992,13 @@ def test_scan_reports_tuning_progress_and_can_be_cancelled(qt_application, monke
         _adapter,
         *,
         on_service_count,
+        on_mapped_count,
         on_tuning_progress,
         cancel_event,
     ):
         on_tuning_progress(1, 2, DVBTuning(frequency_hz=177_500_000))
         on_service_count(3)
+        on_mapped_count(0)
         assert cancel_event.wait(timeout=2)
         return scan_map
 
@@ -1037,7 +1039,7 @@ def test_scan_reports_tuning_progress_and_can_be_cancelled(qt_application, monke
     qt_application.exec()
 
     assert cancel_requested.is_set()
-    assert "partial results: 0 channel(s) found" in controller.statusMessage
+    assert "3 discovered, 0 mapped" in controller.statusMessage
     assert controller.channelController.scanActive is False
     assert controller._settings.service_map is scan_map
 

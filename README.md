@@ -92,12 +92,12 @@ immediately.
 On **Tuning**, refresh the known LinuxTV tables (requires network access), select
 a table, or edit individual frequencies. Select **Scan Tuning for Channels** to
 build the channel map. The status text shows the current tuning number and
-frequency, along with the number of channels found. Select **Cancel Scan** to
-stop the scan. Cancellation is cooperative: it takes effect after the current
-read or tuning operation returns. Results from completed tunings are kept;
-incomplete results from the current tuning are discarded. Choosing **Quit**
-during a scan requests cancellation and waits for the scan and device cleanup
-to finish before exiting.
+frequency, along with counts for channels discovered and channels mapped.
+Select **Cancel Scan** to stop the scan. Cancellation is cooperative: it takes
+effect after the current read or tuning operation returns. Results from
+completed tunings are kept; incomplete results from the current tuning are
+discarded. Choosing **Quit** during a scan requests cancellation and waits for
+the scan and device cleanup to finish before exiting.
 
 The **Server** page starts the HTTP server. Its default address is
 `127.0.0.1:8080`; use the displayed playlist URL in VLC or another MPEG-TS

@@ -228,29 +228,40 @@ class ChannelController(QObject):
         self._scan_cancel_event = cancel_event
         self._scan_active = True
         self.scanStateChanged.emit()
-        app._set_status(f"Preparing to scan {len(tunings)} tuning(s)...")
+        app._set_status(
+            f"Preparing to scan {len(tunings)} tuning(s)... "
+            "0 discovered, 0 mapped"
+        )
 
         current_tuning = 0
+        current_frequency_hz = 0
         service_count = 0
+        mapped_count = 0
+
+        def report_progress() -> None:
+            if current_tuning == 0:
+                return
+            self._scanProgress.emit(
+                f"Scanning tuning {current_tuning}/{len(tunings)} "
+                f"({current_frequency_hz / 1_000_000:.3f} MHz)... "
+                f"{service_count} discovered, {mapped_count} mapped"
+            )
 
         def on_tuning_progress(index: int, total: int, tuning: DVBTuning) -> None:
-            nonlocal current_tuning
+            nonlocal current_tuning, current_frequency_hz
             current_tuning = index
-            frequency_hz = tuning.frequency_hz
-            self._scanProgress.emit(
-                f"Scanning tuning {index}/{total} "
-                f"({frequency_hz / 1_000_000:.3f} MHz)... "
-                f"{service_count} channel(s) found"
-            )
+            current_frequency_hz = tuning.frequency_hz
+            report_progress()
 
         def on_service_count(count: int) -> None:
             nonlocal service_count
             service_count = count
-            self._scanProgress.emit(
-                f"Scanning tuning {current_tuning}/{len(tunings)} "
-                f"({tunings[current_tuning - 1].frequency_hz / 1_000_000:.3f} MHz)... "
-                f"{count} channel(s) found"
-            )
+            report_progress()
+
+        def on_mapped_count(count: int) -> None:
+            nonlocal mapped_count
+            mapped_count = count
+            report_progress()
 
         def scan() -> DVBServiceMap | None:
             if (
@@ -263,6 +274,7 @@ class ChannelController(QObject):
                 tunings,
                 adapter,
                 on_service_count=on_service_count,
+                on_mapped_count=on_mapped_count,
                 on_tuning_progress=on_tuning_progress,
                 cancel_event=cancel_event,
             )
@@ -286,12 +298,13 @@ class ChannelController(QObject):
             app.stateChanged.emit()
             if cancel_event.is_set():
                 app._set_status(
-                    f"Scan cancelled; partial results: "
-                    f"{len(service_map.services)} channel(s) found"
+                    f"Scan cancelled: {service_count} discovered, "
+                    f"{len(service_map.services)} mapped"
                 )
             else:
                 app._set_status(
-                    f"Scan complete: {len(service_map.services)} channel(s) found"
+                    f"Scan complete: {service_count} discovered, "
+                    f"{len(service_map.services)} mapped"
                 )
                 app._maybe_auto_start_server()
 

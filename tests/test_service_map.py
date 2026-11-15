@@ -75,6 +75,40 @@ def test_map_from_tunings_reports_cumulative_service_count(monkeypatch):
     assert counts == [1, 2]
 
 
+def test_map_from_tunings_reports_unique_mapped_count(monkeypatch):
+    adapter = FakeAdapter()
+    mapped_counts = []
+
+    class FakeScanner:
+        scans = 0
+
+        def scan(self, _adapter, policy, *, on_service_count=None):
+            assert policy is service_map.ScanPolicy.ALL_SERVICE_METADATA
+            FakeScanner.scans += 1
+            assert on_service_count is not None
+            on_service_count(1)
+            return DVBStreamInfo(
+                services=(
+                    service_map.DVBService(
+                        service_id=FakeScanner.scans,
+                        triplet_id=service_map.DVBTripletID(1, 2, 1),
+                    ),
+                )
+            )
+
+    monkeypatch.setattr(service_map, "DVBScanner", FakeScanner)
+
+    result = service_map.map_from_tunings(
+        [DVBTuning(177_500_000), DVBTuning(191_500_000)],
+        adapter,
+        on_service_count=lambda _count: None,
+        on_mapped_count=mapped_counts.append,
+    )
+
+    assert mapped_counts == [1, 1]
+    assert len(result.services) == 1
+
+
 def test_map_from_tunings_keeps_completed_results_when_cancelled(monkeypatch):
     adapter = FakeAdapter()
     cancel_event = Event()
@@ -123,6 +157,21 @@ def test_map_from_tunings_keeps_completed_results_when_cancelled(monkeypatch):
         ("stop",),
         ("sleep",),
     ]
+
+
+def test_map_from_tunings_skips_work_when_already_cancelled():
+    adapter = FakeAdapter()
+    cancel_event = Event()
+    cancel_event.set()
+
+    result = service_map.map_from_tunings(
+        [DVBTuning(177_500_000)],
+        adapter,
+        cancel_event=cancel_event,
+    )
+
+    assert not result.services
+    assert adapter.events == [("sleep",)]
 
 
 def test_map_from_scan_forwards_service_count_callback(monkeypatch):
