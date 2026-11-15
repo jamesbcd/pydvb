@@ -40,6 +40,12 @@ def _main_qml_path() -> Path:
     return Path(__file__).with_name("Main.qml")
 
 
+def _application_icon_path() -> Path:
+    """Return the platform-appropriate application icon path."""
+    icon_name = "app.icns" if sys.platform == "darwin" else "app.svg"
+    return _main_qml_path().parent / "icons" / icon_name
+
+
 def main() -> int:
     """Start the QML application and return its exit status."""
     QQuickStyle.setStyle("Fusion") # if sys.platform == "darwin" else "Fusion")
@@ -47,9 +53,7 @@ def main() -> int:
     application = QGuiApplication(sys.argv)
     application.setApplicationName("PyDVB")
     application.setOrganizationName("pydvb")
-    application.setWindowIcon(
-        QIcon(str(_main_qml_path().parent / "icons" / "app.svg"))
-    )
+    application.setWindowIcon(QIcon(str(_application_icon_path())))
 
     engine = QQmlApplicationEngine()
     controller = AppController(settings_path=_default_settings_path())

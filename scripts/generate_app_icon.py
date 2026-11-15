@@ -10,6 +10,9 @@ from PySide6.QtCore import QBuffer, QIODevice, QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
+_MACOS_ICON_CANVAS_SIZE = 1024
+_MACOS_ICON_PADDING = 96
+
 
 def _load_svg(svg_path: Path) -> QSvgRenderer:
     """Load and validate an SVG icon."""
@@ -19,12 +22,16 @@ def _load_svg(svg_path: Path) -> QSvgRenderer:
     return renderer
 
 
-def _render_image(renderer: QSvgRenderer, size: int) -> QImage:
+def _render_image(
+    renderer: QSvgRenderer, size: int, padding_ratio: float = 0.0
+) -> QImage:
     """Render the icon at one square pixel size."""
     image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
-    renderer.render(painter, QRectF(0, 0, size, size))
+    padding = size * padding_ratio
+    content_size = size - 2 * padding
+    renderer.render(painter, QRectF(padding, padding, content_size, content_size))
     painter.end()
     return image
 
@@ -41,7 +48,11 @@ def create_macos_app_icon(svg_path: Path, icon_path: Path) -> None:
         for size in (16, 32, 128, 256, 512):
             for scale in (1, 2):
                 pixel_size = size * scale
-                image = _render_image(renderer, pixel_size)
+                image = _render_image(
+                    renderer,
+                    pixel_size,
+                    padding_ratio=_MACOS_ICON_PADDING / _MACOS_ICON_CANVAS_SIZE,
+                )
                 scale_suffix = "@2x" if scale == 2 else ""
                 png_path = iconset_path / f"icon_{size}x{size}{scale_suffix}.png"
                 if not image.save(str(png_path), "PNG"):

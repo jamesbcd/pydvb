@@ -2,7 +2,27 @@ import os
 import sys
 from pathlib import Path
 
-from pydvb.gui.__main__ import _configure_media_environment, _main_qml_path
+from pydvb.gui.__main__ import (
+    _application_icon_path,
+    _configure_media_environment,
+    _main_qml_path,
+)
+
+
+def test_application_icon_path_uses_icns_on_macos(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    assert _application_icon_path() == (
+        Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.icns"
+    )
+
+
+def test_application_icon_path_uses_svg_on_other_platforms(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    assert _application_icon_path() == (
+        Path(__file__).parents[1] / "pydvb" / "gui" / "icons" / "app.svg"
+    )
 
 
 def test_main_qml_path_uses_source_file_when_not_frozen(monkeypatch):

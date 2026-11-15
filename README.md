@@ -180,6 +180,8 @@ release process.
 
 The Windows executable and macOS bundle use the pre-generated
 `pydvb/gui/icons/app.ico` and `pydvb/gui/icons/app.icns`, respectively.
+The ICNS artwork is centered in an 832x832 area with 96px of transparent
+padding on each side of its 1024x1024 image.
 After editing `app.svg`, regenerate the icons with the GUI dependencies
 installed:
 

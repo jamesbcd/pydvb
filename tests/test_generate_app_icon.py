@@ -38,7 +38,16 @@ def test_create_macos_app_icon_renders_iconset_and_writes_icns(monkeypatch, tmp_
                     (pixels - 1, pixels - 1),
                 )
             )
-            assert image.pixelColor(pixels // 16, pixels // 2).name() == "#d8e5da"
+            assert image.pixelColor(pixels // 8, pixels // 2).name() == "#d8e5da"
+            if pixels == 1024:
+                assert image.pixelColor(95, pixels // 2).alpha() == 0
+                assert image.pixelColor(96, pixels // 2).name() == "#d8e5da"
+                assert image.pixelColor(927, pixels // 2).name() == "#d8e5da"
+                assert image.pixelColor(928, pixels // 2).alpha() == 0
+                assert image.pixelColor(pixels // 2, 95).alpha() == 0
+                assert image.pixelColor(pixels // 2, 96).name() == "#d8e5da"
+                assert image.pixelColor(pixels // 2, 927).name() == "#d8e5da"
+                assert image.pixelColor(pixels // 2, 928).alpha() == 0
         Path(command[-2]).write_bytes(b"generated icon")
 
     monkeypatch.setattr(subprocess, "run", run_iconutil)
@@ -78,7 +87,7 @@ def test_render_image_uses_gui_palette_for_background_and_accent():
         if image.pixelColor(x, y).alpha()
     }
 
-    assert image.pixelColor(256 // 16, 256 // 2).name() == "#d8e5da"
+    assert image.pixelColor(256 // 8, 256 // 2).name() == "#d8e5da"
     assert "#17251e" in colors
     assert "#338457" in colors
 
