@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum, IntEnum, auto
 import logging
 from typing import Any, Callable, NamedTuple
-from threading import Lock
+from threading import Event, Lock
 import unicodedata
 
 from construct import Bit, BitStruct, BitsInteger
@@ -529,6 +529,7 @@ class DVBScanner:
         read_timeout_ms: int = 2000,
         *,
         on_service_count: Callable[[int], None] | None = None,
+        cancel_event: Event | None = None,
     ) -> DVBStreamInfo:
         """Consume a transport-stream source and return the accumulated result.
 
@@ -538,6 +539,8 @@ class DVBScanner:
             read_timeout_ms: The timeout in milliseconds for adapter reads.
             on_service_count: Called with the number of discovered services after
                 a chunk adds one or more services.
+            cancel_event: Optional event that stops scanning between input
+                chunks or adapter reads.
 
         Returns:
             A DVBStreamInfo object containing the accumulated scan results.
@@ -562,9 +565,16 @@ class DVBScanner:
             if not source.demuxer.running:
                 raise RuntimeError("start the adapter before scanning")
             while not self.complete(policy):
-                feed_and_report(source.read_stream(read_timeout_ms))
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                data = source.read_stream(read_timeout_ms)
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                feed_and_report(data)
         else:
             for chunk in source:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 feed_and_report(chunk)
                 if self.complete(policy):
                     break

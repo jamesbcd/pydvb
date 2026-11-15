@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from threading import Event
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Qt, Signal, Slot
 
+from pydvb.driver_api.tuner import DVBTuning
 from pydvb.service_map import DVBServiceMap, map_from_tunings
 from pydvb.stream_scanner import DVBEvent
 
@@ -29,10 +31,18 @@ class ChannelController(QObject):
     programGuideChanged = Signal()
     programGuideEnabledChanged = Signal()
     stationStreamsChanged = Signal()
+    scanStateChanged = Signal()
+    _scanProgress = Signal(str)
 
     def __init__(self, app: AppController) -> None:
         super().__init__(app)
         self._app = app
+        self._scan_active = False
+        self._scan_cancel_event: Event | None = None
+        self._scanProgress.connect(
+            self._set_scan_progress_status,
+            Qt.ConnectionType.QueuedConnection,
+        )
         app.channelsChanged.connect(self._channels_changed)
         app.channelsChanged.connect(self.stationStreamsChanged.emit)
         app.serverChanged.connect(self._sync_program_guide_refresh_timer)
@@ -40,6 +50,31 @@ class ChannelController(QObject):
         self._program_guide_refresh_timer.setInterval(5000)
         self._program_guide_refresh_timer.timeout.connect(self.programGuideChanged.emit)
         self._sync_program_guide_refresh_timer()
+
+    @Property(bool, notify=scanStateChanged)
+    def scanActive(self) -> bool:
+        """Return whether a tuning scan is active or queued."""
+        return self._scan_active
+
+    @Slot(str)
+    def _set_scan_progress_status(self, message: str) -> None:
+        """Display progress emitted by the scan worker on the Qt thread."""
+        self._app._set_status(message)
+
+    @Slot()
+    def cancelScan(self) -> None:
+        """Request cooperative cancellation of the current tuning scan."""
+        if self._scan_cancel_event is None:
+            return
+        self._scan_cancel_event.set()
+        self._app._set_status("Cancelling scan...")
+
+    @Slot()
+    def _finish_scan(self) -> None:
+        """Clear scan state after the worker and completion callback finish."""
+        self._scan_active = False
+        self._scan_cancel_event = None
+        self.scanStateChanged.emit()
 
     @Slot()
     def _sync_program_guide_refresh_timer(self) -> None:
@@ -173,6 +208,8 @@ class ChannelController(QObject):
     def scan(self) -> None:
         """Scan through the device lane and publish results if inputs stay current."""
         app = self._app
+        if self._scan_active:
+            return
         if app._server is not None:
             app._set_status("Stop the server before scanning")
             return
@@ -187,10 +224,33 @@ class ChannelController(QObject):
         adapter = app._selected_adapter(device)
         adapter_index = settings.selected_adapter
         tunings = settings.tunings
-        app._set_status(f"Scanning {len(tunings)} tuning(s)...")
+        cancel_event = Event()
+        self._scan_cancel_event = cancel_event
+        self._scan_active = True
+        self.scanStateChanged.emit()
+        app._set_status(f"Preparing to scan {len(tunings)} tuning(s)...")
+
+        current_tuning = 0
+        service_count = 0
+
+        def on_tuning_progress(index: int, total: int, tuning: DVBTuning) -> None:
+            nonlocal current_tuning
+            current_tuning = index
+            frequency_hz = tuning.frequency_hz
+            self._scanProgress.emit(
+                f"Scanning tuning {index}/{total} "
+                f"({frequency_hz / 1_000_000:.3f} MHz)... "
+                f"{service_count} channel(s) found"
+            )
 
         def on_service_count(count: int) -> None:
-            app._set_status(f"Scanning {len(tunings)} tuning(s)... {count} channel(s) found")
+            nonlocal service_count
+            service_count = count
+            self._scanProgress.emit(
+                f"Scanning tuning {current_tuning}/{len(tunings)} "
+                f"({tunings[current_tuning - 1].frequency_hz / 1_000_000:.3f} MHz)... "
+                f"{count} channel(s) found"
+            )
 
         def scan() -> DVBServiceMap | None:
             if (
@@ -199,7 +259,13 @@ class ChannelController(QObject):
                 or device.adapters[adapter_index] is not adapter
             ):
                 return None
-            return map_from_tunings(tunings, adapter, on_service_count=on_service_count)
+            return map_from_tunings(
+                tunings,
+                adapter,
+                on_service_count=on_service_count,
+                on_tuning_progress=on_tuning_progress,
+                cancel_event=cancel_event,
+            )
 
         def complete(service_map: object) -> None:
             if service_map is None:
@@ -218,11 +284,21 @@ class ChannelController(QObject):
             app._settings.service_map = service_map
             app.channelsChanged.emit()
             app.stateChanged.emit()
-            app._set_status(f"Scan complete: {len(service_map.services)} channel(s) found")
-            app._maybe_auto_start_server()
+            if cancel_event.is_set():
+                app._set_status(
+                    f"Scan cancelled; partial results: "
+                    f"{len(service_map.services)} channel(s) found"
+                )
+            else:
+                app._set_status(
+                    f"Scan complete: {len(service_map.services)} channel(s) found"
+                )
+                app._maybe_auto_start_server()
 
-        app._run_task(
+        if not app._run_task(
             scan,
             complete,
             lane="device",
-        )
+            on_finished=self._finish_scan,
+        ):
+            self._finish_scan()

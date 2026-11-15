@@ -558,10 +558,18 @@ ApplicationWindow {
 
     Action {
         id: scanTuningsAction
-        text: "Scan Tuning for Channels"
-        enabled: !window.controller.userDeviceBusy
-            && window.controller.tuningController.tunings.length > 0
-        onTriggered: window.controller.channelController.scan()
+        text: window.controller.channelController.scanActive
+            ? "Cancel Scan"
+            : "Scan Tuning for Channels"
+        enabled: window.controller.channelController.scanActive
+            || (!window.controller.userDeviceBusy
+                && window.controller.tuningController.tunings.length > 0)
+        onTriggered: {
+            if (window.controller.channelController.scanActive)
+                window.controller.channelController.cancelScan()
+            else
+                window.controller.channelController.scan()
+        }
     }
 
     Action {

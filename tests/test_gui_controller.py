@@ -981,6 +981,67 @@ def test_settings_load_during_scan_discards_stale_scan_results(
     assert "discarded" in controller.statusMessage.lower()
 
 
+def test_scan_reports_tuning_progress_and_can_be_cancelled(qt_application, monkeypatch):
+    from pydvb.gui.controllers import service_map as service_map_module
+
+    cancel_requested = Event()
+    scan_map = DVBServiceMap()
+
+    def scan(
+        _tunings,
+        _adapter,
+        *,
+        on_service_count,
+        on_tuning_progress,
+        cancel_event,
+    ):
+        on_tuning_progress(1, 2, DVBTuning(frequency_hz=177_500_000))
+        on_service_count(3)
+        assert cancel_event.wait(timeout=2)
+        return scan_map
+
+    monkeypatch.setattr(service_map_module, "map_from_tunings", scan)
+    controller = AppController()
+    controller._status_timer.stop()
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
+    adapter = type("Adapter", (), {"adapter_index": 0})()
+    device = type(
+        "Device",
+        (),
+        {
+            "device_id": USBDeviceID(0x0413, 0x6029),
+            "model_name": "Receiver",
+            "adapters": [adapter],
+        },
+    )()
+    controller._devices = [device]
+    controller._select_first_device()
+    controller.tuningController.addTuning("177.5", "7")
+    controller.tuningController.addTuning("191.5", "7")
+    controller.channelController.scan()
+
+    def finish_when_cancelled():
+        if (
+            not cancel_requested.is_set()
+            and "Scanning tuning 1/2 (177.500 MHz)" in controller.statusMessage
+        ):
+            cancel_requested.set()
+            controller.channelController.cancelScan()
+        elif controller.statusMessage.startswith("Scan cancelled"):
+            qt_application.quit()
+            return
+        QTimer.singleShot(10, finish_when_cancelled)
+
+    QTimer.singleShot(10, finish_when_cancelled)
+    QTimer.singleShot(3000, qt_application.quit)
+    qt_application.exec()
+
+    assert cancel_requested.is_set()
+    assert "partial results: 0 channel(s) found" in controller.statusMessage
+    assert controller.channelController.scanActive is False
+    assert controller._settings.service_map is scan_map
+
+
 def test_identical_devices_can_be_selected_independently(qt_application):
     controller = AppController()
     device_id = USBDeviceID(0x0413, 0x6029)

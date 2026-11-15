@@ -1,3 +1,4 @@
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -611,3 +612,22 @@ def test_scanner_reads_a_started_adapter_until_complete():
     result = scanner.scan(adapter)
 
     assert result.complete
+
+
+def test_scanner_cancellation_after_read_does_not_feed_the_read_chunk():
+    cancel_event = Event()
+    adapter = DVBAdapter(SimpleNamespace(), SimpleNamespace(running=True))
+    scanner = DVBScanner()
+    fed_chunks = []
+
+    def read_stream(_timeout_ms=2000):
+        cancel_event.set()
+        return b"cancelled chunk"
+
+    adapter.read_stream = read_stream
+    scanner.feed = fed_chunks.append
+
+    result = scanner.scan(adapter, cancel_event=cancel_event)
+
+    assert fed_chunks == []
+    assert not result.complete

@@ -10,6 +10,7 @@ than the derived lookup indexes.
 from collections.abc import Mapping
 import logging
 from pathlib import Path
+from threading import Event
 from types import MappingProxyType
 from typing import Callable, Collection, cast
 
@@ -288,6 +289,8 @@ def map_from_tunings(
     *,
     on_scan_error: Callable[[Exception], None] | None = None,
     on_service_count: Callable[[int], None] | None = None,
+    on_tuning_progress: Callable[[int, int, DVBTuning], None] | None = None,
+    cancel_event: Event | None = None,
 ) -> DVBServiceMap:
     """Tune each channel, scan locked streams, and put the adapter to sleep.
 
@@ -306,6 +309,9 @@ def map_from_tunings(
             primary and the callback exception is attached as its cause.
         on_service_count: Optional callback receiving cumulative discoveries.
             Services found on multiple tunings are counted once per tuning.
+        on_tuning_progress: Optional callback invoked before each tuning.
+        cancel_event: Optional event that stops the scan between tunings or
+            stream reads. Results from completed tunings are retained.
 
     Returns:
         A service map containing metadata from successfully scanned,
@@ -321,6 +327,14 @@ def map_from_tunings(
 
     try:
         for index, tuning in enumerate(tunings):
+            if (
+                cancel_event is not None
+                and cancel_event.is_set()
+                and not stream_info.complete
+            ):
+                break
+            if on_tuning_progress is not None:
+                on_tuning_progress(index + 1, len(tunings), tuning)
             logger.info(
                 "Tuning %d of %d: Frequency %s MHz with bandwidth %s MHz",
                 index + 1,
@@ -330,6 +344,8 @@ def map_from_tunings(
             )
             status = adapter.tune(tuning, wait_for_lock=True)
             logger.info("Lock result: %s", "LOCKED" if status and status.lock else "NO LOCK")
+            if cancel_event is not None and cancel_event.is_set():
+                break
 
             if status and status.lock:
                 scanner = DVBScanner()
@@ -337,19 +353,39 @@ def map_from_tunings(
                     logger.info("Starting stream")
                     adapter.start()
                     logger.info("Scanning for services")
-                    if on_service_count is None:
+                    service_count_callback = (
+                        None
+                        if on_service_count is None
+                        else lambda count: on_service_count(
+                            total_service_count + count
+                        )
+                    )
+                    if cancel_event is None and service_count_callback is None:
                         stream_info = scanner.scan(
                             adapter,
                             policy=ScanPolicy.ALL_SERVICE_METADATA,
+                        )
+                    elif cancel_event is None:
+                        stream_info = scanner.scan(
+                            adapter,
+                            policy=ScanPolicy.ALL_SERVICE_METADATA,
+                            on_service_count=service_count_callback,
+                        )
+                    elif service_count_callback is None:
+                        stream_info = scanner.scan(
+                            adapter,
+                            policy=ScanPolicy.ALL_SERVICE_METADATA,
+                            cancel_event=cancel_event,
                         )
                     else:
                         stream_info = scanner.scan(
                             adapter,
                             policy=ScanPolicy.ALL_SERVICE_METADATA,
-                            on_service_count=lambda count: on_service_count(
-                                total_service_count + count
-                            ),
+                            on_service_count=service_count_callback,
+                            cancel_event=cancel_event,
                         )
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
                     channel_map.add_stream_info(tuning, stream_info)
                     total_service_count += len(stream_info.services)
                 except Exception as error:

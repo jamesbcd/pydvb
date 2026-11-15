@@ -1,3 +1,4 @@
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -72,6 +73,56 @@ def test_map_from_tunings_reports_cumulative_service_count(monkeypatch):
     )
 
     assert counts == [1, 2]
+
+
+def test_map_from_tunings_keeps_completed_results_when_cancelled(monkeypatch):
+    adapter = FakeAdapter()
+    cancel_event = Event()
+    progress = []
+
+    class FakeScanner:
+        scans = 0
+
+        def scan(self, _adapter, policy, *, cancel_event=None):
+            assert policy is service_map.ScanPolicy.ALL_SERVICE_METADATA
+            assert cancel_event is not None
+            self.scans += 1
+            if self.scans == 2:
+                cancel_event.set()
+            return DVBStreamInfo(
+                services=(
+                    service_map.DVBService(
+                        service_id=self.scans,
+                        triplet_id=service_map.DVBTripletID(1, 2, self.scans),
+                    ),
+                )
+            )
+
+    monkeypatch.setattr(service_map, "DVBScanner", FakeScanner)
+
+    result = service_map.map_from_tunings(
+        [DVBTuning(177_500_000), DVBTuning(191_500_000)],
+        adapter,
+        on_tuning_progress=lambda index, total, tuning: progress.append(
+            (index, total, tuning.frequency_hz)
+        ),
+        cancel_event=cancel_event,
+    )
+
+    assert progress == [
+        (1, 2, 177_500_000),
+        (2, 2, 191_500_000),
+    ]
+    assert [service.service_id for service in result.services.values()] == [1]
+    assert adapter.events == [
+        ("tune", True),
+        ("start",),
+        ("stop",),
+        ("tune", True),
+        ("start",),
+        ("stop",),
+        ("sleep",),
+    ]
 
 
 def test_map_from_scan_forwards_service_count_callback(monkeypatch):
