@@ -144,7 +144,7 @@ python3 -m PyInstaller --clean pydvb-gui.spec
 ```
 
 The GUI build produces `dist/PyDVB.app` on macOS and
-`dist/PyDVB/pydvb-gui` (`pydvb-gui.exe` on Windows) elsewhere. To include video
+`dist/PyDVB/PyDVB` (`PyDVB.exe` on Windows) elsewhere. To include video
 playback, install `.[player,app]` instead of `.[gui,app]` before building.
 Both apps include the AF9015 firmware. Hardware and USB permission
 requirements are unchanged. The macOS bundle is unsigned; sign and notarize it

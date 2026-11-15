@@ -107,7 +107,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="pydvb-gui",
+    name="PyDVB",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
