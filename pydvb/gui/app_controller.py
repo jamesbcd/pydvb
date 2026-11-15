@@ -502,6 +502,7 @@ class AppController(QObject):
             self._status_timer.stop()
             self._discovery_timer.stop()
             self._pending_general_tasks.clear()
+            self._channel_controller.cancelScan()
             self.stateChanged.emit()
         self._pending_user_device_tasks.clear()
         self._pending_automatic_device_tasks.clear()

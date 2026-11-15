@@ -1042,6 +1042,50 @@ def test_scan_reports_tuning_progress_and_can_be_cancelled(qt_application, monke
     assert controller._settings.service_map is scan_map
 
 
+def test_shutdown_cancels_scan_before_finishing(qt_application, monkeypatch):
+    from pydvb.gui.controllers import service_map as service_map_module
+
+    scan_started = Event()
+    events = []
+    scan_map = DVBServiceMap()
+
+    def scan(_tunings, _adapter, *, cancel_event, **_kwargs):
+        scan_started.set()
+        assert cancel_event.wait(timeout=2)
+        events.append("scan finished")
+        return scan_map
+
+    monkeypatch.setattr(service_map_module, "map_from_tunings", scan)
+    controller = AppController()
+    controller._status_timer.stop()
+    controller.devicesController.autoDiscoverAndInitializeDevices = False
+    adapter = type("Adapter", (), {"adapter_index": 0})()
+    device = type(
+        "Device",
+        (),
+        {
+            "device_id": USBDeviceID(0x0413, 0x6029),
+            "model_name": "Receiver",
+            "adapters": [adapter],
+        },
+    )()
+    controller._devices = [device]
+    controller._select_first_device()
+    controller.tuningController.addTuning("177.5", "7")
+    controller.channelController.scan()
+    assert scan_started.wait(timeout=1)
+    controller.shutdownFinished.connect(
+        lambda: (events.append("shutdown finished"), qt_application.quit())
+    )
+    QTimer.singleShot(3000, qt_application.quit)
+
+    controller.shutdown()
+    qt_application.exec()
+
+    assert events == ["scan finished", "shutdown finished"]
+    assert controller.channelController.scanActive is False
+
+
 def test_identical_devices_can_be_selected_independently(qt_application):
     controller = AppController()
     device_id = USBDeviceID(0x0413, 0x6029)
