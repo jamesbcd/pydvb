@@ -157,6 +157,7 @@ Item {
     }
 
     Rectangle {
+        id: playerSurface
         anchors.fill: parent
         color: "#000000"
 
@@ -164,6 +165,15 @@ Item {
             id: videoOutputItem
             anchors.fill: parent
             fillMode: VideoOutput.PreserveAspectFit
+        }
+        TapHandler {
+            onTapped: function(eventPoint, button) {
+                if (root.eventInfoVisible
+                        && !eventInfoPanel.contains(
+                            eventInfoPanel.mapFromItem(playerSurface, eventPoint.position)
+                        ))
+                    root.eventInfoVisible = false
+            }
         }
         Image {
             anchors.centerIn: parent
@@ -711,6 +721,7 @@ Item {
             }
 
             Rectangle {
+                id: eventInfoPanel
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.min(parent.width, 720)
                 height: eventInfoContent.implicitHeight + 20
