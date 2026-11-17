@@ -51,6 +51,7 @@ EVENT_SCAN_QUEUE_SIZE = 8
 EVENT_SCAN_DURATION_HISTORY_SIZE = 10
 EVENT_SCAN_MAX_DURATION_SECONDS = 10.0
 EVENT_SCAN_PAUSE_SECONDS = 150.0
+MULTIPLEX_IDLE_GRACE_SECONDS = 1.0
 
 
 @dataclass(eq=False)
@@ -110,6 +111,8 @@ class _MultiplexSession:
         done_event: Signals that cleanup and adapter release have completed.
         startup_error: Startup/producer exception, if one was raised.
         producer: Thread reading and distributing transport-stream chunks.
+        idle_deadline: Monotonic time when an empty session should stop, or
+            ``None`` while it has subscribers or has not yet started streaming.
     """
 
     adapter: DVBAdapter
@@ -122,6 +125,7 @@ class _MultiplexSession:
     done_event: Event
     startup_error: Exception | None = None
     producer: Thread | None = None
+    idle_deadline: float | None = None
 
 
 class LocalTS_HTTPServer:
@@ -140,6 +144,8 @@ class LocalTS_HTTPServer:
         scan_dvb_events: Whether multiplex sessions scan DVB event information.
         event_scan_pause_seconds: Pause between event-scan bursts.
         event_scan_max_duration_seconds: Maximum duration of one scan burst.
+        multiplex_idle_grace_seconds: Time to retain an empty multiplex
+            session for a same-multiplex reconnect.
         evict_oldest_on_exhaustion: Whether a new multiplex request stops the
             oldest active multiplex when all adapters are leased.
         httpd: Underlying threaded HTTP server bound to the requested address.
@@ -166,6 +172,7 @@ class LocalTS_HTTPServer:
         evict_oldest_on_exhaustion: bool = False,
         event_scan_pause_seconds: float = EVENT_SCAN_PAUSE_SECONDS,
         event_scan_max_duration_seconds: float = EVENT_SCAN_MAX_DURATION_SECONDS,
+        multiplex_idle_grace_seconds: float = MULTIPLEX_IDLE_GRACE_SECONDS,
     ) -> None:
         """Bind an HTTP listener and configure adapter and event-scan policies.
 
@@ -182,9 +189,12 @@ class LocalTS_HTTPServer:
                 all adapters are leased instead of only waiting for an adapter.
             event_scan_pause_seconds: Non-negative pause between scan bursts.
             event_scan_max_duration_seconds: Positive time limit per scan burst.
+            multiplex_idle_grace_seconds: Non-negative time to retain a
+                multiplex session after its last subscriber disconnects.
 
         Raises:
-            ValueError: If a port, queue size, or event-scan option is invalid.
+            ValueError: If a port, queue size, event-scan option, or idle grace
+                period is invalid.
             OSError: If the listening socket cannot be bound.
         """
         if not 0 <= port <= 65535:
@@ -209,6 +219,15 @@ class LocalTS_HTTPServer:
             raise ValueError(
                 "event_scan_max_duration_seconds must be a finite positive number"
             )
+        if (
+            isinstance(multiplex_idle_grace_seconds, bool)
+            or not isinstance(multiplex_idle_grace_seconds, (int, float))
+            or not isfinite(multiplex_idle_grace_seconds)
+            or multiplex_idle_grace_seconds < 0
+        ):
+            raise ValueError(
+                "multiplex_idle_grace_seconds must be a finite non-negative number"
+            )
         self.service_map = service_map
         self._available_adapters = list(adapters)
         self._sessions: dict[DVBDoubletID, _MultiplexSession] = {}
@@ -219,6 +238,7 @@ class LocalTS_HTTPServer:
         self.scan_dvb_events = scan_dvb_events
         self.event_scan_pause_seconds = event_scan_pause_seconds
         self.event_scan_max_duration_seconds = event_scan_max_duration_seconds
+        self.multiplex_idle_grace_seconds = multiplex_idle_grace_seconds
         self.evict_oldest_on_exhaustion = evict_oldest_on_exhaustion
         self._stop_event = Event()
         self.httpd = _HTTPServer((host, port), _StreamRequestHandler, self)
@@ -308,9 +328,11 @@ class LocalTS_HTTPServer:
         Adapter acquisition waits for at most
         :data:`ADAPTER_LEASE_RETRY_TIMEOUT`, waking periodically as adapters
         are released. Requests for the same running multiplex share its
-        producer; if configured, exhaustion can instead stop the oldest
-        active multiplex. Returns ``None`` if acquisition times out, shutdown
-        begins, or the producer thread cannot be started.
+        producer, including while that session is within its idle grace
+        period. When another multiplex needs an adapter, an empty session is
+        released before waiting or applying the configured eviction policy.
+        Returns ``None`` if acquisition times out, shutdown begins, or the
+        producer thread cannot be started.
 
         The adapter/session condition must protect all changes to shared
         adapter and session bookkeeping.
@@ -323,12 +345,27 @@ class LocalTS_HTTPServer:
         waiting_logged = False
         with self._adapters_condition:
             while not self._stop_event.is_set():
+                # The deadline check and subscriber registration both hold
+                # _adapters_condition. A reconnect therefore either cancels
+                # an unexpired idle deadline or sees a session already marked
+                # for shutdown; it cannot attach after teardown has begun.
                 session = self._sessions.get(doublet_id)
                 if session is not None and not session.stop_event.is_set():
-                    subscriber = self._add_subscriber_locked(
-                        session, pids, peer, service_name, service_id
-                    )
-                    return session, subscriber
+                    idle_deadline = session.idle_deadline
+                    self._expire_idle_session_locked(session, monotonic())
+                    if not session.stop_event.is_set():
+                        if idle_deadline is not None:
+                            logger.info(
+                                "Reusing idle multiplex session %s for service %s "
+                                "during grace period (%.3f seconds remaining)",
+                                doublet_id,
+                                service_id,
+                                max(0.0, idle_deadline - monotonic()),
+                            )
+                        subscriber = self._add_subscriber_locked(
+                            session, pids, peer, service_name, service_id
+                        )
+                        return session, subscriber
 
                 if self._available_adapters:
                     if waiting_logged:
@@ -367,7 +404,29 @@ class LocalTS_HTTPServer:
                         return None
                     return session, subscriber
 
-                if self.evict_oldest_on_exhaustion:
+                # A session kept only for a quick same-multiplex reconnect is
+                # less valuable than an adapter needed by a different
+                # multiplex. Release an idle lease immediately instead of
+                # making this request wait for its grace period to expire.
+                idle_session = next(
+                    (
+                        active
+                        for active in self._active_sessions
+                        if not active.subscribers
+                        and active.idle_deadline is not None
+                        and not active.stop_event.is_set()
+                    ),
+                    None,
+                )
+                if idle_session is not None:
+                    logger.info(
+                        "Releasing idle multiplex %s for request at %s",
+                        idle_session.stream_info.doublet_id,
+                        doublet_id,
+                    )
+                    idle_session.stop_event.set()
+                    self._adapters_condition.notify_all()
+                elif self.evict_oldest_on_exhaustion:
                     victim = next(
                         (
                             active
@@ -416,6 +475,9 @@ class LocalTS_HTTPServer:
             service_id=service_id,
         )
         session.subscribers.add(subscriber)
+        # Clear the deadline before publishing the refreshed PID routes. This
+        # is the handoff that keeps a reconnecting client on the tuned adapter.
+        session.idle_deadline = None
         self._refresh_pid_routes_locked(session)
         return subscriber
 
@@ -437,15 +499,48 @@ class LocalTS_HTTPServer:
     def _unsubscribe(
         self, session: _MultiplexSession, subscriber: _StreamSubscriber
     ) -> None:
-        """Remove a client and stop its session when it was the last subscriber."""
+        """Remove a client and defer stopping an otherwise idle session.
+
+        Retaining the tuned adapter briefly lets a player replace one service
+        URL with another without forcing a fresh tune when the old HTTP
+        connection closes before the new request arrives. The producer owns
+        expiry; this method only updates the deadline while holding the same
+        condition lock used by subscription and session cleanup.
+        """
         with self._adapters_condition:
             if subscriber not in session.subscribers:
                 return
             session.subscribers.remove(subscriber)
             self._refresh_pid_routes_locked(session)
             if not session.subscribers:
-                session.stop_event.set()
+                if self.multiplex_idle_grace_seconds == 0:
+                    session.stop_event.set()
+                else:
+                    session.idle_deadline = (
+                        monotonic() + self.multiplex_idle_grace_seconds
+                    )
             self._adapters_condition.notify_all()
+
+    def _expire_idle_session_locked(
+        self, session: _MultiplexSession, now: float
+    ) -> bool:
+        """Mark an expired empty session for shutdown while holding the lock.
+
+        Both the producer and new requests call this helper under
+        ``_adapters_condition``. Serializing the final deadline check with
+        subscriber registration prevents an expired session from being revived
+        after its producer has committed to releasing the adapter.
+        """
+        if (
+            session.subscribers
+            or session.idle_deadline is None
+            or now < session.idle_deadline
+            or session.stop_event.is_set()
+        ):
+            return False
+        session.stop_event.set()
+        self._adapters_condition.notify_all()
+        return True
 
     def _record_client_bytes(
         self,
@@ -525,6 +620,17 @@ class LocalTS_HTTPServer:
 
             session.ready_event.set()
             while not self._stop_event.is_set() and not session.stop_event.is_set():
+                # Do not stop a session merely because it has no clients until
+                # the grace deadline passes. Keep reading during that interval
+                # so the adapter remains in its normal streaming state and the
+                # event scanner continues to receive transport-stream data.
+                # The read can block for up to its timeout, so expiry is checked
+                # at each producer iteration rather than by a timer thread that
+                # could race with session cleanup or subscriber registration.
+                with self._adapters_condition:
+                    self._expire_idle_session_locked(session, monotonic())
+                if session.stop_event.is_set():
+                    break
                 try:
                     chunk = session.adapter.read_stream(1000)
                 except TimeoutError:

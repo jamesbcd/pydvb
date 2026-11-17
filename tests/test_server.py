@@ -112,6 +112,27 @@ def make_service_map_with_another_multiplex():
     return service_map
 
 
+def make_service_map_with_another_service_on_same_multiplex():
+    service_map = make_service_map()
+    service = DVBService(
+        service_id=6,
+        triplet_id=TRIPLET_3,
+        name="Second Test TV",
+        service_type=DVBServiceType.DIGITAL_TELEVISION,
+        pmt_pid=101,
+        elementary_streams=(DVBElementaryStream(201, 0x1B),),
+    )
+    service_map.add_stream_info(
+        TUNING,
+        DVBStreamInfo(
+            original_network_id=TRIPLET_3.original_network_id,
+            transport_stream_id=TRIPLET_3.transport_stream_id,
+            services=(service,),
+        ),
+    )
+    return service_map
+
+
 def make_ts_packet(pid, payload_byte=0):
     return bytes((0x47, (pid >> 8) & 0x1F, pid & 0xFF)) + bytes((payload_byte,)) * 185
 
@@ -612,6 +633,120 @@ def test_server_shares_same_multiplex_even_when_eviction_is_enabled():
         assert server._available_adapters == [adapter]
         assert [call[0] for call in adapter.calls].count("stop") == 1
         assert [call[0] for call in adapter.calls].count("sleep") == 1
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_reuses_idle_session_for_same_multiplex_reconnect(caplog):
+    caplog.set_level(logging.INFO, logger="pydvb.server")
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map_with_another_service_on_same_multiplex(),
+        port=0,
+        multiplex_idle_grace_seconds=2.0,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        first.close()
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline and server.client_statuses:
+            sleep(0.01)
+        assert server.client_statuses == ()
+        session = server._sessions[TRIPLET.doublet_id]
+        assert session.idle_deadline is not None
+        assert not adapter.stopped.is_set()
+
+        second.request("GET", "/service/1.2.6")
+        assert second.getresponse().status == 200
+        assert session.idle_deadline is None
+        assert len(server._active_sessions) == 1
+        assert [call[0] for call in adapter.calls].count("tune") == 1
+        assert any(
+            "Reusing idle multiplex session 1.2 for service 1.2.6 during grace period"
+            in record.getMessage()
+            for record in caplog.records
+        )
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_releases_session_after_idle_grace_expires():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map(),
+        port=0,
+        multiplex_idle_grace_seconds=0.1,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        first.close()
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline and not server._available_adapters:
+            sleep(0.01)
+        assert server._available_adapters == [adapter]
+
+        second.request("GET", "/service/1.2.3")
+        assert second.getresponse().status == 200
+        assert [call[0] for call in adapter.calls].count("tune") == 2
+    finally:
+        first.close()
+        second.close()
+        server.shutdown()
+        server.close()
+        serving.join(timeout=2)
+
+
+def test_server_releases_idle_session_for_different_multiplex():
+    adapter = FakeAdapter()
+    server = LocalTS_HTTPServer(
+        [adapter],
+        make_service_map_with_another_multiplex(),
+        port=0,
+        multiplex_idle_grace_seconds=10.0,
+        evict_oldest_on_exhaustion=False,
+    )
+    serving = Thread(target=server.serve_forever)
+    serving.start()
+    first = http.client.HTTPConnection(*server.address, timeout=2)
+    second = http.client.HTTPConnection(*server.address, timeout=2)
+    try:
+        first.request("GET", "/service/1.2.3")
+        assert first.getresponse().status == 200
+        first.close()
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline and server.client_statuses:
+            sleep(0.01)
+        assert server.client_statuses == ()
+
+        second.request("GET", "/service/4.5.6")
+        assert second.getresponse().status == 200
+        assert [call[1] for call in adapter.calls if call[0] == "tune"] == [
+            TUNING,
+            OTHER_TUNING,
+        ]
     finally:
         first.close()
         second.close()

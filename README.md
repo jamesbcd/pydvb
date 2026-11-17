@@ -236,6 +236,9 @@ Services on one multiplex share an adapter stream and are filtered
 independently by service PID. Client output queues are bounded; if a queue
 fills, its oldest filtered block is discarded. A request for a different
 multiplex waits for an adapter and may receive HTTP 503 if the wait times out.
+After the last client disconnects, a multiplex session keeps its adapter for
+about one second so a quick reconnect to the same multiplex can avoid retuning.
+If another multiplex needs that adapter, the idle session is released early.
 Forced eviction is disabled by default; when enabled with
 `evict_oldest_on_exhaustion=True`, it disconnects all clients using the evicted
 multiplex.
