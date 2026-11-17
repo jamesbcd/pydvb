@@ -41,6 +41,25 @@ def test_save_settings_dialog_defaults_to_settings_filename():
     assert "saveSettingsDialog.open()" in save_dialog
 
 
+def test_full_screen_restores_previous_player_only_mode():
+    qml = _main_qml_path().read_text()
+    enter_full_screen = qml.split("function enterFullScreen", maxsplit=1)[1].split(
+        "function enterPlayerFullScreen", maxsplit=1
+    )[0]
+    enter_player_full_screen = qml.split(
+        "function enterPlayerFullScreen", maxsplit=1
+    )[1].split("function exitFullScreen", maxsplit=1)[0]
+    exit_full_screen = qml.split("function exitFullScreen", maxsplit=1)[1].split(
+        "onVisibilityChanged", maxsplit=1
+    )[0]
+
+    assert "previousPlayerOnlyMode = playerOnlyMode" in enter_full_screen
+    assert enter_player_full_screen.index("enterFullScreen()") < (
+        enter_player_full_screen.index("playerOnlyMode = true")
+    )
+    assert "playerOnlyMode = previousPlayerOnlyMode" in exit_full_screen
+
+
 def test_main_qml_path_uses_pyinstaller_bundle_root_on_macos(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)

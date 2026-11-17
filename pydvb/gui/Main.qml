@@ -31,6 +31,7 @@ ApplicationWindow {
     property int previousWindowWidth: width
     property int previousWindowHeight: height
     property int previousWindowVisibility: Window.Windowed
+    property bool previousPlayerOnlyMode: playerOnlyMode
     property bool isFullScreen: false
     property real deviceNameColumnWidth: 226
     property real deviceStateColumnWidth: 120
@@ -249,14 +250,15 @@ ApplicationWindow {
             previousWindowWidth = width
             previousWindowHeight = height
             previousWindowVisibility = visibility
+            previousPlayerOnlyMode = playerOnlyMode
         }
         isFullScreen = true
         visibility = Window.FullScreen
     }
 
     function enterPlayerFullScreen() {
-        playerOnlyMode = true
         enterFullScreen()
+        playerOnlyMode = true
     }
 
     function exitFullScreen() {
@@ -269,6 +271,7 @@ ApplicationWindow {
         height = previousWindowHeight
         if (previousWindowVisibility !== Window.Windowed)
             visibility = previousWindowVisibility
+        playerOnlyMode = previousPlayerOnlyMode
     }
 
     onVisibilityChanged: function(visibility) {
