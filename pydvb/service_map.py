@@ -343,11 +343,7 @@ def map_from_tunings(
             )
             status = adapter.tune(tuning, wait_for_lock=True)
             logger.info("Lock result: %s", "LOCKED" if status and status.lock else "NO LOCK")
-            if (
-                cancel_event is not None
-                and cancel_event.is_set()
-                and not stream_info.complete
-            ):
+            if cancel_event is not None and cancel_event.is_set():
                 break
 
             if status and status.lock:

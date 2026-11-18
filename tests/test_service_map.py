@@ -174,6 +174,26 @@ def test_map_from_tunings_skips_work_when_already_cancelled():
     assert adapter.events == [("sleep",)]
 
 
+def test_map_from_tunings_stops_if_cancelled_during_tune():
+    cancel_event = Event()
+
+    class CancellingAdapter(FakeAdapter):
+        def tune(self, tuning, wait_for_lock=True):
+            status = super().tune(tuning, wait_for_lock)
+            cancel_event.set()
+            return status
+
+    adapter = CancellingAdapter()
+    result = service_map.map_from_tunings(
+        [DVBTuning(177_500_000)],
+        adapter,
+        cancel_event=cancel_event,
+    )
+
+    assert not result.services
+    assert adapter.events == [("tune", True), ("sleep",)]
+
+
 def test_map_from_scan_forwards_service_count_callback(monkeypatch):
     tuning = DVBTuning(177_500_000)
     callback = lambda _count: None
